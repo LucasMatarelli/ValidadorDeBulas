@@ -1,0 +1,8 @@
+streamlit==1.33.0
+spacy==3.7.2
+PyMuPDF
+python-docx
+fuzzywuzzy
+python-levenshtein
+pyspellchecker
+https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.7.0/pt_core_news_lg-3.7.0-py3-none-any.whl
