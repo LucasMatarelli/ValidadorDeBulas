@@ -8,6 +8,10 @@ from thefuzz import fuzz
 from spellchecker import SpellChecker
 import difflib
 import unicodedata
+# --- NOVOS IMPORTS PARA OCR ---
+import pytesseract
+from PIL import Image
+import io
 
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
@@ -21,26 +25,56 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO -----------------
+
+# ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR -----------------
+def extrair_texto_pdf_com_ocr(arquivo_bytes):
+    """
+    Tenta extrair texto de um PDF. Se o resultado for fraco (sinal de texto em curva),
+    usa OCR como alternativa (fallback).
+    """
+    # --- TENTATIVA 1: Extração Direta (Rápida e Ideal) ---
+    texto_direto = ""
+    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+        for page in doc:
+            texto_direto += page.get_text()
+
+    # Se a extração direta funcionar bem (mais de 100 caracteres), retorna o resultado
+    if len(texto_direto.strip()) > 100:
+        return texto_direto
+
+    # --- TENTATIVA 2: Extração por OCR (Lenta, para arquivos em curva) ---
+    st.info("Arquivo 'em curva' detectado. Iniciando leitura com OCR... Isso pode demorar um pouco.")
+    texto_ocr = ""
+    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+        for i, page in enumerate(doc):
+            # Renderiza a página como uma imagem de alta qualidade
+            pix = page.get_pixmap(dpi=300)
+            img_bytes = pix.tobytes("png")
+            imagem = Image.open(io.BytesIO(img_bytes))
+
+            # Usa Tesseract OCR para extrair texto da imagem
+            texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
+    
+    return texto_ocr
+
+
+# ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL (MODIFICADA) -----------------
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
         arquivo.seek(0)
         texto = ""
+        
         if tipo_arquivo == 'pdf':
-            full_text_list = []
-            with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                for page in doc:
-                    blocks = page.get_text("blocks", sort=True)
-                    page_text = "".join([b[4] for b in blocks])
-                    full_text_list.append(page_text)
-            texto = "\n".join(full_text_list)
+            # Usa a nova função que tem o fallback para OCR
+            texto = extrair_texto_pdf_com_ocr(arquivo.read())
         
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto = "\n".join([p.text for p in doc.paragraphs])
         
+        # O resto do pré-processamento continua o mesmo
         if texto:
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
@@ -63,6 +97,9 @@ def extrair_texto(arquivo, tipo_arquivo):
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+
+
+# --- O RESTANTE DO SEU CÓDIGO PERMANECE IGUAL ---
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
@@ -420,7 +457,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             )
             
             if conteudo_a_marcar in texto_trabalho:
-                  texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_marcado)
+                    texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_marcado)
 
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
