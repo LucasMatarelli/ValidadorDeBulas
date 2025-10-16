@@ -4,7 +4,7 @@ import fitz  # PyMuPDF
 import docx
 import re
 import spacy
-from fuzzywuzzy import fuzz
+from thefuzz import fuzz
 from spellchecker import SpellChecker
 import difflib
 import unicodedata
