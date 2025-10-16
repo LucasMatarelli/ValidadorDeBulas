@@ -325,7 +325,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         if secao_canonico in titulos_belfar_encontrados:
             titulo_belfar = titulos_belfar_encontrados[secao_canonico]
             if normalizar_titulo_para_comparacao(titulo_ref) != normalizar_titulo_para_comparacao(titulo_belfar):
-                 diferencas_titulos.append({'secao_esperada': secao_canonico, 'titulo_encontrado': titulo_belfar})
+                diferencas_titulos.append({'secao_esperada': secao_canonico, 'titulo_encontrado': titulo_belfar})
 
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos
 
@@ -566,7 +566,7 @@ tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), 
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("📄 Arquivo da Anvisa")
-    pdf_ref = st.file_uploader("Envie o DOCX da Anvisa", type="docx", key="ref")
+    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
 with col2:
     st.subheader("📄 Arquivo Marketing")
     pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
@@ -574,7 +574,11 @@ with col2:
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
-            texto_ref, erro_ref = extrair_texto(pdf_ref, 'docx')
+            
+            # Determina dinamicamente o tipo de arquivo da Anvisa
+            tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
+            
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
 
             if not erro_ref:
