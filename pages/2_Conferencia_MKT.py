@@ -35,55 +35,32 @@ def extrair_texto(caminho_pdf):
         for pagina in pdf:
             texto = pagina.get_text("text")
 
-            # Remove quebras de linha que dividem sílabas/palavras
-            texto = re.sub(r"(?<=\w)-\n(?=\w)", "", texto)  # une palavras hifenizadas
-            texto = re.sub(r"(?<!\.)\n(?!\s*\n)", " ", texto)  # substitui quebra de linha simples por espaço
-            texto = re.sub(r"\s{2,}", " ", texto)  # remove espaços múltiplos
+            # Junta linhas quebradas incorretamente (sem pontuação no fim)
+            linhas = texto.splitlines()
+            texto_corrigido = ""
+            for i, linha in enumerate(linhas):
+                linha = linha.strip()
+                if not linha:
+                    texto_corrigido += "\n"
+                    continue
 
-            texto_extraido += texto.strip() + "\n"
+                # Se a linha não termina com pontuação, é provável que continue na próxima
+                if not re.search(r"[.!?:;…]$", linha) and i + 1 < len(linhas):
+                    texto_corrigido += linha + " "
+                else:
+                    texto_corrigido += linha + "\n"
 
-    # Corrige casos de letras isoladas em colunas (tipo “c o m o”)
-    def corrigir_colunas(texto):
-        linhas = texto.splitlines()
-        texto_corrigido = []
-        for linha in linhas:
-            if re.match(r"^(\w\s){2,}\w$", linha.strip()):  # detecta linhas como "c o m o"
-                linha = linha.replace(" ", "")
-            texto_corrigido.append(linha)
-        return " ".join(texto_corrigido)
+            texto_extraido += texto_corrigido + "\n"
 
-    texto_extraido = corrigir_colunas(texto_extraido)
-    texto_extraido = re.sub(r"\s+", " ", texto_extraido).strip()
+    # Corrige palavras separadas por espaços indevidos (como “c o m o”)
+    texto_extraido = re.sub(r"\b(?:[A-Za-z]\s){2,}[A-Za-z]\b", lambda m: m.group(0).replace(" ", ""), texto_extraido)
+
+    # Remove múltiplos espaços e linhas extras
+    texto_extraido = re.sub(r"[ \t]+", " ", texto_extraido)
+    texto_extraido = re.sub(r"\n{2,}", "\n\n", texto_extraido).strip()
 
     return texto_extraido
 
-
-
-def truncar_apos_anvisa(texto):
-    if not isinstance(texto, str):
-        return texto
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match = re.search(regex_anvisa, texto, re.IGNORECASE)
-    if match:
-        # Tenta encontrar a próxima quebra de linha APÓS a data encontrada
-        end_match_pos = match.end()
-        end_of_line_pos = texto.find('\n', end_match_pos)
-        
-        # Se encontrou quebra de linha, trunca ANTES dela
-        if end_of_line_pos != -1:
-            # Pega tudo até o final da linha onde a data foi encontrada
-            linha_com_data = texto[:end_of_line_pos]
-            # Encontra a posição da última quebra de linha ANTES da data para pegar a linha inteira
-            start_of_line_pos = linha_com_data.rfind('\n', 0, match.start())
-            # Retorna o texto até o fim dessa linha
-            return texto[:end_of_line_pos]
-
-        # Se não encontrou quebra de linha depois (última linha do doc?), retorna tudo até o fim da data
-        else:
-             # Poderia retornar texto[:end_match_pos] mas manter a linha inteira pode ser mais seguro
-             return texto # Retorna o texto como está se não achar \n depois
-
-    return texto # Retorna o texto original se não encontrar o padrão ANVISA
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 # (Funções obter_secoes_por_tipo, obter_aliases_secao, etc. - Sem alterações)
