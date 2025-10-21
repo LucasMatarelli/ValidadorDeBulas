@@ -25,7 +25,6 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
-# VVVV FUNÇÃO MODIFICADA VVVV
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -82,7 +81,6 @@ def extrair_texto(arquivo, tipo_arquivo):
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-# ^^^^ FUNÇÃO MODIFICADA ^^^^
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
@@ -377,7 +375,9 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             return []
 
         spell = SpellChecker(language='pt')
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel"}
+        
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
+        
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
@@ -492,7 +492,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
+    
+    # --- ÚNICA LINHA MODIFICADA ---
+    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula) # Corrigido de texto_bbelfar
+    # --- FIM DA MODIFICAÇÃO ---
+
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
     st.subheader("Dashboard de Veredito")
