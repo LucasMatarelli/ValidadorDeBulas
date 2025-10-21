@@ -25,7 +25,7 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO (COM CORREÇÃO DE FORMATAÇÃO) -----------------
-def extrair_texto(caminho_pdf):
+def extrair_texto(caminho_pdf, tipo_arquivo=None):
     import fitz
     import re
 
@@ -39,13 +39,14 @@ def extrair_texto(caminho_pdf):
             for bloco in blocos_ordenados:
                 texto = bloco[4].strip()
                 if texto:
-                    texto_extraido += texto + "\n\n"  # adiciona espaçamento entre blocos
+                    texto_extraido += texto + "\n\n"
 
     # Remove espaços múltiplos e limpa quebras extras
     texto_extraido = re.sub(r"[ \t]+", " ", texto_extraido)
     texto_extraido = re.sub(r"\n{3,}", "\n\n", texto_extraido).strip()
 
-    return texto_extraido
+    # Retorna com o formato esperado no app
+    return texto_extraido, None
 
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
