@@ -25,7 +25,6 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
-# ----------------- EXTRAÇÃO -----------------
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -34,13 +33,30 @@ def extrair_texto(arquivo, tipo_arquivo):
         texto = ""
         if tipo_arquivo == 'pdf':
             full_text_list = []
-            # --- MUDANÇA 1: Mudar de "blocks" para "text" ---
-            # get_text("text") é muito superior em reconstruir
-            # o fluxo de leitura e evitar quebras de linha no meio de frases.
+            
+            # --- MUDANÇA 3: Lógica de extração de múltiplas colunas ---
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    full_text_list.append(page.get_text("text", sort=True))
-            texto = "\n\n".join(full_text_list) # \n\n para separar páginas
+                    rect = page.rect
+                    
+                    # Define a "coluna principal" como os 60% da esquerda da página
+                    # (Isso evita pegar as anotações da direita)
+                    clip_principal = fitz.Rect(0, 0, rect.width * 0.60, rect.height)
+                    
+                    # Define a "coluna de anotações" como os 40% da direita
+                    clip_anotacoes = fitz.Rect(rect.width * 0.60, 0, rect.width, rect.height)
+
+                    # Extrai o texto da coluna principal PRIMEIRO, com ordenação vertical
+                    texto_principal = page.get_text("text", clip=clip_principal, sort=True)
+                    
+                    # Extrai o texto da coluna de anotações DEPOIS
+                    texto_anotacoes = page.get_text("text", clip=clip_anotacoes, sort=True)
+                    
+                    # Junta a coluna principal e, em seguida, as anotações
+                    full_text_list.append(texto_principal)
+                    full_text_list.append(texto_anotacoes)
+                    
+            texto = "\n\n".join(full_text_list) # \n\n para separar colunas/páginas
         
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -56,8 +72,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             
             linhas = texto.split('\n')
             
-            # --- MUDANÇA 2: Filtro de ruído (headers/footers) MUITO mais agressivo ---
-            # Remove metadados específicos do arquivo de Marketing e rodapés.
+            # Filtro de ruído (headers/footers) agressivo (mantido da versão anterior)
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'  # Rodapé padrão
                 r'|Tipologia da bula:.*|Medida da bula:.*' # Ruído do MKT (ex: Times New Roman)
@@ -65,21 +80,21 @@ def extrair_texto(arquivo, tipo_arquivo):
                 r'|Cor: Preta|contato:|artes@belfar\.com\.br' # Ruído do MKT
                 r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+' # Nome do arquivo
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$' # Indicador de página
-                r'|^\s*\d+\s*mm\s*$' # Medidas (ex: 190 mm)
+                r'|^\s*\d+\s*mm\s*$' # Medidas (ex: 190 mm, 300 mm)
                 r'|^\s*-\s*Normal e Negrito\. Corpo \d+\s*$' # Linha de formatação
             , re.IGNORECASE)
             
             linhas_filtradas = []
             for linha in linhas:
                 linha_strip = linha.strip()
-                # Ignora a linha se ela corresponder ao padrão de ruído OU for muito curta (lixo)
-                if not padrao_ruido_linha.search(linha_strip) and len(linha_strip) > 1:
+                # Remove linhas de ruído E linhas muito curtas (lixo de extração, como "mm" ou "300" sozinhos)
+                if not padrao_ruido_linha.search(linha_strip) and len(linha_strip) > 3:
+                     linhas_filtradas.append(linha_strip)
+                # Exceção: permite linhas curtas se forem títulos (ex: USO NASAL)
+                elif len(linha_strip) <= 3 and linha_strip.isupper():
                      linhas_filtradas.append(linha_strip)
             
             texto = "\n".join(linhas_filtradas)
-            
-            # A correção anterior (re.sub para juntar linhas) não é mais
-            # necessária, pois o get_text("text") já deve resolver isso.
             
             texto = re.sub(r'\n{3,}', '\n\n', texto) 
             texto = re.sub(r'[ \t]+', ' ', texto)
