@@ -35,10 +35,8 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    # Usando "blocks" e sort=True é bom para PDFs com colunas ou layout complexo
                     blocks = page.get_text("blocks", sort=True)
-                    # Filtra blocos vazios e junta com quebra de linha
-                    page_text = "\n".join([b[4].strip() for b in blocks if b[4] and b[4].strip()])
+                    page_text = "".join([b[4] for b in blocks])
                     full_text_list.append(page_text)
             texto = "\n".join(full_text_list)
         
@@ -52,7 +50,6 @@ def extrair_texto(arquivo, tipo_arquivo):
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
-            # Tenta juntar palavras hifenizadas que foram quebradas pela linha
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
             linhas = texto.split('\n')
@@ -62,19 +59,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             
             texto = "\n".join(linhas_filtradas)
             
-            # --- INÍCIO DA MODIFICAÇÃO DE FLUXO ---
-            # 1. Preserva quebras de parágrafo intencionais (2 ou mais \n) com um marcador.
-            #    Adiciona espaços para garantir a separação das palavras.
-            texto = re.sub(r'\n{2,}', ' <PARAGRAFO> ', texto)
-            
-            # 2. Substitui todas as quebras de linha únicas restantes (quebras de fluxo ruins) por um espaço.
-            texto = re.sub(r'\n', ' ', texto)
-            
-            # 3. Restaura as quebras de parágrafo, limpando espaços ao redor.
-            texto = re.sub(r'\s*<PARAGRAFO>\s*', '\n\n', texto)
-            # --- FIM DA MODIFICAÇÃO DE FLUXO ---
-            
-            # Limpa espaços múltiplos que podem ter sido criados
+            texto = re.sub(r'\n{3,}', '\n\n', texto) 
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
@@ -375,9 +360,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             return []
 
         spell = SpellChecker(language='pt')
-        
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
-        
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel"}
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
@@ -492,11 +475,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    
-    # --- ÚNICA LINHA MODIFICADA ---
-    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula) # Corrigido de texto_bbelfar
-    # --- FIM DA MODIFICAÇÃO ---
-
+    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
     st.subheader("Dashboard de Veredito")
@@ -634,7 +613,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_bf}")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
