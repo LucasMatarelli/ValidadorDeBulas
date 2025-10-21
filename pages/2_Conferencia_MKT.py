@@ -2,7 +2,20 @@
 import streamlit as st
 from style_utils import hide_streamlit_toolbar
 
-hide_streamlit_toolbar()
+hide_streamlit_style = """
+            <style>
+            /* Esconde o menu hamburger */
+            [data-testid="main-menu-button"] {
+                display: none;
+            }
+            
+            /* Esconde o "Hosted with Streamlit" e a foto */
+            footer {
+                visibility: hidden;
+            }
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 import fitz  # PyMuPDF
 import docx
 import re
