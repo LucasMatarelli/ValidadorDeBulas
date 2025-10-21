@@ -1,4 +1,7 @@
 import streamlit as st
+from style_utils import hide_streamlit_toolbar
+
+hide_streamlit_toolbar()
 
 st.set_page_config(
     page_title="Validador de Bulas Belfar",
