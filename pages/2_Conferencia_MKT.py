@@ -33,31 +33,17 @@ def extrair_texto(caminho_pdf):
 
     with fitz.open(caminho_pdf) as pdf:
         for pagina in pdf:
-            texto = pagina.get_text("text")
+            blocos = pagina.get_text("blocks")  # lê blocos em vez de texto corrido
+            blocos_ordenados = sorted(blocos, key=lambda b: (b[1], b[0]))  # ordena por posição Y, depois X
 
-            # Junta linhas quebradas incorretamente (sem pontuação no fim)
-            linhas = texto.splitlines()
-            texto_corrigido = ""
-            for i, linha in enumerate(linhas):
-                linha = linha.strip()
-                if not linha:
-                    texto_corrigido += "\n"
-                    continue
+            for bloco in blocos_ordenados:
+                texto = bloco[4].strip()
+                if texto:
+                    texto_extraido += texto + "\n\n"  # adiciona espaçamento entre blocos
 
-                # Se a linha não termina com pontuação, é provável que continue na próxima
-                if not re.search(r"[.!?:;…]$", linha) and i + 1 < len(linhas):
-                    texto_corrigido += linha + " "
-                else:
-                    texto_corrigido += linha + "\n"
-
-            texto_extraido += texto_corrigido + "\n"
-
-    # Corrige palavras separadas por espaços indevidos (como “c o m o”)
-    texto_extraido = re.sub(r"\b(?:[A-Za-z]\s){2,}[A-Za-z]\b", lambda m: m.group(0).replace(" ", ""), texto_extraido)
-
-    # Remove múltiplos espaços e linhas extras
+    # Remove espaços múltiplos e limpa quebras extras
     texto_extraido = re.sub(r"[ \t]+", " ", texto_extraido)
-    texto_extraido = re.sub(r"\n{2,}", "\n\n", texto_extraido).strip()
+    texto_extraido = re.sub(r"\n{3,}", "\n\n", texto_extraido).strip()
 
     return texto_extraido
 
