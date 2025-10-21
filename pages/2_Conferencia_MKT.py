@@ -487,10 +487,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: {data_ref}\n   - Belfar: {data_belfar}")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n    - Referência: {data_ref}\n    - Belfar: {data_belfar}")
 
     if secoes_faltantes:
-        st.error(f"🚨 **Seções faltantes na bula Belfar ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
+        st.error(f"🚨 **Seções faltantes na bula Belfar ({len(secoes_faltantes)})**:\n" + "\n".join([f"    - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
     
@@ -531,32 +531,55 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Visualização Lado a Lado com Destaques")
+
+    # --- INÍCIO DA MODIFICAÇÃO ESTÉTICA ---
+    
+    # 1. Estilo da Legenda
+    legend_style = (
+        "font-size: 14px; "
+        "background-color: #f0f2f6; "  # Cor de fundo suave (cinza-azulado do Streamlit)
+        "padding: 10px 15px; "
+        "border-radius: 8px; "
+        "margin-bottom: 15px;"
+    )
     
     st.markdown(
-        "**Legenda:** <mark style='background-color: #ffff99; padding: 2px;'>Amarelo</mark> = Divergências | "
-        "<mark style='background-color: #FFDDC1; padding: 2px;'>Rosa</mark> = Erros ortográficos | "
-        "<mark style='background-color: #cce5ff; padding: 2px;'>Azul</mark> = Data ANVISA",
+        f"<div style='{legend_style}'>"
+        "<strong>Legenda:</strong> "
+        "<mark style='background-color: #ffff99; padding: 2px; margin: 0 2px;'>Amarelo</mark> = Divergências | "
+        "<mark style='background-color: #FFDDC1; padding: 2px; margin: 0 2px;'>Rosa</mark> = Erros ortográficos | "
+        "<mark style='background-color: #cce5ff; padding: 2px; margin: 0 2px;'>Azul</mark> = Data ANVISA"
+        "</div>",
         unsafe_allow_html=True
     )
 
     html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
     html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
 
+    # 2. Estilo da Caixa de Visualização
     caixa_style = (
-        "height: 700px; overflow-y: auto; border: 2px solid #999; border-radius: 4px; "
-        "padding: 24px 32px; background-color: #ffffff; "
-        "font-family: 'Georgia', 'Times New Roman', serif; font-size: 14px; "
-        "line-height: 1.8; box-shadow: 0 2px 12px rgba(0,0,0,0.15); "
-        "text-align: justify; color: #000000;"
+        "max-height: 700px; "  # Altura máxima, permite caixas menores se o conteúdo for curto
+        "overflow-y: auto; "
+        "border: 1px solid #e0e0e0; "  # Borda mais suave
+        "border-radius: 8px; "  # Cantos mais arredondados
+        "padding: 20px 24px; "  # Padding interno
+        "background-color: #ffffff; "
+        "font-size: 15px; "  # Fonte ligeiramente maior para leitura
+        "line-height: 1.7; "  # Melhor espaçamento entre linhas
+        "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "  # Sombra mais suave
+        "text-align: left; "  # Alinhamento à esquerda é melhor para leitura
     )
     
     col1, col2 = st.columns(2, gap="medium")
     with col1:
-        st.markdown(f"**📄 {nome_ref}**")
+        # 3. Título como H4 (um pouco menor que subheader)
+        st.markdown(f"#### {nome_ref}") 
         st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"**📄 {nome_belfar}**")
+        st.markdown(f"#### {nome_belfar}")
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+    
+    # --- FIM DA MODIFICAÇÃO ESTÉTICA ---
 
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
@@ -590,7 +613,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_bf}")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
