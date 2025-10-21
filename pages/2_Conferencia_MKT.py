@@ -25,6 +25,7 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
+# ----------------- EXTRAÇÃO -----------------
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -86,8 +87,8 @@ def extrair_texto(arquivo, tipo_arquivo):
 
         return texto, None
     except Exception as e:
-        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"}"
-
+        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+        
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
