@@ -3,15 +3,24 @@ from style_utils import hide_streamlit_toolbar
 
 hide_streamlit_UI = """
             <style>
-            /* Esconde o cabeçalho (Fork) - JÁ FUNCIONA */
+            /* --- ESCONDE TUDO --- */
+            
+            /* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
             [data-testid="stHeader"] {
                 display: none !important;
                 visibility: hidden !important;
             }
             
-            /* Esconde o menu hamburger */
+            /* Esconde o menu hamburger (novo seletor) */
             [data-testid="main-menu-button"] {
                 display: none !important;
+                visibility: hidden !important;
+            }
+            
+            /* Esconde o menu hamburger (seletor antigo, por garantia) */
+            #MainMenu {
+                display: none !important;
+                visibility: hidden !important;
             }
             
             /* Esconde o rodapé genérico */
@@ -20,28 +29,23 @@ hide_streamlit_UI = """
                 visibility: hidden !important;
             }
 
-            /* --- NOVA ABORDAGEM: Esconder a SEÇÃO que contém o link --- */
-            
-            /* Localiza a seção que :tem(um link para streamlit.io) e a esconde */
-            section:has(a[href*="streamlit.io"]) {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* --- MANTER SELETORES ANTIGOS (GARANTIA) --- */
+            /* Esconde o container principal do badge (Hosted by / Created by) */
             [data-testid="stStatusWidget"] {
                 display: none !important;
                 visibility: hidden !important;
             }
-            div[class*="stStatusWidget"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
+
+            /* Esconde o 'Created by' */
             [data-testid="stCreatedBy"] {
                 display: none !important;
                 visibility: hidden !important;
             }
 
+            /* Esconde o 'Hosted with Streamlit' */
+            [data-testid="stHostedBy"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
             </style>
             """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
