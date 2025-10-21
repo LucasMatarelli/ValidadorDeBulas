@@ -25,6 +25,7 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
+# (VERSÃO ORIGINAL, SEM CORREÇÃO DE FLUXO PARA MARKETING)
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -35,10 +36,8 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    # Usando "blocks" e sort=True é bom para PDFs com colunas ou layout complexo
                     blocks = page.get_text("blocks", sort=True)
-                    # Filtra blocos vazios e junta com quebra de linha
-                    page_text = "\n".join([b[4].strip() for b in blocks if b[4] and b[4].strip()])
+                    page_text = "".join([b[4] for b in blocks]) # Juntava tudo sem espaços extras
                     full_text_list.append(page_text)
             texto = "\n".join(full_text_list)
         
@@ -52,7 +51,6 @@ def extrair_texto(arquivo, tipo_arquivo):
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
-            # Tenta juntar palavras hifenizadas que foram quebradas pela linha
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
             linhas = texto.split('\n')
@@ -62,23 +60,13 @@ def extrair_texto(arquivo, tipo_arquivo):
             
             texto = "\n".join(linhas_filtradas)
             
-            # --- INÍCIO DA MODIFICAÇÃO DE FLUXO (CORREÇÃO DE FORMATAÇÃO) ---
-            # 1. Preserva quebras de parágrafo intencionais (2 ou mais \n) com um marcador.
-            texto = re.sub(r'\n{2,}', ' <PARAGRAFO> ', texto)
-            # 2. Substitui todas as quebras de linha únicas restantes (quebras de fluxo ruins) por um espaço.
-            texto = re.sub(r'\n', ' ', texto)
-            # 3. Restaura as quebras de parágrafo, limpando espaços ao redor.
-            texto = re.sub(r'\s*<PARAGRAFO>\s*', '\n\n', texto)
-            # --- FIM DA MODIFICAÇÃO DE FLUXO ---
-            
-            # Limpa espaços múltiplos que podem ter sido criados
+            texto = re.sub(r'\n{3,}', '\n\n', texto) 
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
@@ -94,7 +82,6 @@ def truncar_apos_anvisa(texto):
     return texto
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
-# (Funções obter_secoes_por_tipo, obter_aliases_secao, etc. - Sem alterações)
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
         "Paciente": [
@@ -134,9 +121,7 @@ def obter_secoes_ignorar_ortografia():
 def obter_secoes_ignorar_comparacao():
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-
 # ----------------- NORMALIZAÇÃO -----------------
-# (Funções normalizar_texto, normalizar_titulo_para_comparacao - Sem alterações)
 def normalizar_texto(texto):
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
@@ -149,9 +134,7 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
-
-# ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES -----------------
-# (Funções is_titulo_secao, mapear_secoes, obter_dados_secao - Sem alterações significativas na lógica principal, apenas usando a versão mais recente que lida com títulos de 1 ou 2 linhas)
+# ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (VERSÃO FINAL) -----------------
 def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
@@ -165,6 +148,7 @@ def is_titulo_secao(linha):
         return False
     return True
 
+# >>>>> FUNÇÃO CORRIGIDA 1 de 2 <<<<<
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     linhas = texto_completo.split('\n')
@@ -238,6 +222,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 
+# >>>>> FUNÇÃO CORRIGIDA 2 de 2 <<<<<
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção baseado no mapa, indo até o início da próxima seção mapeada.
