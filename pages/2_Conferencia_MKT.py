@@ -25,71 +25,38 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO (COM CORREÇÃO DE FORMATAÇÃO) -----------------
-def extrair_texto(arquivo, tipo_arquivo):
-    if arquivo is None:
-        return "", f"Arquivo {tipo_arquivo} não enviado."
-    try:
-        arquivo.seek(0)
-        texto = ""
-        if tipo_arquivo == 'pdf':
-            full_text_list = []
-            with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                for page in doc:
-                    # Usando "blocks" e sort=True é bom para PDFs com colunas ou layout complexo
-                    blocks = page.get_text("blocks", sort=True)
-                    # Filtra blocos vazios e junta com quebra de linha
-                    # MODIFICAÇÃO: Junta blocos com \n para preservar alguma estrutura inicial
-                    page_text = "\n".join([b[4].strip() for b in blocks if b[4] and b[4].strip()])
-                    full_text_list.append(page_text)
-            texto = "\n\n".join(full_text_list) # Junta páginas com parágrafo duplo
-        
-        elif tipo_arquivo == 'docx':
-            doc = docx.Document(arquivo)
-            # Tenta preservar parágrafos do DOCX
-            texto = "\n\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-        
-        if texto:
-            caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
-            for char in caracteres_invisiveis:
-                texto = texto.replace(char, '')
-            texto = texto.replace('\r\n', '\n').replace('\r', '\n')
-            texto = texto.replace('\u00A0', ' ')
-            # Tenta juntar palavras hifenizadas que foram quebradas pela linha
-            texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
-            
-            linhas = texto.split('\n')
-            
-            padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
-            # Remove rodapés ANTES de juntar as linhas
-            linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip().lower())]
-            
-            texto = "\n".join(linhas_filtradas)
-            
-            # --- INÍCIO DA CORREÇÃO DE FLUXO ---
-            # 1. Preserva quebras de parágrafo intencionais (2 ou mais \n) com um marcador.
-            #    Adiciona espaços para garantir a separação das palavras ao redor do marcador.
-            texto = re.sub(r'\n{2,}', ' <PARAGRAFO> ', texto)
-            
-            # 2. Substitui todas as quebras de linha únicas restantes (quebras de fluxo ruins) por um espaço.
-            #    Isso junta as linhas dentro de um mesmo parágrafo.
-            texto = re.sub(r'\n', ' ', texto)
-            
-            # 3. Restaura as quebras de parágrafo, limpando espaços extras ao redor.
-            #    Garante um parágrafo (\n\n) onde o marcador estava.
-            texto = re.sub(r'\s*<PARAGRAFO>\s*', '\n\n', texto)
-            # --- FIM DA CORREÇÃO DE FLUXO ---
-            
-            # Limpa espaços múltiplos que podem ter sido criados no processo
-            texto = re.sub(r'[ \t]+', ' ', texto)
-            texto = texto.strip()
+def extrair_texto(caminho_pdf):
+    import fitz
+    import re
 
-        return texto, None
-    except Exception as e:
-        # Adiciona mais detalhes ao erro
-        st.error(f"Erro detalhado ao extrair texto: {e}")
-        import traceback
-        traceback.print_exc() # Imprime traceback no log do Streamlit Cloud
-        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+    texto_extraido = ""
+
+    with fitz.open(caminho_pdf) as pdf:
+        for pagina in pdf:
+            texto = pagina.get_text("text")
+
+            # Remove quebras de linha que dividem sílabas/palavras
+            texto = re.sub(r"(?<=\w)-\n(?=\w)", "", texto)  # une palavras hifenizadas
+            texto = re.sub(r"(?<!\.)\n(?!\s*\n)", " ", texto)  # substitui quebra de linha simples por espaço
+            texto = re.sub(r"\s{2,}", " ", texto)  # remove espaços múltiplos
+
+            texto_extraido += texto.strip() + "\n"
+
+    # Corrige casos de letras isoladas em colunas (tipo “c o m o”)
+    def corrigir_colunas(texto):
+        linhas = texto.splitlines()
+        texto_corrigido = []
+        for linha in linhas:
+            if re.match(r"^(\w\s){2,}\w$", linha.strip()):  # detecta linhas como "c o m o"
+                linha = linha.replace(" ", "")
+            texto_corrigido.append(linha)
+        return " ".join(texto_corrigido)
+
+    texto_extraido = corrigir_colunas(texto_extraido)
+    texto_extraido = re.sub(r"\s+", " ", texto_extraido).strip()
+
+    return texto_extraido
+
 
 
 def truncar_apos_anvisa(texto):
