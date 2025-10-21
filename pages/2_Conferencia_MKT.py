@@ -376,10 +376,8 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 
         spell = SpellChecker(language='pt')
         
-        # --- ÚNICA LINHA MODIFICADA ---
         palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
-        # --- FIM DA MODIFICAÇÃO ---
-
+        
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
@@ -494,7 +492,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    erros_ortograficos = checar_ortografia_inteligente(texto_bbelfar, texto_ref, tipo_bula)
+    
+    # --- ÚNICA LINHA MODIFICADA ---
+    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula) # Corrigido de texto_bbelfar
+    # --- FIM DA MODIFICAÇÃO ---
+
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
     st.subheader("Dashboard de Veredito")
