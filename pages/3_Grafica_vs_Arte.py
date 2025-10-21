@@ -1,11 +1,12 @@
 # --- IMPORTS ---
-# 1. Bibliotecas Padrão (do Python)
+
+# Libs Padrão
 import re
 import difflib
 import unicodedata
 import io
 
-# 2. Bibliotecas de Terceiros (Instaladas)
+# Libs de Terceiros (Third-party)
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
@@ -15,39 +16,26 @@ from spellchecker import SpellChecker
 import pytesseract
 from PIL import Image
 
-# 3. Módulos Locais
-# A linha 'from style_utils import hide_streamlit_toolbar' foi removida
-# pois o bloco de CSS abaixo já faz essa função.
+# Libs Locais
+from style_utils import hide_streamlit_toolbar
 
+# --- CONFIGURAÇÃO DA PÁGINA STREAMLIT ---
 
-# --- CONFIGURAÇÃO DA PÁGINA E ESTILOS ---
-# Este código deve rodar logo após os imports, antes do st.title()
-
-# Bloco de CSS para esconder menu, rodapé e o badge "Hosted by Streamlit"
+# Oculta elementos padrão do Streamlit (menu, footer)
 hide_streamlit_style = """
             <style>
             /* Esconde o menu hamburger */
             [data-testid="main-menu-button"] {
-                display: none !important;
+                display: none;
             }
             
-            /* Esconde o rodapé */
+            /* Esconde o "Hosted with Streamlit" e a foto */
             footer {
-                visibility: hidden !important;
-            }
-            
-            /* Esconde o badge "Hosted with Streamlit" e a foto */
-            [data-testid="stStatusWidget"] {
-                display: none !important;
-                visibility: hidden !important;
+                visibility: hidden;
             }
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-
-# --- RESTANTE DO SEU CÓDIGO DA PÁGINA ---
-# (st.title(...), st.header(...), etc. começam aqui)
 
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
