@@ -9,12 +9,6 @@ hide_streamlit_UI = """
                 visibility: hidden !important;
             }
             
-            /* Esconde o badge 'Hosted with Streamlit' e a foto */
-            [data-testid="stStatusWidget"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            
             /* Esconde o menu hamburger (dentro do app) */
             [data-testid="main-menu-button"] {
                 display: none !important;
@@ -22,6 +16,20 @@ hide_streamlit_UI = """
             
             /* Esconde o rodapé genérico (garantia extra) */
             footer {
+                display: none !important;
+                visibility: hidden !important;
+            }
+
+            /* --- NOVO MÉTODO AGRESSIVO PARA O BADGE --- */
+            
+            /* Esconde o container principal do badge */
+            [data-testid="stStatusWidget"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
+            
+            /* Esconde QUALQUER link dentro do container do badge */
+            [data-testid="stStatusWidget"] a {
                 display: none !important;
                 visibility: hidden !important;
             }
