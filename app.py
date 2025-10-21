@@ -3,46 +3,27 @@ from style_utils import hide_streamlit_toolbar
 
 hide_streamlit_UI = """
             <style>
-            /* --- ESCONDE TUDO --- */
-            
-            /* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
+            /* Esconde o cabeçalho (Fork) - JÁ FUNCIONA */
             [data-testid="stHeader"] {
                 display: none !important;
                 visibility: hidden !important;
             }
             
-            /* Esconde o menu hamburger (novo seletor) */
+            /* Esconde o menu hamburger */
             [data-testid="main-menu-button"] {
                 display: none !important;
-                visibility: hidden !important;
             }
             
-            /* Esconde o menu hamburger (seletor antigo, por garantia) */
-            #MainMenu {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            
-            /* Esconde o rodapé genérico */
+            /* Esconde o rodapé genérico (garantia) */
             footer {
                 display: none !important;
                 visibility: hidden !important;
             }
 
-            /* Esconde o container principal do badge (Hosted by / Created by) */
-            [data-testid="stStatusWidget"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* Esconde o 'Created by' */
-            [data-testid="stCreatedBy"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* Esconde o 'Hosted with Streamlit' */
-            [data-testid="stHostedBy"] {
+            /* --- ABORDAGEM ESTRUTURAL (NOVA) --- */
+            
+            /* Esconde o container-irmão que vem DEPOIS do app principal */
+            [data-testid="stAppViewContainer"] + div {
                 display: none !important;
                 visibility: hidden !important;
             }
