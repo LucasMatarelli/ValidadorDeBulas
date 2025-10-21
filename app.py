@@ -3,36 +3,47 @@ from style_utils import hide_streamlit_toolbar
 
 hide_streamlit_UI = """
             <style>
-            /* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
+            /* Esconde o cabeçalho (Fork) */
             [data-testid="stHeader"] {
                 display: none !important;
                 visibility: hidden !important;
             }
             
-            /* Esconde o menu hamburger (dentro do app) */
+            /* Esconde o menu hamburger */
             [data-testid="main-menu-button"] {
                 display: none !important;
             }
             
-            /* Esconde o rodapé genérico (garantia extra) */
+            /* Esconde o rodapé genérico */
             footer {
                 display: none !important;
                 visibility: hidden !important;
             }
-
-            /* --- NOVO MÉTODO AGRESSIVO PARA O BADGE --- */
             
-            /* Esconde o container principal do badge */
+            /* Tenta esconder o 'Hosted by' e 'Created by' de 3 formas diferentes */
+            
+            /* Tentativa 1: O seletor oficial */
             [data-testid="stStatusWidget"] {
                 display: none !important;
                 visibility: hidden !important;
             }
             
-            /* Esconde QUALQUER link dentro do container do badge */
-            [data-testid="stStatusWidget"] a {
+            /* Tentativa 2: Os seletores internos */
+            [data-testid="stCreatedBy"] {
                 display: none !important;
                 visibility: hidden !important;
             }
+            [data-testid="stHostedBy"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
+            
+            /* Tentativa 3 (Agressiva): Esconde os links dentro do rodapé */
+            div[data-testid="stStatusWidget"] > a {
+                 display: none !important;
+                 visibility: hidden !important;
+            }
+            
             </style>
             """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
