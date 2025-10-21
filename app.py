@@ -19,22 +19,31 @@ hide_streamlit_UI = """
                 display: none !important;
                 visibility: hidden !important;
             }
-
-            /* --- NOVA ABORDAGEM: Mirar pelo NOME DA CLASSE CSS --- */
             
-            /* Esconde o container principal do badge (Hosted by / Created by) */
+            /* --- NOVA ABORDAGEM: Esconder o ÚLTIMO FILHO do container --- */
+            
+            /* Esconde o último <div> dentro do container principal */
+            [data-testid="stAppViewContainer"] > div:last-child {
+                display: none !important;
+                visibility: hidden !important;
+            }
+
+            /* Esconde a última <section> dentro do container principal (garantia) */
+            [data-testid="stAppViewContainer"] > section:last-child {
+                display: none !important;
+                visibility: hidden !important;
+            }
+
+            /* --- ABORDAGENS ANTERIORES (MANTER POR SEGURANÇA) --- */
+            
+            [data-testid="stStatusWidget"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
             div[class*="stStatusWidget"] {
                 display: none !important;
                 visibility: hidden !important;
             }
-            
-            /* Esconde o 'Created by' (garantia extra) */
-            div[class*="stCreatedBy"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            
-            /* Esconde o link 'Hosted with Streamlit' (garantia extra) */
             a[href*="streamlit.io"] {
                 display: none !important;
                 visibility: hidden !important;
