@@ -24,7 +24,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO -----------------
+# ----------------- EXTRAÇÃO (COM CORREÇÃO DE FORMATAÇÃO) -----------------
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -35,8 +35,10 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
+                    # Usando "blocks" e sort=True é bom para PDFs com colunas ou layout complexo
                     blocks = page.get_text("blocks", sort=True)
-                    page_text = "".join([b[4] for b in blocks])
+                    # Filtra blocos vazios e junta com quebra de linha
+                    page_text = "\n".join([b[4].strip() for b in blocks if b[4] and b[4].strip()])
                     full_text_list.append(page_text)
             texto = "\n".join(full_text_list)
         
@@ -50,6 +52,7 @@ def extrair_texto(arquivo, tipo_arquivo):
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
+            # Tenta juntar palavras hifenizadas que foram quebradas pela linha
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
             linhas = texto.split('\n')
@@ -59,13 +62,23 @@ def extrair_texto(arquivo, tipo_arquivo):
             
             texto = "\n".join(linhas_filtradas)
             
-            texto = re.sub(r'\n{3,}', '\n\n', texto) 
+            # --- INÍCIO DA MODIFICAÇÃO DE FLUXO ---
+            # 1. Preserva quebras de parágrafo intencionais (2 ou mais \n) com um marcador.
+            texto = re.sub(r'\n{2,}', ' <PARAGRAFO> ', texto)
+            # 2. Substitui todas as quebras de linha únicas restantes (quebras de fluxo ruins) por um espaço.
+            texto = re.sub(r'\n', ' ', texto)
+            # 3. Restaura as quebras de parágrafo, limpando espaços ao redor.
+            texto = re.sub(r'\s*<PARAGRAFO>\s*', '\n\n', texto)
+            # --- FIM DA MODIFICAÇÃO DE FLUXO ---
+            
+            # Limpa espaços múltiplos que podem ter sido criados
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
@@ -333,7 +346,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos
 
 
-# ----------------- ORTOGRAFIA -----------------
+# ----------------- ORTOGRAFIA (COM "CONTATO" IGNORADO) -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula):
     if not nlp or not texto_para_checar:
         return []
@@ -360,7 +373,10 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             return []
 
         spell = SpellChecker(language='pt')
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel"}
+        
+        # Palavra "contato" adicionada aqui
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
+        
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
@@ -475,7 +491,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
+    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula) 
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
     st.subheader("Dashboard de Veredito")
@@ -529,15 +545,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     if not any([secoes_faltantes, diferencas_conteudo, diferencas_titulos]) and len(erros_ortograficos) < 5:
         st.success("🎉 **Bula aprovada!** Nenhum problema crítico encontrado.")
 
+    # --- INÍCIO DA VISUALIZAÇÃO LADO A LADO MELHORADA ---
     st.divider()
     st.subheader("Visualização Lado a Lado com Destaques")
-
-    # --- INÍCIO DA MODIFICAÇÃO ESTÉTICA ---
     
-    # 1. Estilo da Legenda
     legend_style = (
         "font-size: 14px; "
-        "background-color: #f0f2f6; "  # Cor de fundo suave (cinza-azulado do Streamlit)
+        "background-color: #f0f2f6; "  # Cor de fundo suave
         "padding: 10px 15px; "
         "border-radius: 8px; "
         "margin-bottom: 15px;"
@@ -556,30 +570,28 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
     html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
 
-    # 2. Estilo da Caixa de Visualização
     caixa_style = (
-        "max-height: 700px; "  # Altura máxima, permite caixas menores se o conteúdo for curto
+        "max-height: 700px; "  # Altura máxima
         "overflow-y: auto; "
-        "border: 1px solid #e0e0e0; "  # Borda mais suave
-        "border-radius: 8px; "  # Cantos mais arredondados
-        "padding: 20px 24px; "  # Padding interno
+        "border: 1px solid #e0e0e0; "  # Borda suave
+        "border-radius: 8px; "  # Cantos arredondados
+        "padding: 20px 24px; "  # Padding
         "background-color: #ffffff; "
-        "font-size: 15px; "  # Fonte ligeiramente maior para leitura
-        "line-height: 1.7; "  # Melhor espaçamento entre linhas
-        "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "  # Sombra mais suave
-        "text-align: left; "  # Alinhamento à esquerda é melhor para leitura
+        "font-size: 15px; "  # Fonte maior
+        "line-height: 1.7; "  # Espaçamento
+        "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "  # Sombra suave
+        "text-align: left; "  # Alinhamento à esquerda
     )
     
     col1, col2 = st.columns(2, gap="medium")
     with col1:
-        # 3. Título como H4 (um pouco menor que subheader)
-        st.markdown(f"#### {nome_ref}") 
+        st.markdown(f"#### {nome_ref}") # Título H4
         st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"#### {nome_belfar}")
+        st.markdown(f"#### {nome_belfar}") # Título H4
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-    # --- FIM DA MODIFICAÇÃO ESTÉTICA ---
+    # --- FIM DA VISUALIZAÇÃO LADO A LADO MELHORADA ---
 
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
@@ -591,11 +603,11 @@ st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arquivo da Anvisa")
-    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+    st.subheader("📄 Arquivo da Anvisa") # Modificado para exemplo
+    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref") # Modificado para exemplo
 with col2:
-    st.subheader("📄 Arquivo Marketing")
-    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
+    st.subheader("📄 Arquivo Marketing") # Modificado para exemplo
+    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar") # Modificado para exemplo
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
@@ -613,9 +625,10 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_bf}")
+                # Corrigindo a variável de erro que estava errada na versão anterior
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") 
             else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado) # Modificado para exemplo
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
