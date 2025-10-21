@@ -2,20 +2,47 @@
 import streamlit as st
 from style_utils import hide_streamlit_toolbar
 
-hide_streamlit_style = """
+hide_streamlit_UI = """
             <style>
-            /* Esconde o menu hamburger */
-            [data-testid="main-menu-button"] {
-                display: none;
+            /* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
+            [data-testid="stHeader"] {
+                display: none !important;
+                visibility: hidden !important;
             }
             
-            /* Esconde o "Hosted with Streamlit" e a foto */
+            /* Esconde o menu hamburger (dentro do app) */
+            [data-testid="main-menu-button"] {
+                display: none !important;
+            }
+            
+            /* Esconde o rodapé genérico (garantia extra) */
             footer {
-                visibility: hidden;
+                display: none !important;
+                visibility: hidden !important;
+            }
+
+            /* --- NOVOS SELETORES (MAIS AGRESSIVOS) PARA O BADGE INFERIOR --- */
+
+            /* Esconde o container principal do badge */
+            [data-testid="stStatusWidget"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
+
+            /* Esconde o 'Created by' */
+            [data-testid="stCreatedBy"] {
+                display: none !important;
+                visibility: hidden !important;
+            }
+
+            /* Esconde o 'Hosted with Streamlit' */
+            [data-testid="stHostedBy"] {
+                display: none !important;
+                visibility: hidden !important;
             }
             </style>
             """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
 import fitz  # PyMuPDF
 import docx
 import re
