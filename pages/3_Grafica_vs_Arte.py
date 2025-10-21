@@ -1,5 +1,8 @@
 # --- IMPORTS ---
 import streamlit as st
+from style_utils import hide_streamlit_toolbar
+
+hide_streamlit_toolbar()
 import fitz  # PyMuPDF
 import docx
 import re
