@@ -19,23 +19,16 @@ hide_streamlit_UI = """
                 display: none !important;
                 visibility: hidden !important;
             }
+
+            /* --- NOVA ABORDAGEM: Esconder a SEÇÃO que contém o link --- */
             
-            /* --- NOVA ABORDAGEM: Esconder o ÚLTIMO FILHO do container --- */
-            
-            /* Esconde o último <div> dentro do container principal */
-            [data-testid="stAppViewContainer"] > div:last-child {
+            /* Localiza a seção que :tem(um link para streamlit.io) e a esconde */
+            section:has(a[href*="streamlit.io"]) {
                 display: none !important;
                 visibility: hidden !important;
             }
 
-            /* Esconde a última <section> dentro do container principal (garantia) */
-            [data-testid="stAppViewContainer"] > section:last-child {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* --- ABORDAGENS ANTERIORES (MANTER POR SEGURANÇA) --- */
-            
+            /* --- MANTER SELETORES ANTIGOS (GARANTIA) --- */
             [data-testid="stStatusWidget"] {
                 display: none !important;
                 visibility: hidden !important;
@@ -44,14 +37,14 @@ hide_streamlit_UI = """
                 display: none !important;
                 visibility: hidden !important;
             }
-            a[href*="streamlit.io"] {
+            [data-testid="stCreatedBy"] {
                 display: none !important;
                 visibility: hidden !important;
             }
+
             </style>
             """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
-
 st.set_page_config(
     page_title="Validador de Bulas Belfar",
     page_icon="🔬",
