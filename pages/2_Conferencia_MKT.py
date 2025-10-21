@@ -34,27 +34,28 @@ def extrair_texto(arquivo, tipo_arquivo):
         if tipo_arquivo == 'pdf':
             full_text_list = []
             
-            # --- MUDANÇA 3: Lógica de extração de múltiplas colunas ---
+            # --- MUDANÇA 4: CORRIGIDO O "MEIO" DA PÁGINA ---
+            # O corte agora é feito exatamente em 50% (ao "meio")
+            # como você indicou.
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
                     
-                    # Define a "coluna principal" como os 60% da esquerda da página
-                    # (Isso evita pegar as anotações da direita)
-                    clip_principal = fitz.Rect(0, 0, rect.width * 0.60, rect.height)
+                    # Define a coluna da esquerda (do início até o meio)
+                    clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
                     
-                    # Define a "coluna de anotações" como os 40% da direita
-                    clip_anotacoes = fitz.Rect(rect.width * 0.60, 0, rect.width, rect.height)
+                    # Define a coluna da direita (do meio até o fim)
+                    clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
 
-                    # Extrai o texto da coluna principal PRIMEIRO, com ordenação vertical
-                    texto_principal = page.get_text("text", clip=clip_principal, sort=True)
+                    # 1. Extrai o texto da coluna da ESQUERDA primeiro
+                    texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
                     
-                    # Extrai o texto da coluna de anotações DEPOIS
-                    texto_anotacoes = page.get_text("text", clip=clip_anotacoes, sort=True)
+                    # 2. Extrai o texto da coluna da DIREITA depois
+                    texto_direita = page.get_text("text", clip=clip_direita, sort=True)
                     
-                    # Junta a coluna principal e, em seguida, as anotações
-                    full_text_list.append(texto_principal)
-                    full_text_list.append(texto_anotacoes)
+                    # 3. Junta as duas colunas na ordem correta
+                    full_text_list.append(texto_esquerda)
+                    full_text_list.append(texto_direita)
                     
             texto = "\n\n".join(full_text_list) # \n\n para separar colunas/páginas
         
@@ -72,27 +73,32 @@ def extrair_texto(arquivo, tipo_arquivo):
             
             linhas = texto.split('\n')
             
-            # Filtro de ruído (headers/footers) agressivo (mantido da versão anterior)
+            # --- FILTRO DE RUÍDO APRIMORADO ---
+            # Adiciona os novos ruídos (REZA, GEM) e melhora a detecção
+            # de "Medida da bula" etc., mesmo com erros de digitação.
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'  # Rodapé padrão
-                r'|Tipologia da bula:.*|Medida da bula:.*' # Ruído do MKT (ex: Times New Roman)
-                r'|Impressão: Frente/Verso|Papel: Ap \d+gr' # Ruído do MKT
-                r'|Cor: Preta|contato:|artes@belfar\.com\.br' # Ruído do MKT
+                r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*' # Ruído do MKT (com erros)
+                r'|(Impressãe|Impressão):? Frente/Verso|Papel[\.:]? Ap \d+gr' # Ruído do MKT (com erros)
+                r'|Cor:? Preta|contato:?|artes@belfar\.com\.br' # Ruído do MKT
                 r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+' # Nome do arquivo
+                r'|CLORIDRATO DE NAFAZOLINA: Times New Roman' # Ruído do MKT
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$' # Indicador de página
                 r'|^\s*\d+\s*mm\s*$' # Medidas (ex: 190 mm, 300 mm)
                 r'|^\s*-\s*Normal e Negrito\. Corpo \d+\s*$' # Linha de formatação
+                r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$' # Ruído do rodapé
             , re.IGNORECASE)
             
             linhas_filtradas = []
             for linha in linhas:
                 linha_strip = linha.strip()
-                # Remove linhas de ruído E linhas muito curtas (lixo de extração, como "mm" ou "300" sozinhos)
-                if not padrao_ruido_linha.search(linha_strip) and len(linha_strip) > 3:
-                     linhas_filtradas.append(linha_strip)
-                # Exceção: permite linhas curtas se forem títulos (ex: USO NASAL)
-                elif len(linha_strip) <= 3 and linha_strip.isupper():
-                     linhas_filtradas.append(linha_strip)
+                # Remove linhas de ruído E linhas muito curtas (lixo de extração)
+                # Mantém a exceção para títulos curtos (ex: USO NASAL)
+                if not padrao_ruido_linha.search(linha_strip):
+                    if len(linha_strip) > 1 or (len(linha_strip) == 1 and linha_strip.isdigit()):
+                        linhas_filtradas.append(linha_strip)
+                    elif linha_strip.isupper() and len(linha_strip) > 0: # Salva "USO NASAL" etc.
+                        linhas_filtradas.append(linha_strip)
             
             texto = "\n".join(linhas_filtradas)
             
