@@ -3,7 +3,7 @@ from style_utils import hide_streamlit_toolbar
 
 hide_streamlit_UI = """
             <style>
-            /* Esconde o cabeçalho (Fork) */
+            /* Esconde o cabeçalho (Fork) - JÁ FUNCIONA */
             [data-testid="stHeader"] {
                 display: none !important;
                 visibility: hidden !important;
@@ -19,31 +19,26 @@ hide_streamlit_UI = """
                 display: none !important;
                 visibility: hidden !important;
             }
+
+            /* --- NOVA ABORDAGEM: Mirar pelo NOME DA CLASSE CSS --- */
             
-            /* Tenta esconder o 'Hosted by' e 'Created by' de 3 formas diferentes */
-            
-            /* Tentativa 1: O seletor oficial */
-            [data-testid="stStatusWidget"] {
+            /* Esconde o container principal do badge (Hosted by / Created by) */
+            div[class*="stStatusWidget"] {
                 display: none !important;
                 visibility: hidden !important;
             }
             
-            /* Tentativa 2: Os seletores internos */
-            [data-testid="stCreatedBy"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            [data-testid="stHostedBy"] {
+            /* Esconde o 'Created by' (garantia extra) */
+            div[class*="stCreatedBy"] {
                 display: none !important;
                 visibility: hidden !important;
             }
             
-            /* Tentativa 3 (Agressiva): Esconde os links dentro do rodapé */
-            div[data-testid="stStatusWidget"] > a {
-                 display: none !important;
-                 visibility: hidden !important;
+            /* Esconde o link 'Hosted with Streamlit' (garantia extra) */
+            a[href*="streamlit.io"] {
+                display: none !important;
+                visibility: hidden !important;
             }
-            
             </style>
             """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
