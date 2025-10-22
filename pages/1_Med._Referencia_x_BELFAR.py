@@ -615,7 +615,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula Belfar", tipo_bula_selecionado)
+                gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula BELFAR", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
 
