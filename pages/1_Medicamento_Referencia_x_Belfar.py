@@ -595,10 +595,10 @@ st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Medicamento Referência")
+    st.subheader("📄 Med. Referência")
     pdf_ref = st.file_uploader("Envie o PDF de referência", type="pdf", key="ref")
 with col2:
-    st.subheader("📄 Medicamento Belfar")
+    st.subheader("📄 Med. BELFAR")
     pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
