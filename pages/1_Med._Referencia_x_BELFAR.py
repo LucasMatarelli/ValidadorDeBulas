@@ -509,7 +509,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (Belfar)", data_belfar)
+    col3.metric("Data ANVISA (BELFAR)", data_belfar)
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
