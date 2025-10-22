@@ -47,11 +47,11 @@ st.markdown(
     """
     ### Ferramentas Disponíveis:
 
-    * **Medicamento Referência x BELFAR:** Compara a bula de referência com a bula BELFAR. Aponta as diferenças entre as duas com marca-texto amarelo, possíveis erros de português em vermelho e a data da ANVISA em azul.
+    * **Medicamento Referência x BELFAR:** Compara a bula de referência com a bula BELFAR. Aponta as diferenças entre as duas com marca-texto amarelo, possíveis erros de português em rosa e a data da ANVISA em azul.
 
-    * **Conferência MKT (Word/PDF vs PDF):** Compara o arquivo da ANVISA (.docx ou .pdf) com o PDF final do Marketing. Aponta as diferenças entre os documentos em amarelo, possíveis erros de português em vermelho e a data da ANVISA em azul.
+    * **Conferência MKT (Word/PDF vs PDF):** Compara o arquivo da ANVISA (.docx ou .pdf) com o PDF final do Marketing. Aponta as diferenças entre os documentos em amarelo, possíveis erros de português em rosa e a data da ANVISA em azul.
 
-    * **Gráfica x Arte Vigente (PDF em Curva vs PDF em Curva):** Compara o PDF da Gráfica (frequentemente 'em curva') com o PDF da Arte Vigente (também pode ser 'em curva'). O sistema lê ambos os arquivos, mesmo se estiverem em curva, e aponta as diferenças entre os dois em amarelo, possíveis erros de português em vermelho e a data da ANVISA em azul.
+    * **Gráfica x Arte Vigente (PDF em Curva vs PDF em Curva):** Compara o PDF da Gráfica (frequentemente 'em curva') com o PDF da Arte Vigente (também pode ser 'em curva'). O sistema lê ambos os arquivos, mesmo se estiverem em curva, e aponta as diferenças entre os dois em amarelo, possíveis erros de português em rosa e a data da ANVISA em azul.
 
         **O que é um arquivo 'em curva'?**
         Uma bula em curva é um arquivo PDF onde todo o conteúdo de texto foi convertido em curvas (vetores).
