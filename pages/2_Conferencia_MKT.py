@@ -339,7 +339,10 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
         titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
-        linha_inicio_conteudo = linha_inicio + 1
+        num_linhas_titulo = secao_mapa.get('num_linhas_titulo', 1)
+        
+        # O conteúdo começa DEPOIS do título (1 ou 2 linhas)
+        linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
         # --- LÓGICA DE BUSCA APRIMORADA (1 ou 2 linhas) ---
         prox_idx = None
