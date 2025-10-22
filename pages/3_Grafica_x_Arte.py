@@ -551,15 +551,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (Belfar)", data_belfar)
+    col3.metric("Data ANVISA (BELFAR)", data_belfar)
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: `{data_ref}`\n   - Belfar: `{data_belfar}`")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: `{data_ref}`\n   - BELFAR: `{data_belfar}`")
 
     if secoes_faltantes:
-        st.error(f"🚨 **Seções faltantes na bula Belfar ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
+        st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
     
@@ -587,7 +587,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     st.markdown("**Referência:**")
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
                 with c2:
-                    st.markdown("**Belfar:**")
+                    st.markdown("**BELFAR:**")
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
     else:
         st.success("✅ Conteúdo das seções está idêntico")
@@ -637,11 +637,11 @@ st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arte Vigente (Referência)")
+    st.subheader("📄 Arte Vigente")
     pdf_ref = st.file_uploader("Envie o PDF de referência", type="pdf", key="ref")
 with col2:
     st.subheader("📄 PDF da Gráfica")
-    pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
+    pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
