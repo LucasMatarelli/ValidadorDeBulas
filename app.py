@@ -31,7 +31,7 @@ hide_streamlit_UI = """
             """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
 st.set_page_config(
-    page_title="Validador de Bulas Belfar",
+    page_title="Validador de Bulas BELFAR",
     page_icon="🔬",
     layout="wide"
 )
