@@ -497,10 +497,10 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # --- [NOVO] Script Global (Plano C) ---
-    # Injeta a função de rolagem no escopo GLOBAL (window)
-    # Isso garante que a função `onclick` possa encontrá-la.
-    js_scroll_script = """
+    # <<< [MUDANÇA AQUI] >>>
+    # Injetamos o CSS para o botão JUNTO com o JavaScript
+    # Isso evita o erro do React com onmouseover/onmouseout
+    js_and_css_script = """
     <script>
     // Verifica se a função já não existe para evitar re-declaração
     if (!window.handleBulaScroll) {
@@ -551,10 +551,37 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         console.log("Função window.handleBulaScroll DEFINIDA.");
     }
     </script>
+    
+    <style>
+    .btn-scroll-nav {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 12px 24px; 
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 16px;
+        width: 100%;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+        text-align: left; /* Garante alinhamento do texto */
+    }
+    .btn-scroll-nav:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        color: white; /* Garante que o texto permaneça branco */
+    }
+    .btn-scroll-nav:active {
+        transform: translateY(0);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    </style>
     """
-    # Injeta o script uma vez no topo do relatório
-    st.markdown(js_scroll_script, unsafe_allow_html=True)
-    # --- [FIM DO SCRIPT] ---
+    # Injeta o script e o CSS uma vez no topo do relatório
+    st.markdown(js_and_css_script, unsafe_allow_html=True)
+    # --- [FIM DA MUDANÇA] ---
 
 
     st.header("Relatório de Auditoria Inteligente")
@@ -584,9 +611,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
         
-    # --- [BLOCO CORRIGIDO] ---
-    # Este bloco inteiro foi indentado (movido para a direita)
-    # para ficar DENTRO da função 'gerar_relatorio_final'.
     if diferencas_conteudo:
         st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         expander_caixa_style = (
@@ -602,17 +626,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
-                # Botão de navegação com teste de clique
+                # <<< [MUDANÇA AQUI] >>>
+                # O botão agora usa a CLASSE CSS 'btn-scroll-nav'
+                # Removemos 'style', 'onmouseover', e 'onmouseout' para evitar o erro do React.
                 btn_html = f"""
                 <button onclick='console.log("BOTÃO CLICADO!"); window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}"); return false;' 
-                        style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                               color: white; border: none; padding: 12px 24px; 
-                               border-radius: 8px; cursor: pointer; font-weight: 600;
-                               font-size: 14px; margin-bottom: 16px; width: 100%;
-                               box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                               transition: all 0.3s ease;'
-                        onmouseover='this.style.transform="translateY(-2px)"; this.style.boxShadow="0 6px 12px rgba(0,0,0,0.15)"'
-                        onmouseout='this.style.transform="translateY(0)"; this.style.boxShadow="0 4px 6px rgba(0,0,0,0.1)"'
+                        class='btn-scroll-nav'
                         type='button'>
                     🎯 Ir para esta seção na visualização lado a lado ⬇️
                 </button>
@@ -621,6 +640,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 </p>
                 """
                 st.markdown(btn_html, unsafe_allow_html=True)
+                # --- [FIM DA MUDANÇA] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
@@ -636,7 +656,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 with c2:
                     st.markdown("**📄 BELFAR:**")
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
-    # --- [FIM DO BLOCO CORRIGIDO] ---
     else:
         st.success("✅ Conteúdo das seções está idêntico")
 
