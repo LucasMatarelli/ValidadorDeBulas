@@ -9,7 +9,7 @@ from spellchecker import SpellChecker
 import difflib
 import unicodedata
 import streamlit.components.v1 as components
-import json  # <-- IMPORTADO PARA O JAVASCRIPT
+import json  # IMPORTADO PARA O JAVASCRIPT
 
 # Import local (assumindo que está no mesmo diretório)
 from style_utils import hide_streamlit_toolbar
@@ -497,8 +497,6 @@ def injetar_ancoras(texto_original, mapa_secoes, prefixo_id):
         replace_with = f"<a id='{ancora_id}'>{titulo}</a>"
         
         # Substitui a primeira ocorrência exata do título
-        # Usamos um regex para garantir que é o título exato,
-        # mas sem ser muito restritivo (como ^...$)
         try:
             pattern = re.compile(r'(' + re.escape(titulo) + r')')
             if pattern.search(texto_com_ancoras):
@@ -626,7 +624,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         for i, diff in enumerate(diferencas_conteudo):
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
-                # --- MUDANÇA: Botão de scroll agora define âncoras internas
+                # --- Botão de scroll agora define âncoras internas ---
                 secao_canonico = diff['secao']
                 ancora_id_ref = f"ref-{secao_canonico}".replace(" ", "_").replace("?", "")
                 ancora_id_belfar = f"belfar-{secao_canonico}".replace(" ", "_").replace("?", "")
@@ -678,7 +676,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
-    # --- MUDANÇA: Injeta âncoras ANTES de marcar ---
+    # --- Injeta âncoras ANTES de marcar ---
     texto_ref_com_ancoras = injetar_ancoras(texto_ref, mapa_ref, 'ref')
     texto_belfar_com_ancoras = injetar_ancoras(texto_belfar, mapa_belfar, 'belfar')
 
@@ -710,14 +708,14 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2 = st.columns(2, gap="medium")
     with col1:
         st.markdown(f"**📄 {nome_ref}**")
-        # --- MUDANÇA: Adicionado ID 'box-ref' ---
+        # --- Adicionado ID 'box-ref' ---
         st.markdown(f"<div id='box-ref' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
-        # --- MUDANÇA: Adicionado ID 'box-belfar' ---
+        # --- Adicionado ID 'box-belfar' ---
         st.markdown(f"<div id='box-belfar' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-    # --- MUDANÇA: Código JavaScript para scroll duplo ---
+    # --- MUDANÇA: Código JavaScript para scroll duplo (CORRIGIDO) ---
     if 'scroll_to' in st.session_state:
         # Pega e remove os valores do state
         anchor_id_pagina = st.session_state.pop('scroll_to')
@@ -732,30 +730,46 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         <script>
         (function() {{
             
+            // Função para rolar um container interno
             function scrollContainerToAnchor(containerId, anchorId) {{
                 if (!anchorId) return; // Não faz nada se a âncora for nula
+                
                 var container = document.getElementById(containerId);
                 var anchor = document.getElementById(anchorId);
                 
                 if (!container) {{ console.error('Container not found:', containerId); return; }}
                 if (!anchor) {{ console.error('Anchor not found:', anchorId); return; }}
-                
-                // Rola o container para que a âncora fique no centro
-                anchor.scrollIntoView({{behavior: 'smooth', block: 'center'}});
-                
-                // Destaque temporário
-                var originalBg = anchor.style.backgroundColor;
-                anchor.style.backgroundColor = '#007bff'; // Azul
-                anchor.style.color = 'white';
-                anchor.style.padding = '2px';
-                anchor.style.borderRadius = '3px';
-                
-                setTimeout(function() {{
-                    anchor.style.backgroundColor = originalBg;
-                    anchor.style.color = '';
-                    anchor.style.padding = '';
-                    anchor.style.borderRadius = '';
-                }}, 2500);
+
+                // Verifica se a âncora está DENTRO do container
+                if (container.contains(anchor)) {{
+                    
+                    // Calcula a posição da âncora relativa ao topo do container
+                    // e subtrai metade da altura do container para centralizar
+                    let scrollToPosition = (anchor.offsetTop - container.offsetTop) - (container.clientHeight / 2) + (anchor.clientHeight / 2);
+                    
+                    // Rola o *container*
+                    container.scrollTo({{
+                        top: scrollToPosition,
+                        behavior: 'smooth'
+                    }});
+                    
+                    // Destaque temporário
+                    var originalBg = anchor.style.backgroundColor;
+                    anchor.style.backgroundColor = '#007bff'; // Azul
+                    anchor.style.color = 'white';
+                    anchor.style.padding = '2px';
+                    anchor.style.borderRadius = '3px';
+                    
+                    setTimeout(function() {{
+                        anchor.style.backgroundColor = originalBg;
+                        anchor.style.color = '';
+                        anchor.style.padding = '';
+                        anchor.style.borderRadius = '';
+                    }}, 2500); // Destaque dura 2.5 segundos
+                    
+                }} else {{
+                    console.error('Anchor', anchorId, 'is not inside container', containerId);
+                }}
             }}
 
             // 1. Rolar a página principal
@@ -771,7 +785,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 setTimeout(function() {{
                     scrollContainerToAnchor('box-ref', {js_ref_anchor});
                     scrollContainerToAnchor('box-belfar', {js_belfar_anchor});
-                }}, 800); // Espera a rolagem da página terminar
+                }}, 800); // Espera a rolagem da página (smooth) terminar
 
             }}, 200); // 200ms de espera inicial
         }})();
