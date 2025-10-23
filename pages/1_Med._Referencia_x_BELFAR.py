@@ -697,13 +697,16 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     ).replace('\n', '<br>')
     # --- Fim da mudança ---
 
+    # --- MUDANÇA: Adicionado 'position: relative;' ao estilo ---
     caixa_style = (
         "height: 700px; overflow-y: auto; border: 2px solid #999; border-radius: 4px; "
         "padding: 24px 32px; background-color: #ffffff; "
         "font-family: 'Georgia', 'Times New Roman', serif; font-size: 14px; "
         "line-height: 1.8; box-shadow: 0 2px 12px rgba(0,0,0,0.15); "
         "text-align: justify; color: #000000;"
+        "position: relative;" # ESSENCIAL PARA O CÁLCULO DO SCROLL
     )
+    # --- Fim da mudança ---
 
     col1, col2 = st.columns(2, gap="medium")
     with col1:
@@ -715,7 +718,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # --- Adicionado ID 'box-belfar' ---
         st.markdown(f"<div id='box-belfar' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-    # --- MUDANÇA: Código JavaScript para scroll duplo (CORRIGIDO) ---
+    # --- MUDANÇA: Código JavaScript com POLLING (verificação) ---
     if 'scroll_to' in st.session_state:
         # Pega e remove os valores do state
         anchor_id_pagina = st.session_state.pop('scroll_to')
@@ -740,22 +743,19 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 if (!container) {{ console.error('Container not found:', containerId); return; }}
                 if (!anchor) {{ console.error('Anchor not found:', anchorId); return; }}
 
-                // Verifica se a âncora está DENTRO do container
                 if (container.contains(anchor)) {{
+                    // anchor.offsetTop é a posição do topo da âncora relativo ao topo do container
+                    // (desde que o container tenha position: relative)
+                    let scrollToPosition = anchor.offsetTop - (container.clientHeight / 2) + (anchor.clientHeight / 2);
                     
-                    // Calcula a posição da âncora relativa ao topo do container
-                    // e subtrai metade da altura do container para centralizar
-                    let scrollToPosition = (anchor.offsetTop - container.offsetTop) - (container.clientHeight / 2) + (anchor.clientHeight / 2);
-                    
-                    // Rola o *container*
                     container.scrollTo({{
                         top: scrollToPosition,
                         behavior: 'smooth'
                     }});
                     
-                    // Destaque temporário
+                    // Destaque...
                     var originalBg = anchor.style.backgroundColor;
-                    anchor.style.backgroundColor = '#007bff'; // Azul
+                    anchor.style.backgroundColor = '#007bff';
                     anchor.style.color = 'white';
                     anchor.style.padding = '2px';
                     anchor.style.borderRadius = '3px';
@@ -765,29 +765,50 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                         anchor.style.color = '';
                         anchor.style.padding = '';
                         anchor.style.borderRadius = '';
-                    }}, 2500); // Destaque dura 2.5 segundos
+                    }}, 2500);
                     
                 }} else {{
                     console.error('Anchor', anchorId, 'is not inside container', containerId);
                 }}
             }}
 
-            // 1. Rolar a página principal
-            setTimeout(function() {{
-                var page_anchor = document.getElementById('{anchor_id_pagina}');
+            // Função de polling para a PÁGINA
+            function findAndScrollPage() {{
+                let page_anchor = document.getElementById('{anchor_id_pagina}');
+                
                 if (page_anchor) {{
                     page_anchor.scrollIntoView({{behavior: 'smooth', block: 'start'}});
+                    // Depois que a rolagem da página começar, comece a procurar as caixas
+                    setTimeout(findAndScrollBoxes, 700); // Dê tempo para a rolagem da página
                 }} else {{
-                    console.error('Page anchor not found: {anchor_id_pagina}');
+                    // Tente de novo em 100ms
+                    setTimeout(findAndScrollPage, 100);
                 }}
-                
-                // 2. Rolar dentro das caixas (depois que a página rolar)
-                setTimeout(function() {{
+            }}
+
+            // Função de polling para as CAIXAS
+            function findAndScrollBoxes() {{
+                let containerRef = document.getElementById('box-ref');
+                let containerBelfar = document.getElementById('box-belfar');
+                let anchorRef = document.getElementById({js_ref_anchor});
+                let anchorBelfar = document.getElementById({js_belfar_anchor});
+
+                // Só executa se TUDO estiver pronto (ou se âncoras não forem pedidas)
+                let refReady = containerRef && (anchorRef || {js_ref_anchor} === null);
+                let belfarReady = containerBelfar && (anchorBelfar || {js_belfar_anchor} === null);
+
+                if (refReady && belfarReady) {{
                     scrollContainerToAnchor('box-ref', {js_ref_anchor});
                     scrollContainerToAnchor('box-belfar', {js_belfar_anchor});
-                }}, 800); // Espera a rolagem da página (smooth) terminar
+                }} else {{
+                    // Tente de novo em 100ms
+                    setTimeout(findAndScrollBoxes, 100);
+                }}
+            }}
 
-            }}, 200); // 200ms de espera inicial
+            // Inicia o processo
+            findAndScrollPage();
+
         }})();
         </script>
         """
