@@ -1,5 +1,8 @@
 # --- IMPORTS ---
 import streamlit as st
+# <<< [MUDANÇA AQUI 1] >>> Importar components se st.html não for direto
+from streamlit.components.v1 import html as st_html
+
 # from style_utils import hide_streamlit_toolbar # Removi a dependência que não estava no código
 
 hide_streamlit_UI = """
@@ -80,7 +83,7 @@ def extrair_texto(arquivo, tipo_arquivo):
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto = "\n".join([p.text for p in doc.paragraphs])
-            
+
         if texto:
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
@@ -623,11 +626,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    
-    # <<< [MUDANÇA AQUI] >>>
-    # Corrigido o erro de digitação de 'data_bfalar' para 'data_belfar'
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Referência: `{data_ref}`\n - BELFAR: `{data_belfar}`")
-    # --- [FIM DA MUDANÇA] ---
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
@@ -649,7 +648,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
-                # O botão "burro" (O mesmo da última vez, está correto)
+                # Botão "burro" (O mesmo da última vez)
                 btn_html = f"""
                 <button class="btn-scroll-nav"
                         type="button" 
@@ -663,8 +662,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 </p>
                 """
                 
-                # Renderiza apenas o HTML
-                st.markdown(btn_html, unsafe_allow_html=True)
+                # <<< [MUDANÇA AQUI] >>>
+                # Usamos st.components.v1.html (ou st_html se importado assim)
+                # para renderizar o botão sem a sanitização agressiva do markdown.
+                st_html(btn_html, height=80) # Ajuste a altura se necessário
+                # --- [FIM DA MUDANÇA] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
