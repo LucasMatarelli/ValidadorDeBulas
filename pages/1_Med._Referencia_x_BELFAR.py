@@ -584,6 +584,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
         
+    # --- [BLOCO INSERIDO PELO USUÁRIO] ---
     if diferencas_conteudo:
         st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         expander_caixa_style = (
@@ -595,10 +596,25 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         for diff in diferencas_conteudo:
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
-                # --- [MODIFICADO] ---
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
+                
+                # Botão de navegação estilizado
+                btn_html = f"""
+                <button onclick='window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}")' 
+                        style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                               color: white; border: none; padding: 12px 24px; 
+                               border-radius: 8px; cursor: pointer; font-weight: 600;
+                               font-size: 14px; margin-bottom: 16px; width: 100%;
+                               box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                               transition: all 0.3s ease;'
+                        onmouseover='this.style.transform="translateY(-2px)"; this.style.boxShadow="0 6px 12px rgba(0,0,0,0.15)"'
+                        onmouseout='this.style.transform="translateY(0)"; this.style.boxShadow="0 4px 6px rgba(0,0,0,0.1)"'>
+                    🎯 Ir para esta seção na visualização lado a lado ⬇️
+                </button>
+                """
+                st.markdown(btn_html, unsafe_allow_html=True)
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
@@ -606,23 +622,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
                 ).replace('\n', '<br>')
-                
-                # Adiciona 'cursor: pointer;' e um 'title' para feedback
-                clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
-                
-                # --- [A MUDANÇA CRÍTICA] ---
-                # Criamos o HTML da caixa clicável com o 'onclick' chamando a função GLOBAL.
-                # Usamos aspas simples (') para o HTML e duplas (") para os parâmetros do JavaScript.
-                html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
-                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown("**Referência:** (Clique na caixa para rolar)")
-                    st.markdown(html_ref_box, unsafe_allow_html=True)
+                    st.markdown("**📄 Referência:**")
+                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
                 with c2:
-                    st.markdown("**BELFAR:** (Clique na caixa para rolar)")
-                    st.markdown(html_bel_box, unsafe_allow_html=True)
+                    st.markdown("**📄 BELFAR:**")
+                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
+    # --- [FIM DO BLOCO INSERIDO] ---
     else:
         st.success("✅ Conteúdo das seções está idêntico")
 
