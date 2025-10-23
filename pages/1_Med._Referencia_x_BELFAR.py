@@ -8,6 +8,7 @@ from thefuzz import fuzz
 from spellchecker import SpellChecker
 import difflib
 import unicodedata
+import streamlit.components.v1 as components
 
 # Import local (assumindo que está no mesmo diretório)
 from style_utils import hide_streamlit_toolbar
@@ -22,32 +23,25 @@ hide_streamlit_UI = """
     display: none !important;
     visibility: hidden !important;
 }
-
 /* Esconde o menu hamburger (dentro do app) */
 [data-testid="main-menu-button"] {
     display: none !important;
 }
-
 /* Esconde o rodapé genérico (garantia extra) */
 footer {
     display: none !important;
     visibility: hidden !important;
 }
-
-/* --- NOVOS SELETORES (MAIS AGRESSIVOS) PARA O BADGE INFERIOR --- */
-
 /* Esconde o container principal do badge */
 [data-testid="stStatusWidget"] {
     display: none !important;
     visibility: hidden !important;
 }
-
 /* Esconde o 'Created by' */
 [data-testid="stCreatedBy"] {
     display: none !important;
     visibility: hidden !important;
 }
-
 /* Esconde o 'Hosted with Streamlit' */
 [data-testid="stHostedBy"] {
     display: none !important;
@@ -531,7 +525,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 
 
-# ----------------- RELATÓRIO -----------------
+# ----------------- RELATÓRIO (MODIFICADO) -----------------
 
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
@@ -546,12 +540,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
-    # --- Dashboard de Veredito (Formatado) ---
+    # --- Dashboard de Veredito (Botões agora funcionam) ---
     st.subheader("Dashboard de Veredito")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
 
-    # Métricas clicáveis com redirecionamento
     with col2:
         if st.button(
             f"📝 {len(erros_ortograficos)} Erros Ortográficos", 
@@ -559,8 +552,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             use_container_width=True, 
             disabled=(len(erros_ortograficos) == 0)
         ):
+            # Define o "alvo" do scroll
             st.session_state['scroll_to'] = 'visualizacao_lado_a_lado'
-            st.session_state['highlight_type'] = 'ortografia'
             st.rerun()
             
     col3.metric("Data ANVISA (BELFAR)", data_belfar)
@@ -572,8 +565,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             use_container_width=True, 
             disabled=(len(diferencas_conteudo) == 0)
         ):
+            # Define o "alvo" do scroll
             st.session_state['scroll_to'] = 'visualizacao_lado_a_lado'
-            st.session_state['highlight_type'] = 'divergencias'
             st.rerun()
 
     st.divider()
@@ -594,8 +587,20 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
         )
 
-        for diff in diferencas_conteudo:
+        # --- MUDANÇA: Adicionado 'enumerate' para chaves únicas
+        for i, diff in enumerate(diferencas_conteudo):
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
+                
+                # --- MUDANÇA: Adicionado botão de scroll dentro do expander
+                if st.button(
+                    "Ir para a visualização principal ⬇️", 
+                    key=f"btn_scroll_diff_{i}", # Chave única
+                    use_container_width=True
+                ):
+                    st.session_state['scroll_to'] = 'visualizacao_lado_a_lado'
+                    st.rerun()
+                # --- Fim da mudança ---
+
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
                 ).replace('\n', '<br>')
@@ -621,6 +626,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.success("🎉 **Bula aprovada!** Nenhum problema crítico encontrado.")
 
     st.divider()
+    
+    # --- MUDANÇA: Adicionada uma "âncora" HTML para onde o scroll deve ir
+    st.markdown("<a id='visualizacao_lado_a_lado'></a>", unsafe_allow_html=True)
     st.subheader("Visualização Lado a Lado com Destaques")
 
     st.markdown(
@@ -661,9 +669,35 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+    
+    # --- MUDANÇA: Código JavaScript para fazer o scroll
+    # Este código roda após a página recarregar (st.rerun)
+    if 'scroll_to' in st.session_state and st.session_state['scroll_to'] is not None:
+        anchor_id = st.session_state['scroll_to']
+        js_scroll = f"""
+        <script>
+        (function() {{
+            // Aguarda um curto período para garantir que a âncora esteja renderizada
+            setTimeout(function() {{
+                var anchor = document.getElementById('{anchor_id}');
+                if (anchor) {{
+                    console.log('Scrolling to: {anchor_id}');
+                    anchor.scrollIntoView({{behavior: 'smooth', block: 'start'}});
+                }} else {{
+                    console.error('Anchor not found: {anchor_id}');
+                }}
+            }}, 200); // 200ms de espera
+        }})();
+        </script>
+        """
+        components.html(js_scroll, height=0)
+        
+        # Limpa a variável de estado para não rolar novamente em re-runs comuns
+        del st.session_state['scroll_to']
+    # --- Fim da mudança ---
 
 
-# ----------------- INTERFACE -----------------
+# ----------------- INTERFACE (MODIFICADA) -----------------
 
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
@@ -681,6 +715,8 @@ with col2:
     st.subheader("📄 Med. BELFAR")
     pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
 
+# --- MUDANÇA: Lógica de estado para persistir o relatório ---
+# Se o botão for clicado, processa e SALVA no st.session_state
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
@@ -694,16 +730,37 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+                # Limpa dados antigos se falhar
+                if 'report_data' in st.session_state:
+                    del st.session_state['report_data']
             else:
-                gerar_relatorio_final(
-                    texto_ref, 
-                    texto_belfar, 
-                    "Bula Referência", 
-                    "Bula BELFAR", 
-                    tipo_bula_selecionado
-                )
+                # Salva os dados do relatório no session_state
+                st.session_state['report_data'] = {
+                    "texto_ref": texto_ref,
+                    "texto_belfar": texto_belfar,
+                    "nome_ref": "Bula Referência",
+                    "nome_belfar": "Bula BELFAR",
+                    "tipo_bula": tipo_bula_selecionado
+                }
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
+        # Limpa dados antigos se faltar arquivo
+        if 'report_data' in st.session_state:
+            del st.session_state['report_data']
+
+# Se os dados do relatório EXISTIREM no state (seja da primeira vez ou de um st.rerun),
+# a função gerar_relatorio_final() é chamada.
+if 'report_data' in st.session_state and st.session_state['report_data']:
+    data = st.session_state['report_data']
+    gerar_relatorio_final(
+        data['texto_ref'],
+        data['texto_belfar'],
+        data['nome_ref'],
+        data['nome_belfar'],
+        data['tipo_bula']
+    )
+# --- Fim da mudança ---
+
 
 st.divider()
 st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final")
