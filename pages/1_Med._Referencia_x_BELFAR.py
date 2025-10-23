@@ -1,6 +1,6 @@
 # --- IMPORTS ---
 import streamlit as st
-from style_utils import hide_streamlit_toolbar
+# from style_utils import hide_streamlit_toolbar # Removi a dependência que não estava no código
 
 hide_streamlit_UI = """
 <style>
@@ -30,7 +30,7 @@ visibility: hidden !important;
 /* Esconde o 'Created by' */
 [data-testid="stCreatedBy"] {
 display: none !important;
-visibility: hidden !important;
+visibility: hidden !importa
 }
 
 /* Esconde o 'Hosted with Streamlit' */
@@ -171,7 +171,9 @@ def normalizar_titulo_para_comparacao(texto):
 def _create_anchor_id(secao_nome, prefix):
     """Cria um ID HTML seguro para a âncora."""
     norm = normalizar_texto(secao_nome)
-    return f"anchor-{prefix}-{norm.replace(' ', '-')}"
+    # Remove caracteres que podem quebrar o seletor JS
+    norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
+    return f"anchor-{prefix}-{norm_safe}"
 
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (VERSÃO FINAL) -----------------
 def is_titulo_secao(linha):
@@ -495,46 +497,53 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # --- [MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # --- [NOVO] Script JavaScript para a rolagem ---
-    # Injeta o script JS que fará a rolagem.
-    # Usamos st.html() que é a forma moderna e segura de fazer isso.
+    # --- [MODIFICADO] Script JavaScript para a rolagem ---
+    # Agora injetado via st.markdown para existir no documento principal
     js_scroll_script = """
     <script>
     function scrollToSection(anchorIdRef, anchorIdBelfar) {
-        // Encontra os containers de rolagem pelos IDs que definimos
         var containerRef = document.getElementById('container-ref-scroll');
         var containerBel = document.getElementById('container-bel-scroll');
-        
-        // Encontra os elementos (âncoras) dentro dos containers
         var anchorRef = document.getElementById(anchorIdRef);
-        var anchorBel = document.getElementById(anchorIdBel);
+        var anchorBel = document.getElementById(anchorIdBelfar);
 
-        if (containerRef && anchorRef) {
-            // Calcula a posição da âncora relativa ao topo do container
-            var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
-            // Rola o container para essa posição (com -20px de padding)
-            containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
-            
-            // Adiciona um destaque visual temporário
-            anchorRef.style.transition = 'background-color 0.5s ease-in-out';
-            anchorRef.style.backgroundColor = '#e6f7ff'; // Azul claro
-            setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
+        // 1. Rola a PÁGINA PRINCIPAL para a visualização lado a lado
+        if (containerRef) {
+             // 'block: 'start'' alinha o topo do container ao topo da janela
+            containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
-        
-        if (containerBel && anchorBel) {
-            var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
-            containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
+
+        // 2. Rola DENTRO dos containers
+        // Usamos um timeout para esperar a rolagem principal terminar
+        setTimeout(() => {
+            if (containerRef && anchorRef) {
+                // Calcula a posição da âncora relativa ao topo do container
+                var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
+                // Rola o container para essa posição
+                containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
+                
+                // Adiciona um destaque visual temporário
+                anchorRef.style.transition = 'background-color 0.5s ease-in-out';
+                anchorRef.style.backgroundColor = '#e6f7ff'; // Azul claro
+                setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
+            }
             
-            // Destaque
-            anchorBel.style.transition = 'background-color 0.5s ease-in-out';
-            anchorBel.style.backgroundColor = '#e6f7ff';
-            setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
-        }
+            if (containerBel && anchorBel) {
+                var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
+                containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
+                
+                // Destaque
+                anchorBel.style.transition = 'background-color 0.5s ease-in-out';
+                anchorBel.style.backgroundColor = '#e6f7ff';
+                setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
+            }
+        }, 700); // 700ms de espera para a rolagem principal
     }
     </script>
     """
-    st.html(js_scroll_script)
-    # --- [FIM DO SCRIPT] ---
+    # --- [MODIFICADO] Injeta o script usando st.markdown ---
+    st.markdown(js_scroll_script, unsafe_allow_html=True)
+    # --- [FIM DA MODIFICAÇÃO DO SCRIPT] ---
 
     st.header("Relatório de Auditoria Inteligente")
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -574,13 +583,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         for diff in diferencas_conteudo:
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
-                # --- [NOVO] Botão de Rolagem ---
+                # --- [MODIFICADO] Botão de Rolagem ---
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
 
                 # Botão HTML que chama a função JavaScript
-                st.html(f"""
+                button_html = f"""
                     <button 
                         onclick="scrollToSection('{anchor_id_ref}', '{anchor_id_bel}')"
                         style="
@@ -592,8 +601,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     >
                         Ir para esta Seção na Comparação Lado a Lado ⬇️
                     </button>
-                """)
-                # --- [FIM DO BOTÃO] ---
+                """
+                # --- [MODIFICADO] Injeta o botão usando st.markdown ---
+                st.markdown(button_html, unsafe_allow_html=True)
+                # --- [FIM DA MODIFICAÇÃO DO BOTÃO] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
