@@ -494,15 +494,10 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 
 # ----------------- RELATÓRIO -----------------
-# --- [MODIFICADO] ---
+# --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # --- [NOVO] Script de "Event Delegation" ---
-    # Esta é a forma definitiva. Injetamos um script que "ouve"
-    # todos os cliques na página. Se o clique for em algo com a
-    # classe 'scroll-to-section', ele executa a rolagem.
-    # Isso funciona mesmo se o item for carregado depois (como no expander).
-    
+    # --- [NOVO] Script de "Event Delegation" v3 (Robusto) ---
     js_scroll_script = """
     <style>
         /* [NOVO] Adiciona feedback visual para as caixas clicáveis */
@@ -516,57 +511,99 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     </style>
     
     <script>
-    // Função que faz a lógica da rolagem
-    function handleScrollLogic(anchorIdRef, anchorIdBel) {
+    // --- FUNÇÃO DE ROLAGEM ---
+    // Colocamos no 'window' para garantir que esteja no escopo global
+    window.handleBulaScroll = function(anchorIdRef, anchorIdBel) {
+        console.log("handleBulaScroll INICIADA com:", anchorIdRef, anchorIdBel);
         var containerRef = document.getElementById('container-ref-scroll');
         var containerBel = document.getElementById('container-bel-scroll');
         var anchorRef = document.getElementById(anchorIdRef);
         var anchorBel = document.getElementById(anchorIdBel);
 
-        // 1. Rola a PÁGINA PRINCIPAL para a visualização
-        if (containerRef) {
-            containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Debugging: Verifica se os elementos foram encontrados
+        if (!containerRef || !containerBel) {
+            console.error("ERRO: Containers de rolagem (container-ref-scroll ou container-bel-scroll) NÃO ENCONTRADOS.");
+            return;
         }
+        if (!anchorRef || !anchorBel) {
+            console.error("ERRO: Âncoras (" + anchorIdRef + " ou " + anchorIdBel + ") NÃO ENCONTRADAS.");
+            return;
+        }
+
+        // 1. Rola a PÁGINA PRINCIPAL para a visualização
+        containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         // 2. Rola DENTRO dos containers (após a rolagem principal)
         setTimeout(() => {
-            if (containerRef && anchorRef) {
-                var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
-                containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
-                // Destaque visual
-                anchorRef.style.transition = 'background-color 0.5s ease-in-out';
-                anchorRef.style.backgroundColor = '#e6f7ff';
-                setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
-            }
-            if (containerBel && anchorBel) {
-                var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
-                containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
-                // Destaque visual
-                anchorBel.style.transition = 'background-color 0.5s ease-in-out';
-                anchorBel.style.backgroundColor = '#e6f7ff';
-                setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
-            }
+            var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
+            containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
+            // Destaque visual
+            anchorRef.style.transition = 'background-color 0.5s ease-in-out';
+            anchorRef.style.backgroundColor = '#e6f7ff';
+            setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
+            
+            var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
+            containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
+            // Destaque visual
+            anchorBel.style.transition = 'background-color 0.5s ease-in-out';
+            anchorBel.style.backgroundColor = '#e6f7ff';
+            setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
+            
+            console.log("Rolagem interna executada.");
         }, 700); // 700ms de espera
     }
 
-    // "Ouvinte" de eventos principal
-    // Usamos 'mousedown' pois é mais confiável que 'click' no Streamlit
-    document.addEventListener('mousedown', function(event) {
-        // Encontra o ancestral clicável mais próximo com a classe
-        const clickableBox = event.target.closest('.scroll-to-section');
-        
-        if (clickableBox) {
-            // Pega os IDs das âncoras guardados nos atributos data-*
-            const anchorIdRef = clickableBox.dataset.anchorRef;
-            const anchorIdBel = clickableBox.dataset.anchorBel;
-            
-            if (anchorIdRef && anchorIdBel) {
-                handleScrollLogic(anchorIdRef, anchorIdBel);
-            }
+    // --- CONFIGURAÇÃO DO "OUVINTE" DE EVENTOS ---
+    // Esta função anexa o 'listener' ao body
+    function setupBulaScrollListener() {
+        // Verifica se o listener já foi anexado para evitar duplicatas
+        if (document.body.hasBulaListener) {
+             console.log("Listener de rolagem já está ativo.");
+             return;
         }
-    }, true); // 'true' captura o evento mais cedo
+        document.body.hasBulaListener = true;
+        
+        // Anexa o listener de 'click' ao BODY.
+        document.body.addEventListener('click', function(event) {
+            console.log("Clique detectado no body.");
+            // Verifica se o alvo do clique (ou um 'pai' dele) tem a classe
+            const clickableBox = event.target.closest('.scroll-to-section');
+            
+            if (clickableBox) {
+                console.log("Elemento clicável (.scroll-to-section) encontrado.");
+                event.preventDefault(); // Impede qualquer ação padrão (como navegação)
+                event.stopPropagation(); // Para a propagação para evitar bugs
+                
+                // Pega os IDs das âncoras guardados nos atributos data-*
+                const ref = clickableBox.dataset.anchorRef;
+                const bel = clickableBox.dataset.anchorBel;
+                
+                if (ref && bel) {
+                    console.log("Atributos data-* encontrados:", ref, bel);
+                    // Chama a função de rolagem global
+                    window.handleBulaScroll(ref, bel);
+                } else {
+                    console.warn("Caixa clicável encontrada, mas atributos data-anchor-ref ou data-anchor-bel estão faltando.");
+                }
+            } else {
+                 console.log("Clique não foi em um elemento .scroll-to-section.");
+            }
+        });
+        console.log("Listener de rolagem da bula ANEXADO e ATIVO.");
+    }
+    
+    // --- EXECUÇÃO ---
+    // Garante que o 'body' exista antes de anexar o listener
+    if (document.body) {
+         setupBulaScrollListener();
+    } else {
+        // Caso o script rode antes do DOM, espera
+         document.addEventListener('DOMContentLoaded', setupBulaScrollListener);
+    }
+    
     </script>
     """
+    # Injeta o script e o estilo no app
     st.markdown(js_scroll_script, unsafe_allow_html=True)
     # --- [FIM DO SCRIPT] ---
 
@@ -622,20 +659,24 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
                 ).replace('\n', '<br>')
+                
+                # --- [MODIFICADO] Adiciona cursor: pointer; ao estilo ---
+                clickable_style = expander_caixa_style + " cursor: pointer;"
+
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown("**Referência:** (Clique para rolar)")
+                    st.markdown("**Referência:** (Clique na caixa para rolar)")
                     # --- [MODIFICADO] Adiciona a classe e os atributos 'data-*' ao DIV ---
                     st.markdown(
-                        f"<div class='scroll-to-section' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='{expander_caixa_style}'>{expander_html_ref}</div>", 
+                        f"<div class='scroll-to-section' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='{clickable_style}'>{expander_html_ref}</div>", 
                         unsafe_allow_html=True
                     )
                 with c2:
-                    st.markdown("**BELFAR:** (Clique para rolar)")
+                    st.markdown("**BELFAR:** (Clique na caixa para rolar)")
                     # --- [MODIFICADO] Adiciona a classe e os atributos 'data-*' ao DIV ---
                     st.markdown(
-                        f"<div class='scroll-to-section' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='{expander_caixa_style}'>{expander_html_belfar}</div>", 
+                        f"<div class='scroll-to-section' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='{clickable_style}'>{expander_html_belfar}</div>", 
                         unsafe_allow_html=True
                     )
     else:
@@ -669,13 +710,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2 = st.columns(2, gap="medium")
     with col1:
         st.markdown(f"**📄 {nome_ref}**")
+        # ID do container principal
         st.markdown(f"<div id='container-ref-scroll' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
+        # ID do container principal
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-    # NÃO PRECISAMOS MAIS DO SCRIPT EXECUTOR NO FINAL
-
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
