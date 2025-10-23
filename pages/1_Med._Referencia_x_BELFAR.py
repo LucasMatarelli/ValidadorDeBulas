@@ -497,9 +497,9 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # <<< [MUDANÇA AQUI] >>>
-    # Injetamos o CSS para o botão JUNTO com o JavaScript
-    # Isso evita o erro do React com onmouseover/onmouseout
+    # <<< [MUDANÇA AQUI 1] >>>
+    # Adicionado 'text-decoration: none;' e 'display: inline-block;'
+    # para a classe .btn-scroll-nav
     js_and_css_script = """
     <script>
     // Verifica se a função já não existe para evitar re-declaração
@@ -567,11 +567,14 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         transition: all 0.3s ease;
         text-align: left; /* Garante alinhamento do texto */
+        text-decoration: none; /* Adicionado para a tag <a> */
+        display: inline-block; /* Adicionado para a tag <a> */
     }
     .btn-scroll-nav:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 12px rgba(0,0,0,0.15);
         color: white; /* Garante que o texto permaneça branco */
+        text-decoration: none; /* Garante no hover */
     }
     .btn-scroll-nav:active {
         transform: translateY(0);
@@ -581,7 +584,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     """
     # Injeta o script e o CSS uma vez no topo do relatório
     st.markdown(js_and_css_script, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA] ---
+    # --- [FIM DA MUDANÇA 1] ---
 
 
     st.header("Relatório de Auditoria Inteligente")
@@ -626,21 +629,22 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
-                # <<< [MUDANÇA AQUI] >>>
-                # O botão agora usa a CLASSE CSS 'btn-scroll-nav'
-                # Removemos 'style', 'onmouseover', e 'onmouseout' para evitar o erro do React.
+                # <<< [MUDANÇA AQUI 2] >>>
+                # Trocamos a tag <button> por uma tag <a>
+                # Adicionamos href="javascript:void(0);"
+                # Removemos type="button"
                 btn_html = f"""
-                <button onclick='console.log("BOTÃO CLICADO!"); window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}"); return false;' 
-                        class='btn-scroll-nav'
-                        type='button'>
+                <a href="javascript:void(0);"
+                   onclick='console.log("BOTÃO CLICADO!"); window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}"); return false;' 
+                   class='btn-scroll-nav'>
                     🎯 Ir para esta seção na visualização lado a lado ⬇️
-                </button>
+                </a>
                 <p style='font-size: 11px; color: #666; margin-top: -10px; margin-bottom: 10px;'>
                     💡 Dica: Abra o Console (F12) para ver logs de debug
                 </p>
                 """
                 st.markdown(btn_html, unsafe_allow_html=True)
-                # --- [FIM DA MUDANÇA] ---
+                # --- [FIM DA MUDANÇA 2] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
