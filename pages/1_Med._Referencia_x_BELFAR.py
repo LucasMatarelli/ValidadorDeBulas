@@ -497,53 +497,60 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # --- [MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # --- [MODIFICADO] Script JavaScript para a rolagem ---
-    # Agora injetado via st.markdown para existir no documento principal
-    js_scroll_script = """
+    # --- [NOVO] Script Parte 1: DEFINIÇÃO DAS FUNÇÕES ---
+    # Apenas define as funções. Elas serão CHAMADAS no final.
+    js_functions = """
     <script>
-    function scrollToSection(anchorIdRef, anchorIdBelfar) {
+    // Função que faz a rolagem
+    function handleScrollClick(event) {
+        var button = event.currentTarget;
+        var anchorIdRef = button.getAttribute('data-anchor-ref');
+        var anchorIdBel = button.getAttribute('data-anchor-bel');
+        
         var containerRef = document.getElementById('container-ref-scroll');
         var containerBel = document.getElementById('container-bel-scroll');
         var anchorRef = document.getElementById(anchorIdRef);
-        var anchorBel = document.getElementById(anchorIdBelfar);
+        var anchorBel = document.getElementById(anchorIdBel);
 
-        // 1. Rola a PÁGINA PRINCIPAL para a visualização lado a lado
+        // 1. Rola a PÁGINA PRINCIPAL
         if (containerRef) {
-             // 'block: 'start'' alinha o topo do container ao topo da janela
             containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
-        // 2. Rola DENTRO dos containers
-        // Usamos um timeout para esperar a rolagem principal terminar
+        // 2. Rola DENTRO dos containers (após a rolagem principal)
         setTimeout(() => {
             if (containerRef && anchorRef) {
-                // Calcula a posição da âncora relativa ao topo do container
                 var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
-                // Rola o container para essa posição
                 containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
-                
-                // Adiciona um destaque visual temporário
                 anchorRef.style.transition = 'background-color 0.5s ease-in-out';
-                anchorRef.style.backgroundColor = '#e6f7ff'; // Azul claro
+                anchorRef.style.backgroundColor = '#e6f7ff';
                 setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
             }
-            
             if (containerBel && anchorBel) {
                 var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
                 containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
-                
-                // Destaque
                 anchorBel.style.transition = 'background-color 0.5s ease-in-out';
                 anchorBel.style.backgroundColor = '#e6f7ff';
                 setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
             }
-        }, 700); // 700ms de espera para a rolagem principal
+        }, 700); // 700ms de espera
+    }
+
+    // Função que PROCURA os botões e anexa o 'listener' de clique
+    function attachScrollListeners() {
+        var buttons = document.querySelectorAll('.scroll-button');
+        buttons.forEach(function(button) {
+            // Adiciona um marcador 'hasClickListener' para não adicionar o mesmo evento várias vezes
+            if (!button.hasClickListener) {
+                button.addEventListener('click', handleScrollClick);
+                button.hasClickListener = true;
+            }
+        });
     }
     </script>
     """
-    # --- [MODIFICADO] Injeta o script usando st.markdown ---
-    st.markdown(js_scroll_script, unsafe_allow_html=True)
-    # --- [FIM DA MODIFICAÇÃO DO SCRIPT] ---
+    st.markdown(js_functions, unsafe_allow_html=True)
+    # --- [FIM DA PARTE 1] ---
 
     st.header("Relatório de Auditoria Inteligente")
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -589,11 +596,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
 
                 # --- [CORREÇÃO] ---
-                # O HTML do botão agora está em uma ÚNICA LINHA, sem quebras de linha.
-                # Usei aspas simples (') dentro do onclick para não conflitar com as aspas duplas (") do f-string.
-                button_html = f"<button onclick=\"scrollToSection('{anchor_id_ref}', '{anchor_id_bel}')\" style=\"background-color: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-bottom: 15px; width: 100%; text-align: center;\">Ir para esta Seção na Comparação Lado a Lado ⬇️</button>"
+                # O botão agora NÃO tem 'onclick'. 
+                # Tem 'class' e 'data-*' atributos.
+                # Usei aspas simples no HTML para o f-string do Python funcionar.
+                button_html = f"<button class='scroll-button' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='background-color: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-bottom: 15px; width: 100%; text-align: center;'>Ir para esta Seção na Comparação Lado a Lado ⬇️</button>"
                 
-                # --- [MODIFICADO] Injeta o botão usando st.markdown ---
                 st.markdown(button_html, unsafe_allow_html=True)
                 # --- [FIM DA MODIFICAÇÃO DO BOTÃO] ---
                 
@@ -642,12 +649,22 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2 = st.columns(2, gap="medium")
     with col1:
         st.markdown(f"**📄 {nome_ref}**")
-        # --- [MODIFICADO] Adiciona ID ao container de rolagem ---
         st.markdown(f"<div id='container-ref-scroll' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
-        # --- [MODIFICADO] Adiciona ID ao container de rolagem ---
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+
+    # --- [NOVO] Script Parte 2: EXECUÇÃO ---
+    # Este script é injetado no FINAL do relatório.
+    # Ele chama a função 'attachScrollListeners' (definida na Parte 1)
+    # O 'setTimeout' dá tempo ao Streamlit para renderizar os botões no DOM.
+    js_executor = """
+    <script>
+        setTimeout(attachScrollListeners, 500);
+    </script>
+    """
+    st.markdown(js_executor, unsafe_allow_html=True)
+    # --- [FIM DA PARTE 2] ---
 
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
@@ -665,7 +682,7 @@ with col2:
     st.subheader("📄 Med. BELFAR")
     pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
 
-if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
             texto_ref, erro_ref = extrair_texto(pdf_ref, 'pdf')
