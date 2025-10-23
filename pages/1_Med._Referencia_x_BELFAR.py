@@ -270,24 +270,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
-st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
-st.divider()
-
-st.header("📋 Configuração da Auditoria")
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("📄 Med. Referência")
-    pdf_ref = st.file_uploader("Envie o PDF de referência", type="pdf", key="ref")
-with col2:
-    st.subheader("📄 Med. BELFAR")
-    pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
+# ...(rest of the interface setup)...
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
+            # --- The calls MUST be INSIDE here ---
             texto_ref, erro_ref = extrair_texto(pdf_ref, 'pdf')
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
+            # ------------------------------------
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
