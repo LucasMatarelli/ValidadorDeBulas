@@ -497,7 +497,8 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # O CSS injetado permanece o mesmo da última vez
+    # O CSS e SCRIPT globais permanecem os mesmos.
+    # A função window.handleBulaScroll está pronta e esperando.
     js_and_css_script = """
     <script>
     // Verifica se a função já não existe para evitar re-declaração
@@ -564,9 +565,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         width: 100%;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         transition: all 0.3s ease;
-        text-align: left; 
+        text-align: center; /* Centralizado para a <div> */
         text-decoration: none; 
         display: inline-block; 
+        box-sizing: border-box; /* Garante que o padding não estoure a largura */
+        user-select: none; /* Impede a seleção de texto ao clicar */
     }
     .btn-scroll-nav:hover {
         transform: translateY(-2px);
@@ -628,59 +631,27 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 
                 # <<< [MUDANÇA AQUI] >>>
                 
-                # 1. ID único para o botão
-                button_id = f"btn-nav-{anchor_id_ref}"
+                # 1. Trocamos <button> por <div>
+                # 2. Adicionamos o 'onclick' embutido, chamando a função GLOBAL
+                # 3. Adicionamos 'role' e 'tabindex' por acessibilidade
+                # 4. Removemos o <script> separado. Não é mais necessário.
                 
-                # 2. HTML do botão (limpo, sem onclick)
                 btn_html = f"""
-                <button id="{button_id}" class="btn-scroll-nav" type="button">
+                <div class="btn-scroll-nav"
+                     onclick="console.log('DIV CLICADO!'); window.handleBulaScroll('{anchor_id_ref}', '{anchor_id_bel}');"
+                     role="button"
+                     tabindex="0"
+                >
                     🎯 Ir para esta seção na visualização lado a lado ⬇️
-                </button>
+                </div>
                 <p style='font-size: 11px; color: #666; margin-top: -10px; margin-bottom: 10px;'>
                     💡 Dica: Abra o Console (F12) para ver logs de debug
                 </p>
                 """
                 
-                # 3. Script separado com o 'setTimeout' para garantir
-                #    que o botão já exista no DOM.
-                script_html = f"""
-                <script>
-                (function() {{
-                    // Log para sabermos que o script está tentando rodar
-                    console.log("Tentando agendar listener para o botão ID: {button_id}");
-                    
-                    // Atrasar a busca pelo botão para o final da fila de execução
-                    setTimeout(function() {{
-                        var btn = document.getElementById("{button_id}");
-                        
-                        if (btn) {{
-                            // Log se o botão for encontrado
-                            console.log("Botão {button_id} ENCONTRADO.");
-                            
-                            if (!btn.hasClickListener) {{
-                                btn.hasClickListener = true; 
-                                btn.addEventListener("click", function(event) {{
-                                    event.preventDefault(); 
-                                    console.log("BOTÃO CLICADO (via EventListener)!");
-                                    window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}");
-                                }});
-                                console.log("EventListener adicionado ao botão: {button_id}");
-                            }} else {{
-                                console.log("Botão {button_id} já tinha um listener.");
-                            }}
-                        }} else {{
-                            // Log de ERRO se o botão não for encontrado
-                            console.error("ERRO: Botão {button_id} NÃO FOI ENCONTRADO no DOM.");
-                        }}
-                    }}, 0); // O '0'ms de timeout é a parte importante
-                
-                }})();
-                </script>
-                """
-                
-                # 4. Renderiza o HTML e o SCRIPT
+                # Renderiza apenas o HTML
                 st.markdown(btn_html, unsafe_allow_html=True)
-                st.markdown(script_html, unsafe_allow_html=True)
+                
                 # --- [FIM DA MUDANÇA] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
@@ -763,7 +734,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigi um 'erro_bfalar' aqui
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula BELFAR", tipo_bula_selecionado)
     else:
