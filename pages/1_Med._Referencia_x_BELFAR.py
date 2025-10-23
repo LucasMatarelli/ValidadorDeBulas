@@ -497,9 +497,8 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # <<< [MUDANÇA AQUI 1] >>>
-    # Adicionado 'text-decoration: none;' e 'display: inline-block;'
-    # para a classe .btn-scroll-nav
+    # O CSS injetado agora se aplica a 'button.btn-scroll-nav'
+    # (Não precisamos mudar nada do CSS da última vez, ele já usa a classe)
     js_and_css_script = """
     <script>
     // Verifica se a função já não existe para evitar re-declaração
@@ -566,15 +565,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         width: 100%;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         transition: all 0.3s ease;
-        text-align: left; /* Garante alinhamento do texto */
-        text-decoration: none; /* Adicionado para a tag <a> */
-        display: inline-block; /* Adicionado para a tag <a> */
+        text-align: left; 
+        text-decoration: none; 
+        display: inline-block; 
     }
     .btn-scroll-nav:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-        color: white; /* Garante que o texto permaneça branco */
-        text-decoration: none; /* Garante no hover */
+        color: white; 
+        text-decoration: none; 
     }
     .btn-scroll-nav:active {
         transform: translateY(0);
@@ -584,7 +583,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     """
     # Injeta o script e o CSS uma vez no topo do relatório
     st.markdown(js_and_css_script, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA 1] ---
 
 
     st.header("Relatório de Auditoria Inteligente")
@@ -629,22 +627,47 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
-                # <<< [MUDANÇA AQUI 2] >>>
-                # Trocamos a tag <button> por uma tag <a>
-                # Adicionamos href="javascript:void(0);"
-                # Removemos type="button"
+                # <<< [MUDANÇA AQUI] >>>
+                # 1. Criamos um ID único para o botão
+                button_id = f"btn-nav-{anchor_id_ref}"
+                
+                # 2. O HTML do botão agora é "limpo":
+                #    - Voltamos a usar <button>
+                #    - Adicionamos o ID único
+                #    - REMOVEMOS o 'onclick'
                 btn_html = f"""
-                <a href="javascript:void(0);"
-                   onclick='console.log("BOTÃO CLICADO!"); window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}"); return false;' 
-                   class='btn-scroll-nav'>
+                <button id="{button_id}" class="btn-scroll-nav" type="button">
                     🎯 Ir para esta seção na visualização lado a lado ⬇️
-                </a>
+                </button>
                 <p style='font-size: 11px; color: #666; margin-top: -10px; margin-bottom: 10px;'>
                     💡 Dica: Abra o Console (F12) para ver logs de debug
                 </p>
                 """
+                
+                # 3. O SCRIPT é injetado separadamente, *depois* do HTML
+                #    Este script encontra o botão pelo ID e adiciona o 'listener'
+                #    de forma segura.
+                script_html = f"""
+                <script>
+                (function() {{
+                    var btn = document.getElementById("{button_id}");
+                    if (btn && !btn.hasClickListener) {{ // Evita adicionar o listener múltiplas vezes
+                        btn.hasClickListener = true; 
+                        btn.addEventListener("click", function(event) {{
+                            event.preventDefault(); // Impede qualquer comportamento padrão
+                            console.log("BOTÃO CLICADO (via EventListener)!");
+                            window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}");
+                        }});
+                        console.log("EventListener adicionado ao botão: {button_id}");
+                    }}
+                }})();
+                </script>
+                """
+                
+                # 4. Renderizamos ambos, um após o outro
                 st.markdown(btn_html, unsafe_allow_html=True)
-                # --- [FIM DA MUDANÇA 2] ---
+                st.markdown(script_html, unsafe_allow_html=True)
+                # --- [FIM DA MUDANÇA] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
@@ -726,7 +749,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_bfalar}")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula BELFAR", tipo_bula_selecionado)
     else:
