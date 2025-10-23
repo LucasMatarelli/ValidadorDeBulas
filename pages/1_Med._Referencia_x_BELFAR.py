@@ -585,7 +585,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.success("✅ Todas as seções obrigatórias estão presentes")
         
     # --- [BLOCO INSERIDO PELO USUÁRIO] ---
-    if diferencas_conteudo:
+if diferencas_conteudo:
         st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         expander_caixa_style = (
             "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
@@ -600,9 +600,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
-                # Botão de navegação estilizado
+                # Botão de navegação com teste de clique
                 btn_html = f"""
-                <button onclick='window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}")' 
+                <button onclick='console.log("BOTÃO CLICADO!"); window.handleBulaScroll("{anchor_id_ref}", "{anchor_id_bel}"); return false;' 
                         style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                                color: white; border: none; padding: 12px 24px; 
                                border-radius: 8px; cursor: pointer; font-weight: 600;
@@ -610,9 +610,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                                transition: all 0.3s ease;'
                         onmouseover='this.style.transform="translateY(-2px)"; this.style.boxShadow="0 6px 12px rgba(0,0,0,0.15)"'
-                        onmouseout='this.style.transform="translateY(0)"; this.style.boxShadow="0 4px 6px rgba(0,0,0,0.1)"'>
+                        onmouseout='this.style.transform="translateY(0)"; this.style.boxShadow="0 4px 6px rgba(0,0,0,0.1)"'
+                        type='button'>
                     🎯 Ir para esta seção na visualização lado a lado ⬇️
                 </button>
+                <p style='font-size: 11px; color: #666; margin-top: -10px; margin-bottom: 10px;'>
+                    💡 Dica: Abra o Console (F12) para ver logs de debug
+                </p>
                 """
                 st.markdown(btn_html, unsafe_allow_html=True)
                 
