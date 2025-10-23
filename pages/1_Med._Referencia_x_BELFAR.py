@@ -138,7 +138,7 @@ def obter_secoes_por_tipo(tipo_bula):
             "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
             "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
             "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
-            "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
+            "CUIDADOS DE ARZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
             "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
         ]
     }
@@ -151,7 +151,7 @@ def obter_aliases_secao():
         "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
         "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
         "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
+        "CUIDADOS DE ARZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
     }
 
 def obter_secoes_ignorar_ortografia():
@@ -251,7 +251,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
             "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
             "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
-            "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
+            "CUIDADOS DE ARZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
             "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
         ]
     }
@@ -508,9 +508,19 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.subheader("Dashboard de Veredito")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
-    col2.metric("Erros Ortográficos", len(erros_ortograficos))
+    
+    # Métricas clicáveis com redirecionamento
+    with col2:
+        if st.button(f"📝 {len(erros_ortograficos)} Erros Ortográficos", key="btn_erros_ortografia", use_container_width=True):
+            st.session_state['scroll_to'] = 'erros_ortografia'
+            st.rerun()
+            
     col3.metric("Data ANVISA (BELFAR)", data_belfar)
-    col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
+    
+    with col4:
+        if st.button(f"⚠️ {len(diferencas_conteudo)} Divergências", key="btn_divergencias", use_container_width=True):
+            st.session_state['scroll_to'] = 'divergencias_conteudo'
+            st.rerun()
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
