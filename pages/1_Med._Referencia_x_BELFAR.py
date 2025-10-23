@@ -497,113 +497,62 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # --- [NOVO] Script de "Event Delegation" v3 (Robusto) ---
+    # --- [NOVO] Script Global (Plano C) ---
+    # Injeta a função de rolagem no escopo GLOBAL (window)
+    # Isso garante que a função `onclick` possa encontrá-la.
     js_scroll_script = """
-    <style>
-        /* [NOVO] Adiciona feedback visual para as caixas clicáveis */
-        .scroll-to-section {
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-        }
-        .scroll-to-section:hover {
-            background-color: #f0f8ff !important; /* Um azul bem claro no hover */
-        }
-    </style>
-    
     <script>
-    // --- FUNÇÃO DE ROLAGEM ---
-    // Colocamos no 'window' para garantir que esteja no escopo global
-    window.handleBulaScroll = function(anchorIdRef, anchorIdBel) {
-        console.log("handleBulaScroll INICIADA com:", anchorIdRef, anchorIdBel);
-        var containerRef = document.getElementById('container-ref-scroll');
-        var containerBel = document.getElementById('container-bel-scroll');
-        var anchorRef = document.getElementById(anchorIdRef);
-        var anchorBel = document.getElementById(anchorIdBel);
+    // Verifica se a função já não existe para evitar re-declaração
+    if (!window.handleBulaScroll) {
+        window.handleBulaScroll = function(anchorIdRef, anchorIdBel) {
+            // Log para debug (Aperte F12 no navegador para ver)
+            console.log("Chamada handleBulaScroll:", anchorIdRef, anchorIdBel);
 
-        // Debugging: Verifica se os elementos foram encontrados
-        if (!containerRef || !containerBel) {
-            console.error("ERRO: Containers de rolagem (container-ref-scroll ou container-bel-scroll) NÃO ENCONTRADOS.");
-            return;
-        }
-        if (!anchorRef || !anchorBel) {
-            console.error("ERRO: Âncoras (" + anchorIdRef + " ou " + anchorIdBel + ") NÃO ENCONTRADAS.");
-            return;
-        }
+            var containerRef = document.getElementById('container-ref-scroll');
+            var containerBel = document.getElementById('container-bel-scroll');
+            var anchorRef = document.getElementById(anchorIdRef);
+            var anchorBel = document.getElementById(anchorIdBel);
 
-        // 1. Rola a PÁGINA PRINCIPAL para a visualização
-        containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-        // 2. Rola DENTRO dos containers (após a rolagem principal)
-        setTimeout(() => {
-            var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
-            containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
-            // Destaque visual
-            anchorRef.style.transition = 'background-color 0.5s ease-in-out';
-            anchorRef.style.backgroundColor = '#e6f7ff';
-            setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
-            
-            var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
-            containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
-            // Destaque visual
-            anchorBel.style.transition = 'background-color 0.5s ease-in-out';
-            anchorBel.style.backgroundColor = '#e6f7ff';
-            setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
-            
-            console.log("Rolagem interna executada.");
-        }, 700); // 700ms de espera
-    }
-
-    // --- CONFIGURAÇÃO DO "OUVINTE" DE EVENTOS ---
-    // Esta função anexa o 'listener' ao body
-    function setupBulaScrollListener() {
-        // Verifica se o listener já foi anexado para evitar duplicatas
-        if (document.body.hasBulaListener) {
-             console.log("Listener de rolagem já está ativo.");
-             return;
-        }
-        document.body.hasBulaListener = true;
-        
-        // Anexa o listener de 'click' ao BODY.
-        document.body.addEventListener('click', function(event) {
-            console.log("Clique detectado no body.");
-            // Verifica se o alvo do clique (ou um 'pai' dele) tem a classe
-            const clickableBox = event.target.closest('.scroll-to-section');
-            
-            if (clickableBox) {
-                console.log("Elemento clicável (.scroll-to-section) encontrado.");
-                event.preventDefault(); // Impede qualquer ação padrão (como navegação)
-                event.stopPropagation(); // Para a propagação para evitar bugs
-                
-                // Pega os IDs das âncoras guardados nos atributos data-*
-                const ref = clickableBox.dataset.anchorRef;
-                const bel = clickableBox.dataset.anchorBel;
-                
-                if (ref && bel) {
-                    console.log("Atributos data-* encontrados:", ref, bel);
-                    // Chama a função de rolagem global
-                    window.handleBulaScroll(ref, bel);
-                } else {
-                    console.warn("Caixa clicável encontrada, mas atributos data-anchor-ref ou data-anchor-bel estão faltando.");
-                }
-            } else {
-                 console.log("Clique não foi em um elemento .scroll-to-section.");
+            if (!containerRef || !containerBel) {
+                console.error("ERRO: Containers 'container-ref-scroll' ou 'container-bel-scroll' não encontrados.");
+                return;
             }
-        });
-        console.log("Listener de rolagem da bula ANEXADO e ATIVO.");
+            if (!anchorRef || !anchorBel) {
+                console.error("ERRO: Âncoras '" + anchorIdRef + "' ou '" + anchorIdBel + "' não encontradas.");
+                return;
+            }
+
+            // 1. Rola a PÁGINA PRINCIPAL para a visualização
+            containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            // 2. Rola DENTRO dos containers (após a rolagem principal)
+            setTimeout(() => {
+                try {
+                    var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
+                    containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
+                    // Destaque visual
+                    anchorRef.style.transition = 'background-color 0.5s ease-in-out';
+                    anchorRef.style.backgroundColor = '#e6f7ff';
+                    setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
+                    
+                    var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
+                    containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
+                    // Destaque visual
+                    anchorBel.style.transition = 'background-color 0.5s ease-in-out';
+                    anchorBel.style.backgroundColor = '#e6f7ff';
+                    setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
+
+                    console.log("Rolagem interna EXECUTADA.");
+                } catch (e) {
+                    console.error("Erro durante a rolagem interna:", e);
+                }
+            }, 700); // 700ms de espera
+        }
+        console.log("Função window.handleBulaScroll DEFINIDA.");
     }
-    
-    // --- EXECUÇÃO ---
-    // Garante que o 'body' exista antes de anexar o listener
-    if (document.body) {
-         setupBulaScrollListener();
-    } else {
-        // Caso o script rode antes do DOM, espera
-         document.addEventListener('DOMContentLoaded', setupBulaScrollListener);
-    }
-    
     </script>
     """
-    # Injeta o script e o estilo no app
+    # Injeta o script uma vez no topo do relatório
     st.markdown(js_scroll_script, unsafe_allow_html=True)
     # --- [FIM DO SCRIPT] ---
 
@@ -647,11 +596,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
                 # --- [MODIFICADO] ---
-                # REMOVEMOS o botão.
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
-                # --- [FIM DA MODIFICAÇÃO] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
@@ -660,25 +607,22 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
                 ).replace('\n', '<br>')
                 
-                # --- [MODIFICADO] Adiciona cursor: pointer; ao estilo ---
-                clickable_style = expander_caixa_style + " cursor: pointer;"
-
+                # Adiciona 'cursor: pointer;' e um 'title' para feedback
+                clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
+                
+                # --- [A MUDANÇA CRÍTICA] ---
+                # Criamos o HTML da caixa clicável com o 'onclick' chamando a função GLOBAL.
+                # Usamos aspas simples (') para o HTML e duplas (") para os parâmetros do JavaScript.
+                html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
+                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
 
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Referência:** (Clique na caixa para rolar)")
-                    # --- [MODIFICADO] Adiciona a classe e os atributos 'data-*' ao DIV ---
-                    st.markdown(
-                        f"<div class='scroll-to-section' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='{clickable_style}'>{expander_html_ref}</div>", 
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(html_ref_box, unsafe_allow_html=True)
                 with c2:
                     st.markdown("**BELFAR:** (Clique na caixa para rolar)")
-                    # --- [MODIFICADO] Adiciona a classe e os atributos 'data-*' ao DIV ---
-                    st.markdown(
-                        f"<div class='scroll-to-section' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='{clickable_style}'>{expander_html_belfar}</div>", 
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(html_bel_box, unsafe_allow_html=True)
     else:
         st.success("✅ Conteúdo das seções está idêntico")
 
