@@ -9,6 +9,7 @@ from spellchecker import SpellChecker
 import difflib
 import unicodedata
 import streamlit.components.v1 as components
+import json  # <-- IMPORTADO PARA O JAVASCRIPT
 
 # Import local (assumindo que está no mesmo diretório)
 from style_utils import hide_streamlit_toolbar
@@ -479,9 +480,40 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     return resultado
 
 
-# ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
+# ----------------- MARCAÇÃO E INJEÇÃO DE ÂNCORAS -----------------
+
+def injetar_ancoras(texto_original, mapa_secoes, prefixo_id):
+    """
+    Injeta âncoras HTML nos títulos de seção do texto original.
+    prefixo_id: 'ref' ou 'belfar'
+    """
+    texto_com_ancoras = texto_original
+    for secao in mapa_secoes:
+        titulo = secao['titulo_encontrado']
+        # Gera um ID de âncora "limpo" e único
+        ancora_id = f"{prefixo_id}-{secao['canonico']}".replace(" ", "_").replace("?", "")
+        
+        # Envolve o título com a âncora
+        replace_with = f"<a id='{ancora_id}'>{titulo}</a>"
+        
+        # Substitui a primeira ocorrência exata do título
+        # Usamos um regex para garantir que é o título exato,
+        # mas sem ser muito restritivo (como ^...$)
+        try:
+            pattern = re.compile(r'(' + re.escape(titulo) + r')')
+            if pattern.search(texto_com_ancoras):
+                 texto_com_ancoras = pattern.sub(replace_with, texto_com_ancoras, count=1)
+        except re.error:
+            # Fallback para títulos com caracteres de regex
+            texto_com_ancoras = texto_com_ancoras.replace(titulo, replace_with, 1)
+
+    return texto_com_ancoras
+
 
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
+    """
+    Recebe o texto JÁ COM ÂNCORAS e aplica marcações de divergência e ortografia.
+    """
     texto_trabalho = texto_original
 
     if secoes_problema:
@@ -497,11 +529,13 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
                 eh_referencia
             )
 
+            # Substitui o conteúdo SEM quebrar as âncoras (que estão nos títulos)
             if conteudo_a_marcar in texto_trabalho:
                 texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_marcado)
 
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
+            # Regex modificado para NÃO marcar palavras dentro de tags HTML (<...>)
             pattern = r'(?<![<>a-zA-Z])(?<!mark>)(?<!;>)\b(' + re.escape(erro) + r')\b(?![<>])'
             texto_trabalho = re.sub(
                 pattern,
@@ -540,7 +574,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
-    # --- Dashboard de Veredito (Botões agora funcionam) ---
+    # --- Mapeamento (necessário para as âncoras) ---
+    mapa_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
+    mapa_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
+
+    # --- Dashboard de Veredito (Botões de Scroll) ---
     st.subheader("Dashboard de Veredito")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
@@ -552,8 +590,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             use_container_width=True, 
             disabled=(len(erros_ortograficos) == 0)
         ):
-            # Define o "alvo" do scroll
-            st.session_state['scroll_to'] = 'visualizacao_lado_a_lado'
+            st.session_state['scroll_to'] = 'visualizacao_lado_a_lado' # Apenas scroll da página
             st.rerun()
             
     col3.metric("Data ANVISA (BELFAR)", data_belfar)
@@ -565,8 +602,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             use_container_width=True, 
             disabled=(len(diferencas_conteudo) == 0)
         ):
-            # Define o "alvo" do scroll
-            st.session_state['scroll_to'] = 'visualizacao_lado_a_lado'
+            st.session_state['scroll_to'] = 'visualizacao_lado_a_lado' # Apenas scroll da página
             st.rerun()
 
     st.divider()
@@ -587,17 +623,22 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
         )
 
-        # --- MUDANÇA: Adicionado 'enumerate' para chaves únicas
         for i, diff in enumerate(diferencas_conteudo):
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
-                # --- MUDANÇA: Adicionado botão de scroll dentro do expander
+                # --- MUDANÇA: Botão de scroll agora define âncoras internas
+                secao_canonico = diff['secao']
+                ancora_id_ref = f"ref-{secao_canonico}".replace(" ", "_").replace("?", "")
+                ancora_id_belfar = f"belfar-{secao_canonico}".replace(" ", "_").replace("?", "")
+
                 if st.button(
                     "Ir para a visualização principal ⬇️", 
-                    key=f"btn_scroll_diff_{i}", # Chave única
+                    key=f"btn_scroll_diff_{i}",
                     use_container_width=True
                 ):
                     st.session_state['scroll_to'] = 'visualizacao_lado_a_lado'
+                    st.session_state['scroll_to_ref_anchor'] = ancora_id_ref
+                    st.session_state['scroll_to_belfar_anchor'] = ancora_id_belfar
                     st.rerun()
                 # --- Fim da mudança ---
 
@@ -627,7 +668,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     
-    # --- MUDANÇA: Adicionada uma "âncora" HTML para onde o scroll deve ir
     st.markdown("<a id='visualizacao_lado_a_lado'></a>", unsafe_allow_html=True)
     st.subheader("Visualização Lado a Lado com Destaques")
 
@@ -638,8 +678,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
+    # --- MUDANÇA: Injeta âncoras ANTES de marcar ---
+    texto_ref_com_ancoras = injetar_ancoras(texto_ref, mapa_ref, 'ref')
+    texto_belfar_com_ancoras = injetar_ancoras(texto_belfar, mapa_belfar, 'belfar')
+
     html_ref_marcado = marcar_divergencias_html(
-        texto_original=texto_ref, 
+        texto_original=texto_ref_com_ancoras, 
         secoes_problema=diferencas_conteudo, 
         erros_ortograficos=[], 
         tipo_bula=tipo_bula, 
@@ -647,12 +691,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     ).replace('\n', '<br>')
     
     html_belfar_marcado = marcar_divergencias_html(
-        texto_original=texto_belfar, 
+        texto_original=texto_belfar_com_ancoras, 
         secoes_problema=diferencas_conteudo, 
         erros_ortograficos=erros_ortograficos, 
         tipo_bula=tipo_bula, 
         eh_referencia=False
     ).replace('\n', '<br>')
+    # --- Fim da mudança ---
 
     caixa_style = (
         "height: 700px; overflow-y: auto; border: 2px solid #999; border-radius: 4px; "
@@ -665,35 +710,74 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2 = st.columns(2, gap="medium")
     with col1:
         st.markdown(f"**📄 {nome_ref}**")
-        st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
+        # --- MUDANÇA: Adicionado ID 'box-ref' ---
+        st.markdown(f"<div id='box-ref' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
-        st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+        # --- MUDANÇA: Adicionado ID 'box-belfar' ---
+        st.markdown(f"<div id='box-belfar' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-    # --- MUDANÇA: Código JavaScript para fazer o scroll
-    # Este código roda após a página recarregar (st.rerun)
-    if 'scroll_to' in st.session_state and st.session_state['scroll_to'] is not None:
-        anchor_id = st.session_state['scroll_to']
+    # --- MUDANÇA: Código JavaScript para scroll duplo ---
+    if 'scroll_to' in st.session_state:
+        # Pega e remove os valores do state
+        anchor_id_pagina = st.session_state.pop('scroll_to')
+        ref_anchor = st.session_state.pop('scroll_to_ref_anchor', None)
+        belfar_anchor = st.session_state.pop('scroll_to_belfar_anchor', None)
+        
+        # Passa os valores para o JavaScript de forma segura
+        js_ref_anchor = json.dumps(ref_anchor)
+        js_belfar_anchor = json.dumps(belfar_anchor)
+
         js_scroll = f"""
         <script>
         (function() {{
-            // Aguarda um curto período para garantir que a âncora esteja renderizada
+            
+            function scrollContainerToAnchor(containerId, anchorId) {{
+                if (!anchorId) return; // Não faz nada se a âncora for nula
+                var container = document.getElementById(containerId);
+                var anchor = document.getElementById(anchorId);
+                
+                if (!container) {{ console.error('Container not found:', containerId); return; }}
+                if (!anchor) {{ console.error('Anchor not found:', anchorId); return; }}
+                
+                // Rola o container para que a âncora fique no centro
+                anchor.scrollIntoView({{behavior: 'smooth', block: 'center'}});
+                
+                // Destaque temporário
+                var originalBg = anchor.style.backgroundColor;
+                anchor.style.backgroundColor = '#007bff'; // Azul
+                anchor.style.color = 'white';
+                anchor.style.padding = '2px';
+                anchor.style.borderRadius = '3px';
+                
+                setTimeout(function() {{
+                    anchor.style.backgroundColor = originalBg;
+                    anchor.style.color = '';
+                    anchor.style.padding = '';
+                    anchor.style.borderRadius = '';
+                }}, 2500);
+            }}
+
+            // 1. Rolar a página principal
             setTimeout(function() {{
-                var anchor = document.getElementById('{anchor_id}');
-                if (anchor) {{
-                    console.log('Scrolling to: {anchor_id}');
-                    anchor.scrollIntoView({{behavior: 'smooth', block: 'start'}});
+                var page_anchor = document.getElementById('{anchor_id_pagina}');
+                if (page_anchor) {{
+                    page_anchor.scrollIntoView({{behavior: 'smooth', block: 'start'}});
                 }} else {{
-                    console.error('Anchor not found: {anchor_id}');
+                    console.error('Page anchor not found: {anchor_id_pagina}');
                 }}
-            }}, 200); // 200ms de espera
+                
+                // 2. Rolar dentro das caixas (depois que a página rolar)
+                setTimeout(function() {{
+                    scrollContainerToAnchor('box-ref', {js_ref_anchor});
+                    scrollContainerToAnchor('box-belfar', {js_belfar_anchor});
+                }}, 800); // Espera a rolagem da página terminar
+
+            }}, 200); // 200ms de espera inicial
         }})();
         </script>
         """
         components.html(js_scroll, height=0)
-        
-        # Limpa a variável de estado para não rolar novamente em re-runs comuns
-        del st.session_state['scroll_to']
     # --- Fim da mudança ---
 
 
@@ -715,8 +799,7 @@ with col2:
     st.subheader("📄 Med. BELFAR")
     pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
 
-# --- MUDANÇA: Lógica de estado para persistir o relatório ---
-# Se o botão for clicado, processa e SALVA no st.session_state
+# --- Lógica de estado para persistir o relatório ---
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
@@ -730,7 +813,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
-                # Limpa dados antigos se falhar
                 if 'report_data' in st.session_state:
                     del st.session_state['report_data']
             else:
@@ -744,12 +826,10 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 }
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
-        # Limpa dados antigos se faltar arquivo
         if 'report_data' in st.session_state:
             del st.session_state['report_data']
 
-# Se os dados do relatório EXISTIREM no state (seja da primeira vez ou de um st.rerun),
-# a função gerar_relatorio_final() é chamada.
+# Se os dados do relatório EXISTIREM no state, a função é chamada.
 if 'report_data' in st.session_state and st.session_state['report_data']:
     data = st.session_state['report_data']
     gerar_relatorio_final(
