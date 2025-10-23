@@ -584,8 +584,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
         
-    # --- [BLOCO INSERIDO PELO USUÁRIO] ---
-if diferencas_conteudo:
+    # --- [BLOCO CORRIGIDO] ---
+    # Este bloco inteiro foi indentado (movido para a direita)
+    # para ficar DENTRO da função 'gerar_relatorio_final'.
+    if diferencas_conteudo:
         st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         expander_caixa_style = (
             "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
@@ -634,7 +636,7 @@ if diferencas_conteudo:
                 with c2:
                     st.markdown("**📄 BELFAR:**")
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
-    # --- [FIM DO BLOCO INSERIDO] ---
+    # --- [FIM DO BLOCO CORRIGIDO] ---
     else:
         st.success("✅ Conteúdo das seções está idêntico")
 
