@@ -496,8 +496,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # <<< [MUDANÇA AQUI 1] >>>
-    # Adicionamos o "Event Listener" global
+    # Script de Delegação de Evento (O mesmo da última vez)
     js_and_css_script = """
     <script>
     // 1. A função de rolagem (como estava antes)
@@ -540,7 +539,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         console.log("Função window.handleBulaScroll DEFINIDA.");
     }
     
-    // 2. O NOVO "Ouvinte" Global (Delegação de Evento)
+    // 2. O "Ouvinte" Global (Delegação de Evento)
     if (!window.globalClickListenerAttached) {
         document.body.addEventListener('click', function(event) {
             // Encontra o alvo do clique que tem a classe 'btn-scroll-nav'
@@ -624,7 +623,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Referência: `{data_ref}`\n - BELFAR: `{data_bfalar}`")
+    
+    # <<< [MUDANÇA AQUI] >>>
+    # Corrigido o erro de digitação de 'data_bfalar' para 'data_belfar'
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Referência: `{data_ref}`\n - BELFAR: `{data_belfar}`")
+    # --- [FIM DA MUDANÇA] ---
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
@@ -646,13 +649,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
-                # <<< [MUDANÇA AQUI 2] >>>
-                
-                # O botão agora é "burro". Ele só tem:
-                # 1. A classe CSS para parecer um botão.
-                # 2. Os atributos 'data-' para o nosso script global ler.
-                # 3. NENHUM 'onclick', 'href', ou 'script' perto dele.
-                
+                # O botão "burro" (O mesmo da última vez, está correto)
                 btn_html = f"""
                 <button class="btn-scroll-nav"
                         type="button" 
@@ -666,10 +663,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 </p>
                 """
                 
-                # Renderiza apenas o HTML (AGORA TOTALMENTE SEGURO!)
+                # Renderiza apenas o HTML
                 st.markdown(btn_html, unsafe_allow_html=True)
-                
-                # --- [FIM DA MUDANÇA] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
