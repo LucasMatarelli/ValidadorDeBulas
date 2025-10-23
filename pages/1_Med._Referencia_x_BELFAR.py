@@ -497,22 +497,33 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # --- [MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
-    # --- [NOVO] Script Parte 1: DEFINIÇÃO DAS FUNÇÕES ---
-    # Apenas define as funções. Elas serão CHAMADAS no final.
-    js_functions = """
+    # --- [NOVO] Script de "Event Delegation" ---
+    # Esta é a forma definitiva. Injetamos um script que "ouve"
+    # todos os cliques na página. Se o clique for em algo com a
+    # classe 'scroll-to-section', ele executa a rolagem.
+    # Isso funciona mesmo se o item for carregado depois (como no expander).
+    
+    js_scroll_script = """
+    <style>
+        /* [NOVO] Adiciona feedback visual para as caixas clicáveis */
+        .scroll-to-section {
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .scroll-to-section:hover {
+            background-color: #f0f8ff !important; /* Um azul bem claro no hover */
+        }
+    </style>
+    
     <script>
-    // Função que faz a rolagem
-    function handleScrollClick(event) {
-        var button = event.currentTarget;
-        var anchorIdRef = button.getAttribute('data-anchor-ref');
-        var anchorIdBel = button.getAttribute('data-anchor-bel');
-        
+    // Função que faz a lógica da rolagem
+    function handleScrollLogic(anchorIdRef, anchorIdBel) {
         var containerRef = document.getElementById('container-ref-scroll');
         var containerBel = document.getElementById('container-bel-scroll');
         var anchorRef = document.getElementById(anchorIdRef);
         var anchorBel = document.getElementById(anchorIdBel);
 
-        // 1. Rola a PÁGINA PRINCIPAL
+        // 1. Rola a PÁGINA PRINCIPAL para a visualização
         if (containerRef) {
             containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -522,6 +533,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             if (containerRef && anchorRef) {
                 var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
                 containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
+                // Destaque visual
                 anchorRef.style.transition = 'background-color 0.5s ease-in-out';
                 anchorRef.style.backgroundColor = '#e6f7ff';
                 setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
@@ -529,6 +541,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             if (containerBel && anchorBel) {
                 var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
                 containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
+                // Destaque visual
                 anchorBel.style.transition = 'background-color 0.5s ease-in-out';
                 anchorBel.style.backgroundColor = '#e6f7ff';
                 setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
@@ -536,21 +549,27 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         }, 700); // 700ms de espera
     }
 
-    // Função que PROCURA os botões e anexa o 'listener' de clique
-    function attachScrollListeners() {
-        var buttons = document.querySelectorAll('.scroll-button');
-        buttons.forEach(function(button) {
-            // Adiciona um marcador 'hasClickListener' para não adicionar o mesmo evento várias vezes
-            if (!button.hasClickListener) {
-                button.addEventListener('click', handleScrollClick);
-                button.hasClickListener = true;
+    // "Ouvinte" de eventos principal
+    // Usamos 'mousedown' pois é mais confiável que 'click' no Streamlit
+    document.addEventListener('mousedown', function(event) {
+        // Encontra o ancestral clicável mais próximo com a classe
+        const clickableBox = event.target.closest('.scroll-to-section');
+        
+        if (clickableBox) {
+            // Pega os IDs das âncoras guardados nos atributos data-*
+            const anchorIdRef = clickableBox.dataset.anchorRef;
+            const anchorIdBel = clickableBox.dataset.anchorBel;
+            
+            if (anchorIdRef && anchorIdBel) {
+                handleScrollLogic(anchorIdRef, anchorIdBel);
             }
-        });
-    }
+        }
+    }, true); // 'true' captura o evento mais cedo
     </script>
     """
-    st.markdown(js_functions, unsafe_allow_html=True)
-    # --- [FIM DA PARTE 1] ---
+    st.markdown(js_scroll_script, unsafe_allow_html=True)
+    # --- [FIM DO SCRIPT] ---
+
 
     st.header("Relatório de Auditoria Inteligente")
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -590,19 +609,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         for diff in diferencas_conteudo:
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
-                # --- [MODIFICADO] Botão de Rolagem ---
+                # --- [MODIFICADO] ---
+                # REMOVEMOS o botão.
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
-
-                # --- [CORREÇÃO] ---
-                # O botão agora NÃO tem 'onclick'. 
-                # Tem 'class' e 'data-*' atributos.
-                # Usei aspas simples no HTML para o f-string do Python funcionar.
-                button_html = f"<button class='scroll-button' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='background-color: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-bottom: 15px; width: 100%; text-align: center;'>Ir para esta Seção na Comparação Lado a Lado ⬇️</button>"
-                
-                st.markdown(button_html, unsafe_allow_html=True)
-                # --- [FIM DA MODIFICAÇÃO DO BOTÃO] ---
+                # --- [FIM DA MODIFICAÇÃO] ---
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
@@ -613,11 +625,19 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown("**Referência:**")
-                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
+                    st.markdown("**Referência:** (Clique para rolar)")
+                    # --- [MODIFICADO] Adiciona a classe e os atributos 'data-*' ao DIV ---
+                    st.markdown(
+                        f"<div class='scroll-to-section' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='{expander_caixa_style}'>{expander_html_ref}</div>", 
+                        unsafe_allow_html=True
+                    )
                 with c2:
-                    st.markdown("**BELFAR:**")
-                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
+                    st.markdown("**BELFAR:** (Clique para rolar)")
+                    # --- [MODIFICADO] Adiciona a classe e os atributos 'data-*' ao DIV ---
+                    st.markdown(
+                        f"<div class='scroll-to-section' data-anchor-ref='{anchor_id_ref}' data-anchor-bel='{anchor_id_bel}' style='{expander_caixa_style}'>{expander_html_belfar}</div>", 
+                        unsafe_allow_html=True
+                    )
     else:
         st.success("✅ Conteúdo das seções está idêntico")
 
@@ -653,18 +673,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
-
-    # --- [NOVO] Script Parte 2: EXECUÇÃO ---
-    # Este script é injetado no FINAL do relatório.
-    # Ele chama a função 'attachScrollListeners' (definida na Parte 1)
-    # O 'setTimeout' dá tempo ao Streamlit para renderizar os botões no DOM.
-    js_executor = """
-    <script>
-        setTimeout(attachScrollListeners, 500);
-    </script>
-    """
-    st.markdown(js_executor, unsafe_allow_html=True)
-    # --- [FIM DA PARTE 2] ---
+    
+    # NÃO PRECISAMOS MAIS DO SCRIPT EXECUTOR NO FINAL
 
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
@@ -682,7 +692,7 @@ with col2:
     st.subheader("📄 Med. BELFAR")
     pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
 
-if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="primary"):
+if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
             texto_ref, erro_ref = extrair_texto(pdf_ref, 'pdf')
