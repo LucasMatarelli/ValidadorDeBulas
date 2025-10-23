@@ -30,7 +30,7 @@ visibility: hidden !important;
 /* Esconde o 'Created by' */
 [data-testid="stCreatedBy"] {
 display: none !important;
-visibility: hidden !importa
+visibility: hidden !important;
 }
 
 /* Esconde o 'Hosted with Streamlit' */
@@ -588,20 +588,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
 
-                # Botão HTML que chama a função JavaScript
-                button_html = f"""
-                    <button 
-                        onclick="scrollToSection('{anchor_id_ref}', '{anchor_id_bel}')"
-                        style="
-                            background-color: #007bff; color: white; border: none; 
-                            padding: 8px 16px; border-radius: 5px; cursor: pointer;
-                            font-weight: bold; margin-bottom: 15px; width: 100%;
-                            text-align: center;
-                        "
-                    >
-                        Ir para esta Seção na Comparação Lado a Lado ⬇️
-                    </button>
-                """
+                # --- [CORREÇÃO] ---
+                # O HTML do botão agora está em uma ÚNICA LINHA, sem quebras de linha.
+                # Usei aspas simples (') dentro do onclick para não conflitar com as aspas duplas (") do f-string.
+                button_html = f"<button onclick=\"scrollToSection('{anchor_id_ref}', '{anchor_id_bel}')\" style=\"background-color: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-bottom: 15px; width: 100%; text-align: center;\">Ir para esta Seção na Comparação Lado a Lado ⬇️</button>"
+                
                 # --- [MODIFICADO] Injeta o botão usando st.markdown ---
                 st.markdown(button_html, unsafe_allow_html=True)
                 # --- [FIM DA MODIFICAÇÃO DO BOTÃO] ---
