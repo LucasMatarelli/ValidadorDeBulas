@@ -631,19 +631,20 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 
                 # <<< [MUDANÇA AQUI] >>>
                 
-                # 1. Trocamos <button> por <div>
-                # 2. Adicionamos o 'onclick' embutido, chamando a função GLOBAL
-                # 3. Adicionamos 'role' e 'tabindex' por acessibilidade
-                # 4. Removemos o <script> separado. Não é mais necessário.
+                # 1. Usamos a tag <a> (link)
+                # 2. Adicionamos a classe CSS 'btn-scroll-nav' para parecer um botão
+                # 3. Removemos 'onclick'
+                # 4. Colocamos o JavaScript *dentro* do 'href'
+                # 5. Usamos 'void(0);' no final para evitar navegação
                 
                 btn_html = f"""
-                <div class="btn-scroll-nav"
-                     onclick="console.log('DIV CLICADO!'); window.handleBulaScroll('{anchor_id_ref}', '{anchor_id_bel}');"
-                     role="button"
-                     tabindex="0"
+                <a class="btn-scroll-nav"
+                   role="button"
+                   tabindex="0"
+                   href="javascript:console.log('Link Clicado!'); window.handleBulaScroll('{anchor_id_ref}', '{anchor_id_bel}'); void(0);"
                 >
                     🎯 Ir para esta seção na visualização lado a lado ⬇️
-                </div>
+                </a>
                 <p style='font-size: 11px; color: #666; margin-top: -10px; margin-bottom: 10px;'>
                     💡 Dica: Abra o Console (F12) para ver logs de debug
                 </p>
