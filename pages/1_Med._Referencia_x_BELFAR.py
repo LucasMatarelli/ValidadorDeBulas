@@ -662,21 +662,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
 # ----------------- INTERFACE -----------------
-st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
-st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
-st.divider()
-
-st.header("📋 Configuração da Auditoria")
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("📄 Med. Referência")
-    pdf_ref = st.file_uploader("Envie o PDF de referência", type="pdf", key="ref")
-with col2:
-    st.subheader("📄 Med. BELFAR")
-    pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
-
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
@@ -691,9 +676,21 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
+                # === ADICIONE AQUI ===
+                st.write("🔍 DEBUG - Verificando mapeamento:")
+                secoes_esperadas = obter_secoes_por_tipo(tipo_bula_selecionado)
+                mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
+                
+                st.write("**Seções mapeadas na BELFAR:**")
+                for m in mapa_belfar:
+                    st.write(f"- {m['canonico']} (Score: {m['score']})")
+                
+                st.write("**Procurando ESQUECER no texto:**")
+                linhas_belfar = texto_belfar.split('\n')
+                for idx, linha in enumerate(linhas_belfar):
+                    if 'ESQUECER' in linha.upper():
+                        st.write(f"Linha {idx}: {linha.strip()}")
+                st.divider()
+                # === FIM DEBUG ===
+                
                 gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula BELFAR", tipo_bula_selecionado)
-    else:
-        st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
-
-st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final")
