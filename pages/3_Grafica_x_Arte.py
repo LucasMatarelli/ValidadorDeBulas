@@ -203,7 +203,7 @@ def obter_secoes_ignorar_ortografia():
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
 def obter_secoes_ignorar_comparacao():
-    return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
+    return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES", "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"]
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
