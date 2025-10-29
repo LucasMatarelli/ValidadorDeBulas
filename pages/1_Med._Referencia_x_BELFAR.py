@@ -322,6 +322,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
     return False, None, ""
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
+# ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
@@ -335,6 +336,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_belfar_encontradas = {m['canonico']: m for m in mapa_belfar}
 
     for secao in secoes_esperadas:
+        melhor_titulo = None # <-- [MODIFICAÇÃO 1] Inicializa a variável aqui
         encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref, tipo_bula)
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
 
@@ -350,7 +352,14 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
                 for m in mapa_belfar:
                     if m['titulo_encontrado'] == melhor_titulo:
-                        conteudo_belfar = "\n".join(linhas_belfar[m['linha_inicio']:mapa_belfar[mapa_belfar.index(m)+1]['linha_inicio']] if mapa_belfar.index(m)+1 < len(mapa_belfar) else linhas_belfar[m['linha_inicio']:])
+                        # Lógica para pegar conteúdo da seção encontrada por similaridade
+                        next_section_start = len(linhas_belfar)
+                        current_index = mapa_belfar.index(m)
+                        if current_index + 1 < len(mapa_belfar):
+                            next_section_start = mapa_belfar[current_index + 1]['linha_inicio']
+                        
+                        # Pega o conteúdo a partir da linha *após* o título encontrado
+                        conteudo_belfar = "\n".join(linhas_belfar[m['linha_inicio']+1:next_section_start])
                         break
                 encontrou_belfar = True
             else:
@@ -359,6 +368,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
         if encontrou_ref and encontrou_belfar:
             secao_comp = normalizar_titulo_para_comparacao(secao)
+            # Usa o 'titulo_belfar' (da busca direta) ou 'melhor_titulo' (da busca fuzzy)
             titulo_belfar_comp = normalizar_titulo_para_comparacao(titulo_belfar if titulo_belfar else melhor_titulo)
 
             if secao_comp != titulo_belfar_comp:
@@ -369,7 +379,18 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 continue
 
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
-                diferencas_conteudo.append({'secao': secao, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
+                
+                # --- [MODIFICAÇÃO 2] ---
+                # Define o título que foi realmente encontrado (pode ser da busca normal ou fuzzy)
+                titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
+                
+                diferencas_conteudo.append({
+                    'secao': secao, 
+                    'conteudo_ref': conteudo_ref, 
+                    'conteudo_belfar': conteudo_belfar,
+                    'titulo_encontrado': titulo_real_encontrado # <-- Salva o título real
+                })
+                # --- [FIM DA MODIFICAÇÃO] ---
                 similaridades_secoes.append(0)
             else:
                 similaridades_secoes.append(100)
@@ -517,6 +538,8 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 # ----------------- RELATÓRIO -----------------
 # --- [TOTALMENTE MODIFICADO] ---
+# ----------------- RELATÓRIO -----------------
+# --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     # --- [NOVO] Script Global (Plano C) ---
@@ -615,7 +638,18 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         )
 
         for diff in diferencas_conteudo:
-            with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
+            
+            # --- [INÍCIO DA MODIFICAÇÃO] ---
+            # Usa o 'titulo_encontrado' (com número) se existir,
+            # senão, usa o 'secao' (canônico) como fallback.
+            titulo_display = diff.get('titulo_encontrado') or diff['secao']
+            if not titulo_display: # Garante que não seja None
+                titulo_display = diff['secao']
+                
+            with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
+            # Linha original: with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
+            # --- [FIM DA MODIFICAÇÃO] ---
+            
                 
                 # --- [MODIFICADO] ---
                 secao_canonico = diff['secao']
