@@ -493,24 +493,6 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             )
 
     return texto_trabalho
-# CÓDIGO DE DEBUG - ADICIONAR TEMPORARIAMENTE
-st.write("🔍 DEBUG - Verificando mapeamento:")
-secoes_esperadas = obter_secoes_por_tipo(tipo_bula_selecionado)
-mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
-
-st.write("**Seções mapeadas na BELFAR:**")
-for m in mapa_belfar:
-    st.write(f"- {m['canonico']} (Score: {m['score']}, Linha: {m['linha_inicio']})")
-    st.write(f"  Título encontrado: '{m['titulo_encontrado']}'")
-
-st.write("\n**Procurando pela seção problemática no texto BELFAR:**")
-linhas_belfar = texto_belfar.split('\n')
-for idx, linha in enumerate(linhas_belfar):
-    if 'ESQUECER' in linha.upper():
-        st.write(f"Linha {idx}: {linha}")
-
-st.divider()
-# FIM DO DEBUG
 # ----------------- RELATÓRIO -----------------
 # --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
