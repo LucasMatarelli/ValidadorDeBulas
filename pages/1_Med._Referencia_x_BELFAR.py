@@ -602,19 +602,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         )
 
         for diff in diferencas_conteudo:
-    # Encontra o número da seção no mapa
-    mapa_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
-    numero_secao = None
-    for m in mapa_belfar:
-        if m['canonico'] == diff['secao']:
-            # Extrai o número do título encontrado (ex: "7. O QUE...")
-            match_num = re.match(r'^(\d+)\.?\s*', m['titulo_encontrado'])
-            if match_num:
-                numero_secao = match_num.group(1)
-            break
-    
-    titulo_expander = f"{numero_secao}. {diff['secao']}" if numero_secao else diff['secao']
-    with st.expander(f"📄 {titulo_expander} - ❌ CONTEÚDO DIVERGENTE"):
+            with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
                 # --- [MODIFICADO] ---
                 secao_canonico = diff['secao']
