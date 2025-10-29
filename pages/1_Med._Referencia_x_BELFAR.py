@@ -696,4 +696,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final")
+st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final") 
