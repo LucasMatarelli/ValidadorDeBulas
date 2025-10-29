@@ -691,9 +691,21 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
+                # === ADICIONE AQUI ===
+                st.write("🔍 DEBUG - Verificando mapeamento:")
+                secoes_esperadas = obter_secoes_por_tipo(tipo_bula_selecionado)
+                mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
+                
+                st.write("**Seções mapeadas na BELFAR:**")
+                for m in mapa_belfar:
+                    st.write(f"- {m['canonico']} (Score: {m['score']})")
+                
+                st.write("**Procurando ESQUECER no texto:**")
+                linhas_belfar = texto_belfar.split('\n')
+                for idx, linha in enumerate(linhas_belfar):
+                    if 'ESQUECER' in linha.upper():
+                        st.write(f"Linha {idx}: {linha.strip()}")
+                st.divider()
+                # === FIM DEBUG ===
+                
                 gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula BELFAR", tipo_bula_selecionado)
-    else:
-        st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
-
-st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final")
