@@ -179,13 +179,17 @@ def _create_anchor_id(secao_nome, prefix):
 def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
-    if len(linha) < 4 or len(linha.split()) > 12:
+    if len(linha) < 4:
+        return False
+    # Aumentei de 12 para 20 palavras
+    if len(linha.split()) > 20:
         return False
     if linha.endswith('.') or linha.endswith(':'):
         return False
     if re.search(r'\>\s*\<', linha):
         return False
-    if len(linha) > 80:
+    # Aumentei de 80 para 120 caracteres
+    if len(linha) > 120:
         return False
     return True
 
