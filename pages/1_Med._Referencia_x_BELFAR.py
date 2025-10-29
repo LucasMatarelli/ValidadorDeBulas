@@ -538,8 +538,6 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 # ----------------- RELATÓRIO -----------------
 # --- [TOTALMENTE MODIFICADO] ---
-# ----------------- RELATÓRIO -----------------
-# --- [TOTALMENTE MODIFICADO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     # --- [NOVO] Script Global (Plano C) ---
@@ -640,14 +638,25 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         for diff in diferencas_conteudo:
             
             # --- [INÍCIO DA MODIFICAÇÃO] ---
-            # Usa o 'titulo_encontrado' (com número) se existir,
-            # senão, usa o 'secao' (canônico) como fallback.
-            titulo_display = diff.get('titulo_encontrado') or diff['secao']
-            if not titulo_display: # Garante que não seja None
-                titulo_display = diff['secao']
-                
+            
+            secao_canonico_raw = diff['secao'] # Pega o nome canônico (Ex: "QUAIS OS MALES...")
+            titulo_display = diff.get('titulo_encontrado') or secao_canonico_raw
+            
+            if not titulo_display: 
+                titulo_display = secao_canonico_raw
+
+            # --- [NOVA LÓGICA PARA FORÇAR O NÚMERO 9] ---
+            # Normaliza o nome canônico para uma verificação segura
+            secao_canonico_norm = normalizar_texto(secao_canonico_raw)
+            
+            # Verifica se estamos na seção de "SUPERDOSE"
+            if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm:
+                # Se o título que pegamos (ex: "O QUE FAZER...") não começar com "9", nós forçamos.
+                if not normalizar_texto(titulo_display).startswith("9"):
+                    titulo_display = f"9. {titulo_display}"
+            # --- [FIM DA NOVA LÓGICA] ---
+
             with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
-            # Linha original: with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
             # --- [FIM DA MODIFICAÇÃO] ---
             
                 
@@ -669,8 +678,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 # --- [A MUDANÇA CRÍTICA] ---
                 # Criamos o HTML da caixa clicável com o 'onclick' chamando a função GLOBAL.
                 # Usamos aspas simples (') para o HTML e duplas (") para os parâmetros do JavaScript.
-                html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
-                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
+                html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_row = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
 
                 c1, c2 = st.columns(2)
                 with c1:
