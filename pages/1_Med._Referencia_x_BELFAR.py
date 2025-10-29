@@ -324,7 +324,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 if score > melhor_score:
                     melhor_score = score
                     melhor_titulo = m['titulo_encontrado']
-            if melhor_score >= 98:
+            if melhor_score >= 95:
                 diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
                 for m in mapa_belfar:
                     if m['titulo_encontrado'] == melhor_titulo:
