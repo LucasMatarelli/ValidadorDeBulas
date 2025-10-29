@@ -247,7 +247,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
             "COMO DEVO USAR ESTE MEDICAMENTO?",
             "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
+            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
             "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
         ],
@@ -279,9 +279,19 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             linha_atual = linhas_texto[j].strip()
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
 
-            if linha_atual_norm in titulos_norm_set:
+            # --- INÍCIO DA CORREÇÃO (MUDANÇA MÍNIMA) ---
+            # Verificamos se algum título oficial está CONTIDO na linha normalizada
+            encontrou_titulo_1_linha = False
+            for titulo_oficial_norm in titulos_norm_set:
+                if titulo_oficial_norm in linha_atual_norm:
+                    encontrou_titulo_1_linha = True
+                    break # Para o loop interno
+            
+            if encontrou_titulo_1_linha:
+            # if linha_atual_norm in titulos_norm_set: # <- Linha original substituída
                 prox_idx = j # Encontrou um título em uma única linha
-                break
+                break # Para o loop 'j'
+            # --- FIM DA CORREÇÃO (1 LINHA) ---
 
             # Se não encontrou, verifica a combinação da linha atual + próxima (busca de 2 linhas)
             if (j + 1) < len(linhas_texto):
@@ -290,9 +300,18 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
                 titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
 
-                if titulo_duas_linhas_norm in titulos_norm_set:
+                # --- INÍCIO DA CORREÇÃO (MUDANÇA MÍNIMA) ---
+                encontrou_titulo_2_linhas = False
+                for titulo_oficial_norm in titulos_norm_set:
+                    if titulo_oficial_norm in titulo_duas_linhas_norm:
+                        encontrou_titulo_2_linhas = True
+                        break # Para o loop interno
+                
+                if encontrou_titulo_2_linhas:
+                # if titulo_duas_linhas_norm in titulos_norm_set: # <- Linha original substituída
                     prox_idx = j # Encontrou um título dividido em duas linhas
-                    break
+                    break # Para o loop 'j'
+                # --- FIM DA CORREÇÃO (2 LINHAS) ---
         # --- FIM DA LÓGICA DE BUSCA ---
 
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
@@ -302,7 +321,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
-
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
