@@ -332,33 +332,44 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
     mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
 
-   secoes_belfar_encontradas = {m['canonico']: m for m in mapa_belfar}
+    secoes_belfar_encontradas = {m['canonico']: m for m in mapa_belfar}
 
     for secao in secoes_esperadas:
-        melhor_titulo = None # <-- ADICIONE ESTA LINHA (Inicializa a variável)
         encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref, tipo_bula)
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
 
-        # ... (pule o bloco 'if not encontrou_belfar:') ...
+        if not encontrou_belfar:
+            melhor_score = 0
+            melhor_titulo = None
+            for m in mapa_belfar:
+                score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(secao), normalizar_titulo_para_comparacao(m['titulo_encontrado']))
+                if score > melhor_score:
+                    melhor_score = score
+                    melhor_titulo = m['titulo_encontrado']
+            if melhor_score >= 95:
+                diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
+                for m in mapa_belfar:
+                    if m['titulo_encontrado'] == melhor_titulo:
+                        conteudo_belfar = "\n".join(linhas_belfar[m['linha_inicio']:mapa_belfar[mapa_belfar.index(m)+1]['linha_inicio']] if mapa_belfar.index(m)+1 < len(mapa_belfar) else linhas_belfar[m['linha_inicio']:])
+                        break
+                encontrou_belfar = True
+            else:
+                secoes_faltantes.append(secao)
+                continue
 
         if encontrou_ref and encontrou_belfar:
-            # ... (pule o bloco 'if secao_comp != titulo_belfar_comp:') ...
+            secao_comp = normalizar_titulo_para_comparacao(secao)
+            titulo_belfar_comp = normalizar_titulo_para_comparacao(titulo_belfar if titulo_belfar else melhor_titulo)
+
+            if secao_comp != titulo_belfar_comp:
+                if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
+                    diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar if titulo_belfar else melhor_titulo})
 
             if secao.upper() in secoes_ignorar_upper:
                 continue
 
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
-                # --- INÍCIO DA MODIFICAÇÃO AQUI ---
-                # Define o título que foi realmente encontrado (pode ser da busca normal ou fuzzy)
-                titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
-                
-                diferencas_conteudo.append({
-                    'secao': secao, 
-                    'conteudo_ref': conteudo_ref, 
-                    'conteudo_belfar': conteudo_belfar,
-                    'titulo_encontrado': titulo_real_encontrado # <-- Linha Adicionada
-                })
-                # --- FIM DA MODIFICAÇÃO ---
+                diferencas_conteudo.append({'secao': secao, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
                 similaridades_secoes.append(0)
             else:
                 similaridades_secoes.append(100)
