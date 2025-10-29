@@ -236,9 +236,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
-    Esta versão verifica se o próximo título está em uma única linha ou dividido em duas linhas consecutivas.
     """
-    # Títulos oficiais da bula para o tipo selecionado
     TITULOS_OFICIAIS = {
         "Paciente": [
             "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
@@ -261,7 +259,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     }
 
     titulos_lista = TITULOS_OFICIAIS.get(tipo_bula, [])
-    # Normaliza a lista de títulos oficiais uma vez para otimizar a busca
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
 
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -272,28 +269,36 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         linha_inicio = secao_mapa['linha_inicio']
         linha_inicio_conteudo = linha_inicio + 1
 
-        # --- LÓGICA DE BUSCA APRIMORADA (1 ou 2 linhas) ---
+        # Procura o próximo título (pode estar na próxima seção do mapa ou perdido no texto)
         prox_idx = None
-        for j in range(linha_inicio_conteudo, len(linhas_texto)):
-            # Verifica a linha atual (busca de 1 linha)
-            linha_atual = linhas_texto[j].strip()
-            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
+        
+        # PRIMEIRO: Verifica se há próxima seção no mapa
+        if i + 1 < len(mapa_secoes):
+            prox_idx = mapa_secoes[i + 1]['linha_inicio']
+        else:
+            # SEGUNDO: Busca manualmente por títulos de seção no texto restante
+            for j in range(linha_inicio_conteudo, len(linhas_texto)):
+                linha_atual = linhas_texto[j].strip()
+                
+                # Verifica se a linha parece um título
+                if not is_titulo_secao(linha_atual):
+                    continue
+                    
+                linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
 
-            if linha_atual_norm in titulos_norm_set:
-                prox_idx = j # Encontrou um título em uma única linha
-                break
-
-            # Se não encontrou, verifica a combinação da linha atual + próxima (busca de 2 linhas)
-            if (j + 1) < len(linhas_texto):
-                linha_seguinte = linhas_texto[j + 1].strip()
-                # Concatena a linha atual com a próxima para formar um possível título
-                titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
-                titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
-
-                if titulo_duas_linhas_norm in titulos_norm_set:
-                    prox_idx = j # Encontrou um título dividido em duas linhas
+                if linha_atual_norm in titulos_norm_set:
+                    prox_idx = j
                     break
-        # --- FIM DA LÓGICA DE BUSCA ---
+
+                # Verifica título em 2 linhas
+                if (j + 1) < len(linhas_texto):
+                    linha_seguinte = linhas_texto[j + 1].strip()
+                    titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
+                    titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
+
+                    if titulo_duas_linhas_norm in titulos_norm_set:
+                        prox_idx = j
+                        break
 
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
 
