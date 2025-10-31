@@ -429,75 +429,73 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 # --- [FUNÇÃO SUBSTITUÍDA] ---
-def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
+def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
-    linhas_ref = texto_ref.split('\n')
-    linhas_belfar = texto_belfar.split('\n')
-    mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
-    mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
+    linhas_anvisa = texto_anvisa.split('\n')
+    linhas_mkt = texto_mkt.split('\n')
+    mapa_anvisa = mapear_secoes(texto_anvisa, secoes_esperadas)
+    mapa_mkt = mapear_secoes(texto_mkt, secoes_esperadas)
 
-    secoes_belfar_encontradas = {m['canonico']: m for m in mapa_belfar}
+    secoes_mkt_encontradas = {m['canonico']: m for m in mapa_mkt}
 
     for secao in secoes_esperadas:
-        melhor_titulo = None # <-- [MODIFICAÇÃO 1] Inicializa a variável aqui
-        encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref, tipo_bula)
-        encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
+        melhor_titulo = None
+        encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
+        encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
-        if not encontrou_belfar:
+        if not encontrou_mkt:
             melhor_score = 0
             melhor_titulo = None
-            for m in mapa_belfar:
+            for m in mapa_mkt:
                 score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(secao), normalizar_titulo_para_comparacao(m['titulo_encontrado']))
                 if score > melhor_score:
                     melhor_score = score
                     melhor_titulo = m['titulo_encontrado']
             if melhor_score >= 95:
                 diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
-                for m in mapa_belfar:
+                for m in mapa_mkt:
                     if m['titulo_encontrado'] == melhor_titulo:
                         # Lógica para pegar conteúdo da seção encontrada por similaridade
-                        next_section_start = len(linhas_belfar)
-                        current_index = mapa_belfar.index(m)
-                        if current_index + 1 < len(mapa_belfar):
-                            next_section_start = mapa_belfar[current_index + 1]['linha_inicio']
+                        next_section_start = len(linhas_mkt)
+                        current_index = mapa_mkt.index(m)
+                        if current_index + 1 < len(mapa_mkt):
+                            next_section_start = mapa_mkt[current_index + 1]['linha_inicio']
                         
                         # Pega o conteúdo a partir da linha *após* o título encontrado
                         # Usa .get('num_linhas_titulo', 1) para ser compatível com seu mapear_secoes
-                        conteudo_belfar = "\n".join(linhas_belfar[m['linha_inicio'] + m.get('num_linhas_titulo', 1) : next_section_start])
+                        conteudo_mkt = "\n".join(linhas_mkt[m['linha_inicio'] + m.get('num_linhas_titulo', 1) : next_section_start])
                         break
-                encontrou_belfar = True
+                encontrou_mkt = True
             else:
                 secoes_faltantes.append(secao)
                 continue
 
-        if encontrou_ref and encontrou_belfar:
+        if encontrou_anvisa and encontrou_mkt:
             secao_comp = normalizar_titulo_para_comparacao(secao)
-            # Usa o 'titulo_belfar' (da busca direta) ou 'melhor_titulo' (da busca fuzzy)
-            titulo_belfar_comp = normalizar_titulo_para_comparacao(titulo_belfar if titulo_belfar else melhor_titulo)
+            # Usa o 'titulo_mkt' (da busca direta) ou 'melhor_titulo' (da busca fuzzy)
+            titulo_mkt_comp = normalizar_titulo_para_comparacao(titulo_mkt if titulo_mkt else melhor_titulo)
 
-            if secao_comp != titulo_belfar_comp:
+            if secao_comp != titulo_mkt_comp:
                 if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
-                    diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar if titulo_belfar else melhor_titulo})
+                    diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_mkt if titulo_mkt else melhor_titulo})
 
             if secao.upper() in secoes_ignorar_upper:
                 continue
 
-            if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
+            if normalizar_texto(conteudo_anvisa) != normalizar_texto(conteudo_mkt):
                 
-                # --- [MODIFICAÇÃO 2] ---
                 # Define o título que foi realmente encontrado (pode ser da busca normal ou fuzzy)
-                titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
+                titulo_real_encontrado = titulo_mkt if titulo_mkt else melhor_titulo
                 
                 diferencas_conteudo.append({
                     'secao': secao, 
-                    'conteudo_ref': conteudo_ref, 
-                    'conteudo_belfar': conteudo_belfar,
-                    'titulo_encontrado': titulo_real_encontrado # <-- Salva o título real
+                    'conteudo_anvisa': conteudo_anvisa, 
+                    'conteudo_mkt': conteudo_mkt,
+                    'titulo_encontrado': titulo_real_encontrado
                 })
-                # --- [FIM DA MODIFICAÇÃO] ---
                 similaridades_secoes.append(0)
             else:
                 similaridades_secoes.append(100)
@@ -891,4 +889,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v19.0 | OCR & Layout Fix")
+st.caption("Sistema de AuditorIA de Bulas v19.0 | OCR & Layout Fix")  
