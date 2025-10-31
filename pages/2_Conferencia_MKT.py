@@ -565,120 +565,196 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # ----------------- RELATÓRIO -----------------
 # --- [TOTALMENTE MODIFICADO E CORRIGIDO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
-    st.header("Relatório de Auditoria Inteligente")
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match_ref = re.search(regex_anvisa, texto_ref.lower())
-    match_belfar = re.search(regex_anvisa, texto_belfar.lower())
-    data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
-    data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
+    
+    # --- [NOVO] Script Global (Plano C) ---
+    # Injeta a função de rolagem no escopo GLOBAL (window)
+    # Isso garante que a função `onclick` possa encontrá-la.
+    js_scroll_script = """
+    <script>
+    // Verifica se a função já não existe para evitar re-declaração
+    if (!window.handleBulaScroll) {
+        window.handleBulaScroll = function(anchorIdRef, anchorIdBel) {
+            // Log para debug (Aperte F12 no navegador para ver)
+            console.log("Chamada handleBulaScroll:", anchorIdRef, anchorIdBel);
 
-    secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
-    score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
+            var containerRef = document.getElementById('container-ref-scroll');
+            var containerBel = document.getElementById('container-bel-scroll');
+            var anchorRef = document.getElementById(anchorIdRef);
+            var anchorBel = document.getElementById(anchorIdBel);
 
-    st.subheader("Dashboard de Veredito")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
-    col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (BELFAR)", data_belfar)
-    col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
+            if (!containerRef || !containerBel) {
+                console.error("ERRO: Containers 'container-ref-scroll' ou 'container-bel-scroll' não encontrados.");
+                return;
+            }
+            if (!anchorRef || !anchorBel) {
+                console.error("ERRO: Âncoras '" + anchorIdRef + "' ou '" + anchorIdBel + "' não encontradas.");
+                return;
+            }
 
-    st.divider()
-    st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n    - Referência: {data_ref}\n    - BELFAR: {data_belfar}")
+            // 1. Rola a PÁGINA PRINCIPAL para a visualização
+            containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    if secoes_faltantes:
-        st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"    - {s}" for s in secoes_faltantes]))
-    else:
-        st.success("✅ Todas as seções obrigatórias estão presentes")
-    
-    if diferencas_conteudo:
-        st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
+            // 2. Rola DENTRO dos containers (após a rolagem principal)
+            setTimeout(() => {
+                try {
+                    var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
+                    containerRef.scrollTo({ top: topPosRef - 20, behavior: 'smooth' });
+                    // Destaque visual
+                    anchorRef.style.transition = 'background-color 0.5s ease-in-out';
+                    anchorRef.style.backgroundColor = '#e6f7ff';
+                    setTimeout(() => { anchorRef.style.backgroundColor = 'transparent'; }, 2500);
+                    
+                    var topPosBel = anchorBel.offsetTop - containerBel.offsetTop;
+                    containerBel.scrollTo({ top: topPosBel - 20, behavior: 'smooth' });
+                    // Destaque visual
+                    anchorBel.style.transition = 'background-color 0.5s ease-in-out';
+                    anchorBel.style.backgroundColor = '#e6f7ff';
+                    setTimeout(() => { anchorBel.style.backgroundColor = 'transparent'; }, 2500);
+
+                    console.log("Rolagem interna EXECUTADA.");
+                } catch (e) {
+                    console.error("Erro durante a rolagem interna:", e);
+                }
+            }, 700); // 700ms de espera
+        }
+        console.log("Função window.handleBulaScroll DEFINIDA.");
+    }
+    </script>
+    """
+    # Injeta o script uma vez no topo do relatório
+    st.markdown(js_scroll_script, unsafe_allow_html=True)
+    # --- [FIM DO SCRIPT] ---
+
+
+    st.header("Relatório de Auditoria Inteligente")
+    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    match_ref = re.search(regex_anvisa, texto_ref.lower())
+    match_belfar = re.search(regex_anvisa, texto_belfar.lower())
+    data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
+    data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
+
+    secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
+    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
+    score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
+
+    st.subheader("Dashboard de Veredito")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
+    col2.metric("Erros Ortográficos", len(erros_ortograficos))
+    col3.metric("Data ANVISA (BELFAR)", data_belfar)
+    col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
+
+    st.divider()
+    st.subheader("Detalhes dos Problemas Encontrados")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Referência: `{data_ref}`\n - BELFAR: `{data_belfar}`")
+
+    if secoes_faltantes:
+        st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
+    else:
+        st.success("✅ Todas as seções obrigatórias estão presentes")
+        
+    if diferencas_conteudo:
+        st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
+        expander_caixa_style = (
+            "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
+            "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
+            "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
+        )
+
+        for diff in diferencas_conteudo:
+            
+            # --- [INÍCIO DA MODIFICAÇÃO] ---
+            
+            secao_canonico_raw = diff['secao'] # Pega o nome canônico (Ex: "QUAIS OS MALES...")
+            titulo_display = diff.get('titulo_encontrado') or secao_canonico_raw
+            
+            if not titulo_display: 
+                titulo_display = secao_canonico_raw
+
+            # --- [NOVA LÓGICA PARA FORÇAR O NÚMERO 9] ---
+            # Normaliza o nome canônico para uma verificação segura
+            secao_canonico_norm = normalizar_texto(secao_canonico_raw)
+            
+            # Verifica se estamos na seção de "SUPERDOSE"
+            if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm:
+                # Se o título que pegamos (ex: "O QUE FAZER...") não começar com "9", nós forçamos.
+                if not normalizar_texto(titulo_display).startswith("9"):
+                    titulo_display = f"9. {titulo_display}"
+            # --- [FIM DA NOVA LÓGICA] ---
+
+            with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
+            # --- [FIM DA MODIFICAÇÃO] ---
+            
+                
+                # --- [MODIFICADO] ---
+                secao_canonico = diff['secao']
+                anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
+                anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
+                
+                expander_html_ref = marcar_diferencas_palavra_por_palavra(
+                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
+                ).replace('\n', '<br>')
+                expander_html_belfar = marcar_diferencas_palavra_por_palavra(
+                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
+                ).replace('\n', '<br>')
+                
+                # Adiciona 'cursor: pointer;' e um 'title' para feedback
+                clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
+                
+                # --- [A MUDANÇA CRÍTICA] ---
+                # Criamos o HTML da caixa clicável com o 'onclick' chamando a função GLOBAL.
+                # Usamos aspas simples (') para o HTML e duplas (") para os parâmetros do JavaScript.
+                html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
+                
+                # --- [LINHA CORRIGIDA - SEM O ERRO DE SINTAXE] ---
+                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
+                # --- [FIM DA CORREÇÃO] ---
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Referência:** (Clique na caixa para rolar)")
+                    st.markdown(html_ref_box, unsafe_allow_html=True)
+                with c2:
+                    st.markdown("**BELFAR:** (Clique na caixa para rolar)")
+                    st.markdown(html_bel_box, unsafe_allow_html=True)
+    else:
+        st.success("✅ Conteúdo das seções está idêntico")
+
+    if erros_ortograficos:
+        st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
+
+    if not any([secoes_faltantes, diferencas_conteudo, diferencas_titulos]) and len(erros_ortograficos) < 5:
+        st.success("🎉 **Bula aprovada!** Nenhum problema crítico encontrado.")
+
+    st.divider()
+    st.subheader("Visualização Lado a Lado com Destaques")
+    st.markdown(
+        "**Legenda:** <mark style='background-color: #ffff99; padding: 2px;'>Amarelo</mark> = Divergências | "
+        "<mark style='background-color: #FFDDC1; padding: 2px;'>Rosa</mark> = Erros ortográficos | "
+        "<mark style='background-color: #cce5ff; padding: 2px;'>Azul</mark> = Data ANVISA",
+        unsafe_allow_html=True
+    )
+
+    html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
+    html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
+
+    caixa_style = (
+        "height: 700px; overflow-y: auto; border: 2px solid #999; border-radius: 4px; "
+        "padding: 24px 32px; background-color: #ffffff; "
+        "font-family: 'Georgia', 'Times New Roman', serif; font-size: 14px; "
+        "line-height: 1.8; box-shadow: 0 2px 12px rgba(0,0,0,0.15); "
+        "text-align: justify; color: #000000;"
+    )
+    col1, col2 = st.columns(2, gap="medium")
+    with col1:
+        st.markdown(f"**📄 {nome_ref}**")
+        # ID do container principal
+        st.markdown(f"<div id='container-ref-scroll' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"**📄 {nome_belfar}**")
+        # ID do container principal
+        st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
         
-        expander_caixa_style = (
-            "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
-            "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
-            "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
-        )
-
-        for diff in diferencas_conteudo:
-            with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
-                expander_html_ref = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
-                ).replace('\n', '<br>')
-                
-                expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
-                ).replace('\n', '<br>')
-
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**Referência:**")
-                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown("**BELFAR:**")
-                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
-    else:
-        st.success("✅ Conteúdo das seções está idêntico")
-
-    if erros_ortograficos:
-        st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
-
-    if not any([secoes_faltantes, diferencas_conteudo, diferencas_titulos]) and len(erros_ortograficos) < 5:
-        st.success("🎉 **Bula aprovada!** Nenhum problema crítico encontrado.")
-
-    st.divider()
-    st.subheader("Visualização Lado a Lado com Destaques")
-
-    # --- INÍCIO DA MODIFICAÇÃO ESTÉTICA ---
-    
-    # 1. Estilo da Legenda
-    legend_style = (
-        "font-size: 14px; "
-        "background-color: #f0f2f6; "  # Cor de fundo suave (cinza-azulado do Streamlit)
-        "padding: 10px 15px; "
-        "border-radius: 8px; "
-        "margin-bottom: 15px;"
-    )
-    
-    st.markdown(
-        f"<div style='{legend_style}'>"
-        "<strong>Legenda:</strong> "
-        "<mark style='background-color: #ffff99; padding: 2px; margin: 0 2px;'>Amarelo</mark> = Divergências | "
-        "<mark style='background-color: #FFDDC1; padding: 2px; margin: 0 2px;'>Rosa</mark> = Erros ortográficos | "
-        "<mark style='background-color: #cce5ff; padding: 2px; margin: 0 2px;'>Azul</mark> = Data ANVISA"
-        "</div>",
-        unsafe_allow_html=True
-    )
-
-    html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
-    html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
-
-    # 2. Estilo da Caixa de Visualização
-    caixa_style = (
-        "max-height: 700px; "  # Altura máxima, permite caixas menores se o conteúdo for curto
-        "overflow-y: auto; "
-        "border: 1px solid #e0e0e0; "  # Borda mais suave
-        "border-radius: 8px; "  # Cantos mais arredondados
-        "padding: 20px 24px; "  # Padding interno
-        "background-color: #ffffff; "
-        "font-size: 15px; "  # Fonte ligeiramente maior para leitura
-        "line-height: 1.7; "  # Melhor espaçamento entre linhas
-        "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "  # Sombra mais suave
-        "text-align: left; "  # Alinhamento à esquerda é melhor para leitura
-    )
-    
-    col1, col2 = st.columns(2, gap="medium")
-    with col1:
-        # 3. Título como H4 (um pouco menor que subheader)
-        st.markdown(f"#### {nome_ref}") 
-        st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"#### {nome_belfar}")
-        st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
-    
-    # --- FIM DA MODIFICAÇÃO ESTÉTICA ---
-
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
