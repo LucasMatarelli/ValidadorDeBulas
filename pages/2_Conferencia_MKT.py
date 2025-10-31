@@ -377,46 +377,80 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     return False, None, ""
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
+# ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
-    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
-    secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
-    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
+    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
+    secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
+    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
-    linhas_ref = texto_ref.split('\n')
-    linhas_belfar = texto_belfar.split('\n')
-    mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
-    mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
+    linhas_ref = texto_ref.split('\n')
+    linhas_belfar = texto_belfar.split('\n')
+    mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
+    mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
 
-    for secao in secoes_esperadas:
-        encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref, tipo_bula)
-        encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
-        melhor_titulo = None 
+    secoes_belfar_encontradas = {m['canonico']: m for m in mapa_belfar}
 
-        if not encontrou_belfar:
-            secoes_faltantes.append(secao)
-            continue
+    for secao in secoes_esperadas:
+        melhor_titulo = None # <-- [MODIFICAÇÃO 1] Inicializa a variável aqui
+        encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref, tipo_bula)
+        encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
 
-        if encontrou_ref and encontrou_belfar:
-            if secao.upper() in secoes_ignorar_upper:
-                continue
+        if not encontrou_belfar:
+            melhor_score = 0
+            melhor_titulo = None
+            for m in mapa_belfar:
+                score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(secao), normalizar_titulo_para_comparacao(m['titulo_encontrado']))
+                if score > melhor_score:
+                    melhor_score = score
+                    melhor_titulo = m['titulo_encontrado']
+            if melhor_score >= 95:
+                diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
+                for m in mapa_belfar:
+                    if m['titulo_encontrado'] == melhor_titulo:
+                        # Lógica para pegar conteúdo da seção encontrada por similaridade
+                        next_section_start = len(linhas_belfar)
+                        current_index = mapa_belfar.index(m)
+                        if current_index + 1 < len(mapa_belfar):
+                            next_section_start = mapa_belfar[current_index + 1]['linha_inicio']
+                        
+                        # Pega o conteúdo a partir da linha *após* o título encontrado
+                        conteudo_belfar = "\n".join(linhas_belfar[m['linha_inicio']+1:next_section_start])
+                        break
+                encontrou_belfar = True
+            else:
+                secoes_faltantes.append(secao)
+                continue
 
-            if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
-                diferencas_conteudo.append({'secao': secao, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
-                similaridades_secoes.append(0)
-            else:
-                similaridades_secoes.append(100)
+        if encontrou_ref and encontrou_belfar:
+            secao_comp = normalizar_titulo_para_comparacao(secao)
+            # Usa o 'titulo_belfar' (da busca direta) ou 'melhor_titulo' (da busca fuzzy)
+            titulo_belfar_comp = normalizar_titulo_para_comparacao(titulo_belfar if titulo_belfar else melhor_titulo)
 
-    # Lógica para títulos movida para fora para simplicidade e precisão
-    titulos_ref_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_ref}
-    titulos_belfar_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_belfar}
+            if secao_comp != titulo_belfar_comp:
+                if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
+                    diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar if titulo_belfar else melhor_titulo})
 
-    for secao_canonico, titulo_ref in titulos_ref_encontrados.items():
-        if secao_canonico in titulos_belfar_encontrados:
-            titulo_belfar = titulos_belfar_encontrados[secao_canonico]
-            if normalizar_titulo_para_comparacao(titulo_ref) != normalizar_titulo_para_comparacao(titulo_belfar):
-                diferencas_titulos.append({'secao_esperada': secao_canonico, 'titulo_encontrado': titulo_belfar})
+            if secao.upper() in secoes_ignorar_upper:
+                continue
 
-    return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos
+            if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
+                
+                # --- [MODIFICAÇÃO 2] ---
+                # Define o título que foi realmente encontrado (pode ser da busca normal ou fuzzy)
+                titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
+                
+                diferencas_conteudo.append({
+                    'secao': secao, 
+                    'conteudo_ref': conteudo_ref, 
+                    'conteudo_belfar': conteudo_belfar,
+                    'titulo_encontrado': titulo_real_encontrado # <-- Salva o título real
+                })
+                # --- [FIM DA MODIFICAÇÃO] ---
+                similaridades_secoes.append(0)
+            else:
+                similaridades_secoes.append(100)
+
+    return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos
 
 
 # ----------------- ORTOGRAFIA -----------------
