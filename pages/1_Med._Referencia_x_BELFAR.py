@@ -1,14 +1,6 @@
 # --- IMPORTS ---
 import streamlit as st
 # from style_utils import hide_streamlit_toolbar # Removi a dependência que não estava no código
-import fitz  # PyMuPDF
-import docx
-import re
-import spacy
-from thefuzz import fuzz
-from spellchecker import SpellChecker
-import difflib
-import unicodedata
 
 hide_streamlit_UI = """
 <style>
@@ -49,7 +41,14 @@ visibility: hidden !important;
 </style>
 """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
-
+import fitz # PyMuPDF
+import docx
+import re
+import spacy
+from thefuzz import fuzz
+from spellchecker import SpellChecker
+import difflib
+import unicodedata
 
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
@@ -81,7 +80,7 @@ def extrair_texto(arquivo, tipo_arquivo):
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto = "\n".join([p.text for p in doc.paragraphs])
-
+            
         if texto:
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
@@ -286,12 +285,12 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             for titulo_oficial_norm in titulos_norm_set:
                 if titulo_oficial_norm in linha_atual_norm:
                     encontrou_titulo_1_linha = True
-                    break  # Para o loop interno
-
+                    break # Para o loop interno
+            
             if encontrou_titulo_1_linha:
-                # if linha_atual_norm in titulos_norm_set: # <- Linha original substituída
-                prox_idx = j  # Encontrou um título em uma única linha
-                break  # Para o loop 'j'
+            # if linha_atual_norm in titulos_norm_set: # <- Linha original substituída
+                prox_idx = j # Encontrou um título em uma única linha
+                break # Para o loop 'j'
             # --- FIM DA CORREÇÃO (1 LINHA) ---
 
             # Se não encontrou, verifica a combinação da linha atual + próxima (busca de 2 linhas)
@@ -306,12 +305,12 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 for titulo_oficial_norm in titulos_norm_set:
                     if titulo_oficial_norm in titulo_duas_linhas_norm:
                         encontrou_titulo_2_linhas = True
-                        break  # Para o loop interno
-
+                        break # Para o loop interno
+                
                 if encontrou_titulo_2_linhas:
-                    # if titulo_duas_linhas_norm in titulos_norm_set: # <- Linha original substituída
-                    prox_idx = j  # Encontrou um título dividido em duas linhas
-                    break  # Para o loop 'j'
+                # if titulo_duas_linhas_norm in titulos_norm_set: # <- Linha original substituída
+                    prox_idx = j # Encontrou um título dividido em duas linhas
+                    break # Para o loop 'j'
                 # --- FIM DA CORREÇÃO (2 LINHAS) ---
         # --- FIM DA LÓGICA DE BUSCA ---
 
@@ -322,7 +321,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
-
+# ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
@@ -337,6 +336,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_belfar_encontradas = {m['canonico']: m for m in mapa_belfar}
 
     for secao in secoes_esperadas:
+        melhor_titulo = None # <-- [MODIFICAÇÃO 1] Inicializa a variável aqui
         encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref, tipo_bula)
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
 
@@ -352,7 +352,14 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
                 for m in mapa_belfar:
                     if m['titulo_encontrado'] == melhor_titulo:
-                        conteudo_belfar = "\n".join(linhas_belfar[m['linha_inicio']:mapa_belfar[mapa_belfar.index(m)+1]['linha_inicio']] if mapa_belfar.index(m)+1 < len(mapa_belfar) else linhas_belfar[m['linha_inicio']:])
+                        # Lógica para pegar conteúdo da seção encontrada por similaridade
+                        next_section_start = len(linhas_belfar)
+                        current_index = mapa_belfar.index(m)
+                        if current_index + 1 < len(mapa_belfar):
+                            next_section_start = mapa_belfar[current_index + 1]['linha_inicio']
+                        
+                        # Pega o conteúdo a partir da linha *após* o título encontrado
+                        conteudo_belfar = "\n".join(linhas_belfar[m['linha_inicio']+1:next_section_start])
                         break
                 encontrou_belfar = True
             else:
@@ -361,6 +368,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
         if encontrou_ref and encontrou_belfar:
             secao_comp = normalizar_titulo_para_comparacao(secao)
+            # Usa o 'titulo_belfar' (da busca direta) ou 'melhor_titulo' (da busca fuzzy)
             titulo_belfar_comp = normalizar_titulo_para_comparacao(titulo_belfar if titulo_belfar else melhor_titulo)
 
             if secao_comp != titulo_belfar_comp:
@@ -371,7 +379,18 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 continue
 
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
-                diferencas_conteudo.append({'secao': secao, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
+                
+                # --- [MODIFICAÇÃO 2] ---
+                # Define o título que foi realmente encontrado (pode ser da busca normal ou fuzzy)
+                titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
+                
+                diferencas_conteudo.append({
+                    'secao': secao, 
+                    'conteudo_ref': conteudo_ref, 
+                    'conteudo_belfar': conteudo_belfar,
+                    'titulo_encontrado': titulo_real_encontrado # <-- Salva o título real
+                })
+                # --- [FIM DA MODIFICAÇÃO] ---
                 similaridades_secoes.append(0)
             else:
                 similaridades_secoes.append(100)
@@ -481,7 +500,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
                 conteudo_belfar,
                 eh_referencia
             )
-
+            
             # --- [NOVA LÓGICA] ---
             # Cria o ID da âncora e envolve o conteúdo marcado com ele
             secao_canonico = diff['secao']
@@ -504,7 +523,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
                 texto_trabalho,
                 flags=re.IGNORECASE
             )
-
+            
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
     if match:
@@ -517,11 +536,10 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             )
 
     return texto_trabalho
-
 # ----------------- RELATÓRIO -----------------
-# --- [TOTALMENTE MODIFICADO] ---
+# --- [TOTALMENTE MODIFICADO E CORRIGIDO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
-
+    
     # --- [NOVO] Script Global (Plano C) ---
     # Injeta a função de rolagem no escopo GLOBAL (window)
     # Isso garante que a função `onclick` possa encontrá-la.
@@ -608,7 +626,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
-
+        
     if diferencas_conteudo:
         st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         expander_caixa_style = (
@@ -618,28 +636,53 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         )
 
         for diff in diferencas_conteudo:
-            with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
+            
+            # --- [INÍCIO DA MODIFICAÇÃO] ---
+            
+            secao_canonico_raw = diff['secao'] # Pega o nome canônico (Ex: "QUAIS OS MALES...")
+            titulo_display = diff.get('titulo_encontrado') or secao_canonico_raw
+            
+            if not titulo_display: 
+                titulo_display = secao_canonico_raw
 
+            # --- [NOVA LÓGICA PARA FORÇAR O NÚMERO 9] ---
+            # Normaliza o nome canônico para uma verificação segura
+            secao_canonico_norm = normalizar_texto(secao_canonico_raw)
+            
+            # Verifica se estamos na seção de "SUPERDOSE"
+            if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm:
+                # Se o título que pegamos (ex: "O QUE FAZER...") não começar com "9", nós forçamos.
+                if not normalizar_texto(titulo_display).startswith("9"):
+                    titulo_display = f"9. {titulo_display}"
+            # --- [FIM DA NOVA LÓGICA] ---
+
+            with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
+            # --- [FIM DA MODIFICAÇÃO] ---
+            
+                
                 # --- [MODIFICADO] ---
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
-
+                
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
                 ).replace('\n', '<br>')
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
                 ).replace('\n', '<br>')
-
+                
                 # Adiciona 'cursor: pointer;' e um 'title' para feedback
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
-
+                
                 # --- [A MUDANÇA CRÍTICA] ---
                 # Criamos o HTML da caixa clicável com o 'onclick' chamando a função GLOBAL.
                 # Usamos aspas simples (') para o HTML e duplas (") para os parâmetros do JavaScript.
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
+                
+                # --- [LINHA CORRIGIDA] ---
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
+                # --- [FIM DA CORREÇÃO] ---
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -685,7 +728,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"**📄 {nome_belfar}**")
         # ID do container principal
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
-
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
@@ -721,4 +763,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final")
+st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final") 
