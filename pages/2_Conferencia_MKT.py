@@ -1,68 +1,54 @@
 # --- IMPORTS ---
-
-# Libs Padrão
-import re
-import difflib
-import unicodedata
-import io
-
-# Libs de Terceiros (Third-party)
 import streamlit as st
-import fitz  # PyMuPDF
+# from style_utils import hide_streamlit_toolbar # Removi a dependência que não estava no código
+
+hide_streamlit_UI = """
+<style>
+/* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
+[data-testid="stHeader"] {
+display: none !important;
+visibility: hidden !important;
+}
+/* Esconde o menu hamburger (dentro do app) */
+[data-testid="main-menu-button"] {
+display: none !important;
+}
+/* Esconde o rodapé genérico (garantia extra) */
+footer {
+display: none !important;
+visibility: hidden !important;
+}
+
+/* --- NOVOS SELETORES (MAIS AGRESSIVOS) PARA O BADGE INFERIOR --- */
+
+/* Esconde o container principal do badge */
+[data-testid="stStatusWidget"] {
+display: none !important;
+visibility: hidden !important;
+}
+
+/* Esconde o 'Created by' */
+[data-testid="stCreatedBy"] {
+display: none !important;
+visibility: hidden !important;
+}
+
+/* Esconde o 'Hosted with Streamlit' */
+[data-testid="stHostedBy"] {
+display: none !important;
+visibility: hidden !important;
+}
+</style>
+"""
+st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
+import fitz # PyMuPDF
 import docx
+import re
 import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
-import pytesseract
-from PIL import Image
-
-# Libs Locais
-# Removido 'from style_utils import hide_streamlit_toolbar' pois o CSS está aqui
-
-# --- CONFIGURAÇÃO DA PÁGINA STREAMLIT ---
-
-# Oculta elementos padrão do Streamlit (menu, footer)
-hide_streamlit_UI = """
-            <style>
-            /* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
-            [data-testid="stHeader"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            
-            /* Esconde o menu hamburger (dentro do app) */
-            [data-testid="main-menu-button"] {
-                display: none !important;
-            }
-            
-            /* Esconde o rodapé genérico (garantia extra) */
-            footer {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* --- NOVOS SELETORES (MAIS AGRESSIVOS) PARA O BADGE INFERIOR --- */
-
-            /* Esconde o container principal do badge */
-            [data-testid="stStatusWidget"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* Esconde o 'Created by' */
-            [data-testid="stCreatedBy"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* Esconde o 'Hosted with Streamlit' */
-            [data-testid="stHostedBy"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            </style>
-            """
-st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
+import difflib
+import unicodedata
 
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
@@ -76,59 +62,25 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-
-# ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR -----------------
-def extrair_texto_pdf_com_ocr(arquivo_bytes):
-    """
-    Tenta extrair texto de um PDF. Se o resultado for fraco (sinal de texto em curva),
-    usa OCR como alternativa (fallback).
-    """
-    # --- TENTATIVA 1: Extração Direta (Rápida e Ideal) ---
-    texto_direto = ""
-    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for page in doc:
-            # Usa 'blocks' para manter a ordem de leitura, similar ao v18
-            blocks = page.get_text("blocks", sort=True)
-            page_text = "".join([b[4] for b in blocks])
-            texto_direto += page_text + "\n"
-
-    # Se a extração direta funcionar bem (mais de 100 caracteres), retorna o resultado
-    if len(texto_direto.strip()) > 100:
-        return texto_direto
-
-    # --- TENTATIVA 2: Extração por OCR (Lenta, para arquivos em curva) ---
-    st.info("Arquivo 'em curva' detectado. Iniciando leitura com OCR... Isso pode demorar um pouco.")
-    texto_ocr = ""
-    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for i, page in enumerate(doc):
-            # Renderiza a página como uma imagem de alta qualidade
-            pix = page.get_pixmap(dpi=300)
-            img_bytes = pix.tobytes("png")
-            imagem = Image.open(io.BytesIO(img_bytes))
-
-            # Usa Tesseract OCR para extrair texto da imagem
-            texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
-    
-    return texto_ocr
-
-
-# ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL (MODIFICADA) -----------------
+# ----------------- EXTRAÇÃO -----------------
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
         arquivo.seek(0)
         texto = ""
-        
         if tipo_arquivo == 'pdf':
-            # Usa a nova função que tem o fallback para OCR
-            texto = extrair_texto_pdf_com_ocr(arquivo.read())
-        
+            full_text_list = []
+            with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
+                for page in doc:
+                    blocks = page.get_text("blocks", sort=True)
+                    page_text = "".join([b[4] for b in blocks])
+                    full_text_list.append(page_text)
+            texto = "\n".join(full_text_list)
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto = "\n".join([p.text for p in doc.paragraphs])
-        
-        # O resto do pré-processamento continua o mesmo
+            
         if texto:
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
@@ -136,24 +88,17 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
-            
             linhas = texto.split('\n')
-            
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
-            
             texto = "\n".join(linhas_filtradas)
-            
-            texto = re.sub(r'\n{3,}', '\n\n', texto) 
+            texto = re.sub(r'\n{3,}', '\n\n', texto)
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-
-
-# --- O RESTANTE DO SEU CÓDIGO PERMANECE IGUAL ---
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
@@ -221,7 +166,7 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
-# --- [NOVA FUNÇÃO ADICIONADA] ---
+# --- [NOVO] ---
 # Helper para criar IDs únicos para as âncoras HTML
 def _create_anchor_id(secao_nome, prefix):
     """Cria um ID HTML seguro para a âncora."""
@@ -234,25 +179,24 @@ def _create_anchor_id(secao_nome, prefix):
 def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
-    # Aumentado para 20 palavras e 120 caracteres para ser compatível com v18
     if len(linha) < 4:
         return False
+    # Aumentei de 12 para 20 palavras
     if len(linha.split()) > 20:
         return False
     if linha.endswith('.') or linha.endswith(':'):
         return False
     if re.search(r'\>\s*\<', linha):
         return False
+    # Aumentei de 80 para 120 caracteres
     if len(linha) > 120:
         return False
     return True
 
-# --- FUNÇÃO MANTIDA DO SEU SCRIPT (ESTÁ CORRETA) ---
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
-    
     titulos_possiveis = {}
     for secao in secoes_esperadas:
         titulos_possiveis[secao] = secao
@@ -286,11 +230,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                     'linha_inicio': idx,
                     'score': best_match_score
                 })
-    
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [FUNÇÃO SUBSTITUÍDA] ---
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
@@ -379,9 +321,8 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
-
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
-# --- [FUNÇÃO SUBSTITUÍDA] ---
+# ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
@@ -458,7 +399,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
 
 # ----------------- ORTOGRAFIA -----------------
-# --- [FUNÇÃO SUBSTITUÍDA] ---
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula):
     if not nlp or not texto_para_checar:
         return []
@@ -502,7 +442,6 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         return []
 
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
-# --- [FUNÇÃO SUBSTITUÍDA] ---
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     def tokenizar(txt):
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
@@ -547,7 +486,8 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     return resultado
 
 # ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
-# --- [FUNÇÃO SUBSTITUÍDA] ---
+# --- [MODIFICADO] ---
+# Esta função agora adiciona um <div id="..."> em volta do conteúdo divergente
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
     if secoes_problema:
@@ -596,9 +536,8 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             )
 
     return texto_trabalho
-
 # ----------------- RELATÓRIO -----------------
-# --- [FUNÇÃO SUBSTITUÍDA] ---
+# --- [TOTALMENTE MODIFICADO E CORRIGIDO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     # --- [NOVO] Script Global (Plano C) ---
@@ -800,18 +739,17 @@ st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arte Vigente")
-    pdf_ref = st.file_uploader("Envie o PDF de referência", type="pdf", key="ref")
+    st.subheader("📄 Arquivo da Anvisa")
+    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
 with col2:
-    st.subheader("📄 PDF da Gráfica")
-    pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
+    st.subheader("📄 Arquivo Marketing")
+    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
             
             # Determina dinamicamente o tipo de arquivo da Anvisa
-            # Corrigido para .pdf, pois seu código anterior era 'pdf_ref'
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
@@ -823,11 +761,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigido erro de variável
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigido erro de variável 'erro_bf'
             else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arte Vigente (Referência)", "PDF da Gráfica", tipo_bula_selecionado)
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
-        st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
+        st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
 st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final")
