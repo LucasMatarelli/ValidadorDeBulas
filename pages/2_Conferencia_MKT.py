@@ -63,6 +63,7 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
+# --- [FUNÇÃO CORRIGIDA PARA O LAYOUT] ---
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -73,8 +74,9 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    blocks = page.get_text("blocks", sort=True)
-                    page_text = "".join([b[4] for b in blocks])
+                    # MUDANÇA: get_text("text") preserva as quebras de linha
+                    # que o "blocks" estava removendo, corrigindo o layout.
+                    page_text = page.get_text("text", sort=True) 
                     full_text_list.append(page_text)
             texto = "\n".join(full_text_list)
         elif tipo_arquivo == 'docx':
@@ -142,7 +144,7 @@ def obter_aliases_secao():
         "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
         "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
         "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
-        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
+        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
         "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
     }
@@ -442,8 +444,10 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         return []
 
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
+# --- [FUNÇÃO CORRIGIDA PARA O LAYOUT] ---
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     def tokenizar(txt):
+        # Tokeniza por \n OU palavra OU pontuação
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
@@ -470,18 +474,30 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else:
             marcado.append(tok)
 
+    # --- LÓGICA DE RECONSTRUÇÃO DE TEXTO CORRIGIDA ---
+    # Esta lógica junta os tokens de forma mais inteligente,
+    # evitando espaços antes de pontuação ou depois de quebras de linha.
     resultado = ""
     for i, tok in enumerate(marcado):
         if i == 0:
             resultado += tok
             continue
+
+        tok_anterior_raw = re.sub(r'^<mark[^>]*>|</mark>$', '', marcado[i-1])
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        if re.match(r'^[^\w\s]$', raw_tok) or raw_tok == '\n':
-            resultado += tok
-        else:
+
+        # Adiciona espaço SE:
+        # O token atual NÃO é pontuação, NÃO é newline, E
+        # O token anterior NÃO é newline, NÃO é parêntese de abertura
+        if not re.match(r'^[.,;:!?)\]]$', raw_tok) and \
+           raw_tok != '\n' and \
+           tok_anterior_raw != '\n' and \
+           not re.match(r'^[(\[]$', tok_anterior_raw):
             resultado += " " + tok
-    resultado = re.sub(r'\s+([.,;:!?)])', r'\1', resultado)
-    resultado = re.sub(r'(\()\s+', r'\1', resultado)
+        else:
+            resultado += tok
+    # --- FIM DA CORREÇÃO ---
+            
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
@@ -509,9 +525,10 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             # scroll-margin-top adiciona um "padding" ao rolar, para o título não ficar colado no topo
             conteudo_com_ancora = f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{conteudo_marcado}</div>"
 
-            if conteudo_a_marcar in texto_trabalho:
+            # Garante que o conteúdo a marcar não seja vazio para evitar replace em todo o texto
+            if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
                 # Substitui o conteúdo original pelo conteúdo marcado E com âncora
-                texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora)
+                texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora, 1)
             # --- [FIM DA NOVA LÓGICA] ---
 
     if erros_ortograficos and not eh_referencia:
@@ -526,6 +543,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
+    
     if match:
         frase_anvisa = match.group(1)
         if frase_anvisa in texto_trabalho:
@@ -739,11 +757,11 @@ st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arquivo da Anvisa")
-    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+    st.subheader("📄 Med. Referência")
+    pdf_ref = st.file_uploader("Envie o PDF de referência", type="pdf", key="ref")
 with col2:
-    st.subheader("📄 Arquivo Marketing")
-    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
+    st.subheader("📄 Med. BELFAR")
+    pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
@@ -761,11 +779,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigido erro de variável 'erro_bf'
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
+                gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula BELFAR", tipo_bula_selecionado)
     else:
-        st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
+        st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
 
 st.divider()
 st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final")
