@@ -620,7 +620,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Referência: `{data_ref}`\n - BELFAR: `{data_belfar}`")
+    
+    # --- [ALTERAÇÃO 1] ---
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Arquivo da Anvisa: `{data_ref}`\n - BELFAR: `{data_belfar}`")
+    # --- [FIM DA ALTERAÇÃO 1] ---
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
@@ -686,7 +689,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown("**Referência:** (Clique na caixa para rolar)")
+                    # --- [ALTERAÇÃO 2] ---
+                    st.markdown("**Arquivo da Anvisa:** (Clique na caixa para rolar)")
+                    # --- [FIM DA ALTERAÇÃO 2] ---
                     st.markdown(html_ref_box, unsafe_allow_html=True)
                 with c2:
                     st.markdown("**BELFAR:** (Clique na caixa para rolar)")
@@ -712,6 +717,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
     html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
 
+    # O estilo 'caixa_style' já é aplicado a ambos os containers abaixo
     caixa_style = (
         "height: 700px; overflow-y: auto; border: 2px solid #999; border-radius: 4px; "
         "padding: 24px 32px; background-color: #ffffff; "
@@ -721,11 +727,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     )
     col1, col2 = st.columns(2, gap="medium")
     with col1:
-        st.markdown(f"**📄 {nome_ref}**")
+        st.markdown(f"**📄 {nome_ref}**") # 'nome_ref' já recebe "Arquivo da Anvisa" na chamada da função
         # ID do container principal
         st.markdown(f"<div id='container-ref-scroll' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"**📄 {nome_belfar}**")
+        st.markdown(f"**📄 {nome_belfar}**") # 'nome_belfar' já recebe "Arquivo Marketing"
         # ID do container principal
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
@@ -739,8 +745,8 @@ st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arquivo da Anvisa")
-    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+    st.subheader("📄 Arquivo da Anvisa") # Já está correto
+    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref") # Já está correto
 with col2:
     st.subheader("📄 Arquivo Marketing")
     pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
@@ -763,6 +769,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigido erro de variável 'erro_bf'
             else:
+                # A chamada da função já usa "Arquivo da Anvisa"
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
