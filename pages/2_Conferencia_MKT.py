@@ -768,10 +768,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
+                diff['conteudo_anvisa'], diff['conteudo_mkt'], eh_referencia=True
                 ).replace('\n', '<br>')
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
+                diff['conteudo_anvisa'], diff['conteudo_mkt'], eh_referencia=False
                 ).replace('\n', '<br>')
                 
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
