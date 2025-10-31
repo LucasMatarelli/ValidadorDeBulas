@@ -609,7 +609,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
     # ... (início da função)
     if secoes_problema:
-        for diff in secoes_problema:
+for diff in secoes_problema:
             conteudo_ref = diff['conteudo_anvisa']      # <-- CORRIGIDO
             conteudo_belfar = diff['conteudo_mkt']      # <-- CORRIGIDO
             conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
