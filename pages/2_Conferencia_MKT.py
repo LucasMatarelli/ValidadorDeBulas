@@ -607,20 +607,21 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
 # ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
 # --- [FUNÇÃO SUBSTITUÍDA] ---
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
-    # ... (início da função)
+    texto_trabalho = texto_original
     if secoes_problema:
-for diff in secoes_problema:
-            conteudo_ref = diff['conteudo_anvisa']      # <-- CORRIGIDO
-            conteudo_belfar = diff['conteudo_mkt']      # <-- CORRIGIDO
+        for diff in secoes_problema:
+            # V---------------------- CONFIRA A INDENTAÇÃO DESTAS 4 LINHAS ----------------------V
+            conteudo_ref = diff['conteudo_anvisa']      # <-- Linha corrigida
+            conteudo_belfar = diff['conteudo_mkt']      # <-- Linha corrigida
             conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
             conteudo_marcado = marcar_diferencas_palavra_por_palavra(
-                conteudo_ref, 
+                conteudo_ref,
                 conteudo_belfar,
                 eh_referencia
             )
+            # ^---------------------- CONFIRA A INDENTAÇÃO DESTAS LINHAS ----------------------^
             
-            # --- [NOVA LÓGICA] ---
-            # Cria o ID da âncora e envolve o conteúdo marcado com ele
+            # ... (o resto do código da função)
             secao_canonico = diff['secao']
             anchor_id = _create_anchor_id(secao_canonico, "ref" if eh_referencia else "bel")
             # Adiciona a âncora (div) em volta do conteúdo
