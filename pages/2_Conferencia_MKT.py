@@ -1,6 +1,14 @@
 # --- IMPORTS ---
 import streamlit as st
 # from style_utils import hide_streamlit_toolbar # Removi a dependência que não estava no código
+import fitz # PyMuPDF
+import docx
+import re
+import spacy
+from thefuzz import fuzz
+from spellchecker import SpellChecker
+import difflib
+import unicodedata
 
 hide_streamlit_UI = """
 <style>
@@ -41,14 +49,6 @@ visibility: hidden !important;
 </style>
 """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
-import fitz # PyMuPDF
-import docx
-import re
-import spacy
-from thefuzz import fuzz
-from spellchecker import SpellChecker
-import difflib
-import unicodedata
 
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
