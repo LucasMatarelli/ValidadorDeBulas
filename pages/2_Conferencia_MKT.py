@@ -11,7 +11,7 @@
 #   * Reflow de parágrafos ajustado para evitar "puxar" conteúdo da seção seguinte
 #   * Correções em marcação HTML, geração do relatório e visualização lado-a-lado
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
-# - Para usar no Streamlit, salve este arquivo e execute `streamlit run bula_auditoria.py`
+# - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
 import re
 import difflib
@@ -49,6 +49,122 @@ def carregar_modelo_spacy():
         return None
 
 nlp = carregar_modelo_spacy()
+
+# ----------------- FUNÇÕES UTILITÁRIAS (ADICIONADAS) -----------------
+
+def normalizar_texto(texto):
+    """Remove acentos, pontuação e espaços extras."""
+    if not texto:
+        return ""
+    # Normalização Unicode para remover acentos
+    s = ''.join(c for c in unicodedata.normalize('NFD', texto)
+                if unicodedata.category(c) != 'Mn')
+    # Converte para minúsculas
+    s = s.lower()
+    # Remove pontuação e caracteres não-alfanuméricos (exceto espaço)
+    s = re.sub(r'[^\w\s]', '', s)
+    # Remove espaços extras (múltiplos espaços/tabs/newlines)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+def normalizar_titulo_para_comparacao(titulo):
+    """Normalização mais agressiva para títulos."""
+    return normalizar_texto(titulo)
+
+def is_titulo_secao(linha):
+    """
+    Heurística simples para identificar um provável título de seção.
+    """
+    if not linha:
+        return False
+    # Se for tudo maiúsculo e curto (menos de 15 palavras)
+    if linha.isupper() and len(linha.split()) < 15:
+        return True
+    # Se for Título Capitalizado e curto
+    if linha.istitle() and len(linha.split()) < 15:
+        return True
+    # Se tiver um padrão "1. NOME DA SEÇÃO"
+    if re.match(r'^\d+\.\s+[A-Z]', linha):
+         return True
+    return False
+
+def _create_anchor_id(secao_canonico, prefix):
+    """Cria um ID HTML seguro para âncoras."""
+    if not secao_canonico:
+        secao_canonico = "secao-desconhecida"
+    norm = normalizar_texto(secao_canonico).replace(' ', '-')
+    # Garante que não está vazio
+    if not norm:
+        norm = "secao-default"
+    return f"anchor-{prefix}-{norm}"
+
+# --- LÓGICA DE NEGÓCIO (LISTAS DE SEÇÕES) ---
+# !!! IMPORTANTE: Ajuste estas listas conforme sua necessidade !!!
+
+def obter_secoes_por_tipo(tipo_bula):
+    """Retorna a lista de seções canônicas esperadas."""
+    secoes_paciente = [
+        "IDENTIFICAÇÃO DO MEDICAMENTO",
+        "APRESENTAÇÕES",
+        "COMPOSIÇÃO",
+        "PARA QUE ESTE MEDICAMENTO É INDICADO?",
+        "COMO ESTE MEDICAMENTO FUNCIONA?",
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+        "COMO DEVO USAR ESTE MEDICAMENTO?",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        "O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "DIZERES LEGAIS"
+    ]
+    secoes_profissional = [
+        "IDENTIFICAÇÃO DO MEDICAMENTO",
+        "APRESENTAÇÕES",
+        "COMPOSIÇÃO",
+        "INDICAÇÕES",
+        "RESULTADOS DE EFICÁCIA",
+        "CARACTERÍSTICAS FARMACOLÓGICAS",
+        "CONTRAINDICAÇÕES",
+        "ADVERTÊNCIAS E PRECAUÇÕES",
+        "INTERAÇÕES MEDICAMENTOSAS",
+        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
+        "POSOLOGIA E MODO DE USAR",
+        "REAÇÕES ADVERSAS",
+        "SUPERDOSE",
+        "DIZERES LEGAIS"
+    ]
+    if tipo_bula == "Paciente":
+        return secoes_paciente
+    else:
+        return secoes_profissional
+
+def obter_aliases_secao():
+    """Mapeia títulos alternativos para os canônicos."""
+    return {
+        "PARA QUÊ ESTE MEDICAMENTO É INDICADO?": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
+        "O QUE DEVO SABER ANTES DE USAR ESSE MEDICAMENTO?": "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        "SUPERDOSE": "O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?"
+        # Adicione mais aliases conforme necessário
+    }
+
+def obter_secoes_ignorar_comparacao():
+    """Seções que não devem ter seu conteúdo comparado."""
+    return [
+        "IDENTIFICAÇÃO DO MEDICAMENTO",
+        "APRESENTAÇÕES",
+        "DIZERES LEGAIS"
+    ]
+
+def obter_secoes_ignorar_ortografia():
+    """Seções que não devem ser checadas por ortografia (ex: nomes, endereços)."""
+    return [
+        "IDENTIFICAÇÃO DO MEDICAMENTO",
+        "COMPOSIÇÃO",
+        "DIZERES LEGAIS"
+    ]
 
 # ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR (VERSÃO MELHORADA) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
@@ -114,6 +230,38 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
             texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
 
     return texto_ocr
+
+# ----------------- EXTRAÇÃO DE DOCX (ADICIONADA) -----------------
+def extrair_texto_docx(arquivo_bytes):
+    """Extrai texto de arquivos .docx"""
+    try:
+        document = docx.Document(io.BytesIO(arquivo_bytes))
+        texto_completo = []
+        for para in document.paragraphs:
+            texto_completo.append(para.text)
+        return "\n".join(texto_completo)
+    except Exception as e:
+        st.error(f"Erro ao ler arquivo DOCX: {e}")
+        return ""
+
+# ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL (ADICIONADA) -----------------
+def extrair_texto(arquivo, tipo_arquivo):
+    """
+    Função wrapper que chama o extrator correto (.pdf ou .docx)
+    Retorna (texto, erro_msg)
+    """
+    try:
+        arquivo_bytes = arquivo.getvalue()
+        if tipo_arquivo == 'pdf':
+            texto = extrair_texto_pdf_com_ocr(arquivo_bytes)
+            return texto, None
+        elif tipo_arquivo == 'docx':
+            texto = extrair_texto_docx(arquivo_bytes)
+            return texto, None
+        else:
+            return None, f"Tipo de arquivo não suportado: {tipo_arquivo}"
+    except Exception as e:
+        return None, f"Erro fatal na extração: {str(e)}"
 
 # ----------------- MAPEAR SEÇÕES (AJUSTES) -----------------
 def mapear_secoes(texto_completo, secoes_esperadas):
@@ -699,10 +847,12 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
+            
+            # Correção aqui: A chamada agora é para a função 'extrair_texto' que existe
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
 
-            if not erro_ref:
+            if not erro_ref and texto_ref: # Adicionada checagem se texto_ref não é None
                 # tentar truncar texto_ref até a linha da data ANVISA (correção solicitada)
                 regex_anvisa_trunc = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4}"
                 match = re.search(regex_anvisa_trunc, texto_ref, re.IGNORECASE)
@@ -713,8 +863,11 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
                     end_of_line_pos = texto_ref.find('\n', start)
                     if end_of_line_pos != -1:
                         texto_ref = texto_ref[:end_of_line_pos + 1]  # mantém até o fim da linha
+            
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+            elif not texto_ref or not texto_belfar:
+                 st.error("Erro: Um dos arquivos não pôde ser lido ou está vazio.")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
