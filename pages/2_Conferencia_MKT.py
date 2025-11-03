@@ -999,7 +999,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         eh_referencia=True
     ).replace('\n', '<br>')
     
-    html_belfar_marcado = marcar_divergencias_html(
+    html_belfar_marcado = marcar_divergc(
         texto_original=texto_belfar_reformatado, 
         secoes_problema=diferencas_conteudo, 
         erros_ortograficos=erros_ortograficos, 
