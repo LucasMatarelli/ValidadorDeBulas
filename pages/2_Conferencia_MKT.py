@@ -184,11 +184,14 @@ def truncar_apos_anvisa(texto):
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
+        # Encontra o final da linha após a data da ANVISA (incluindo a data)
         end_of_line_pos = texto.find('\n', match.end())
         if end_of_line_pos != -1:
-            return texto[:end_of_line_pos]
+            # Retorna o texto ATÉ E INCLUINDO a linha com a data da ANVISA
+            return texto[:end_of_line_pos].strip()
         else:
-            return texto
+            # Se não há quebra de linha após a data, retorna o texto todo
+            return texto.strip()
     return texto
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
