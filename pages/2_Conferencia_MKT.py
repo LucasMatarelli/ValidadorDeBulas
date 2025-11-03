@@ -408,7 +408,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [FUNÇÃO ATUALIZADA] ---
+# --- [FUNÇÃO ATUALIZADA E CORRIGIDA] ---
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
@@ -459,7 +459,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
         conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         
-        # --- [INÍCIO DA NOVA LÓGICA DE REFLUXO E LIMPEZA] ---
+        # --- [INÍCIO DA NOVA LÓGICA DE REFLUXO E LIMPEZA - CORRIGIDA] ---
         
         if not conteudo:
             return True, titulo_encontrado, ""
@@ -471,22 +471,34 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             linha_atual = conteudo[i]
             
             linha_atual_strip = linha_atual.strip()
-            
+
+            # --- [START CORRECTION - Lógica mais segura] ---
             # Heurística: Se a linha atual NÃO parece ser um novo parágrafo
             # (não começa com maiúscula, número, ou bullet/asterisco)
             # E a linha anterior NÃO é vazia,
             # E a linha anterior NÃO termina com pontuação de fim de frase.
-            if (not linha_atual_strip or \
-                (not linha_atual_strip[0].isupper() and not linha_atual_strip[0] in "“\"" )) and \
-                (not re.match(r'^\s*[\d\-\*•]', linha_atual_strip)) and \
-                linha_anterior.strip() and \
-                (not re.search(r'[.!?:]$', linha_anterior.strip())):
+            
+            # Check for new paragraph start
+            is_new_paragraph = False
+            if not linha_atual_strip:
+                is_new_paragraph = True # Keep empty lines as paragraph breaks
+            else:
+                primeiro_char = linha_atual_strip[0]
+                if primeiro_char.isupper() or primeiro_char in "“\"" or re.match(r'^\s*[\d\-\*•]', linha_atual_strip):
+                    is_new_paragraph = True
+            
+            # Check for previous line end
+            is_end_of_sentence = False
+            if not linha_anterior.strip() or re.search(r'[.!?:]$', linha_anterior.strip()):
+                is_end_of_sentence = True
                 
+            if not is_new_paragraph and not is_end_of_sentence:
                 # Juntar com a linha anterior
                 conteudo_refluxo[-1] = linha_anterior.rstrip() + " " + linha_atual.lstrip()
             else:
                 # É uma nova linha
                 conteudo_refluxo.append(linha_atual)
+            # --- [END CORRECTION] ---
 
         conteudo_final = "\n".join(conteudo_refluxo).strip()
 
@@ -547,7 +559,14 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
                         
                         # Pega o conteúdo a partir da linha *após* o título encontrado
                         # Usa .get('num_linhas_titulo', 1) para ser compatível com seu mapear_secoes
-                        conteudo_mkt = "\n".join(linhas_mkt[m['linha_inicio'] + m.get('num_linhas_titulo', 1) : next_section_start])
+                        conteudo_mkt_raw = "\n".join(linhas_mkt[m['linha_inicio'] + m.get('num_linhas_titulo', 1) : next_section_start])
+                        
+                        # --- [NOVO] Aplica a mesma lógica de reflow aqui ---
+                        # Isso garante que a comparação seja feita no texto limpo
+                        temp_mapa = [{'canonico': secao, 'titulo_encontrado': melhor_titulo, 'linha_inicio': 0, 'num_linhas_titulo': 0}]
+                        _, _, conteudo_mkt = obter_dados_secao(secao, temp_mapa, conteudo_mkt_raw.split('\n'), tipo_bula)
+                        # --- [FIM] ---
+
                         break
                 encontrou_mkt = True
             else:
@@ -695,29 +714,58 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     texto_trabalho = texto_original
     if secoes_problema:
         for diff in secoes_problema:
-            # V---------------------- CONFIRA A INDENTAÇÃO DESTAS 4 LINHAS ----------------------V
-            conteudo_ref = diff['conteudo_anvisa']      # <-- Linha corrigida
-            conteudo_belfar = diff['conteudo_mkt']      # <-- Linha corrigida
-            conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
+            
+            # --- [INÍCIO DA LÓGICA DE SUBSTITUIÇÃO CORRIGIDA] ---
+            secao_canonico = diff['secao']
+            
+            # 1. Pega os conteúdos (já limpos e reformatados pela obter_dados_secao)
+            conteudo_ref = diff['conteudo_anvisa']
+            conteudo_belfar = diff['conteudo_mkt']
+            
+            # 2. Gera o HTML marcado (que também está limpo e reformatado)
             conteudo_marcado = marcar_diferencas_palavra_por_palavra(
                 conteudo_ref,
                 conteudo_belfar,
                 eh_referencia
             )
-            # ^---------------------- CONFIRA A INDENTAÇÃO DESTAS LINHAS ----------------------^
             
-            # ... (o resto do código da função)
-            secao_canonico = diff['secao']
+            # 3. Pega o conteúdo que será substituído (ref ou belfar)
+            conteudo_a_substituir = conteudo_ref if eh_referencia else conteudo_belfar
+            
+            # 4. Adiciona a âncora
             anchor_id = _create_anchor_id(secao_canonico, "ref" if eh_referencia else "bel")
-            # Adiciona a âncora (div) em volta do conteúdo
-            # scroll-margin-top adiciona um "padding" ao rolar, para o título não ficar colado no topo
             conteudo_com_ancora = f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{conteudo_marcado}</div>"
 
-            # Garante que o conteúdo a marcar não seja vazio para evitar replace em todo o texto
-            if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
-                # Substitui o conteúdo original pelo conteúdo marcado E com âncora
-                texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora, 1)
-            # --- [FIM DA NOVA LÓGICA] ---
+            # 5. [A CORREÇÃO]
+            # O `texto_original` (texto_belfar) está *sem formatação*.
+            # O `conteudo_a_substituir` (conteudo_belfar) está *com formatação*.
+            # A substituição direta (`texto_trabalho.replace`) falha.
+            # SOLUÇÃO: Vamos "sujar" o `conteudo_a_substituir` para que ele
+            # corresponda ao texto original, removendo a formatação.
+            
+            # Cria uma versão "suja" (sem reflow) do conteúdo para o replace
+            conteudo_sujo_normalizado = normalizar_texto(conteudo_a_substituir.replace('\n', ''))
+            
+            # Agora, fazemos um loop no texto *original* e encontramos
+            # a seção correspondente para substituí-la.
+            
+            # Recria o mapa de seções do texto original
+            mapa_secoes = mapear_secoes(texto_original, obter_secoes_por_tipo(tipo_bula))
+            linhas_texto = texto_original.split('\n')
+            
+            # Pega o conteúdo *original* (sujo) da seção
+            encontrou, _, conteudo_original_sujo = obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula)
+            
+            # Limpa a formatação do conteúdo original sujo
+            conteudo_original_reflowed, _, _ = obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula)
+
+            # Compara se o conteúdo que achamos é o mesmo que o da divergência
+            if encontrou and normalizar_texto(conteudo_original_reflowed) == normalizar_texto(conteudo_a_substituir):
+                # Se for, faz o replace do conteúdo original (sujo) pelo conteúdo formatado
+                if conteudo_original_sujo in texto_trabalho:
+                     texto_trabalho = texto_trabalho.replace(conteudo_original_sujo, conteudo_com_ancora, 1)
+
+            # --- [FIM DA LÓGICA DE SUBSTITUIÇÃO] ---
 
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
@@ -902,9 +950,42 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "</div>",
         unsafe_allow_html=True
     )
+    
+    # --- [CORREÇÃO DA FORMATAÇÃO DO VISUALIZADOR] ---
+    # Precisamos criar uma versão reformatada dos textos *inteiros*
+    # para a exibição final, preservando as âncoras.
 
-    html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
-    html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
+    # 1. Reformata os textos inteiros, seção por seção
+    mapa_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
+    mapa_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
+    
+    texto_ref_reformatado = "\n".join(
+        obter_dados_secao(secao['canonico'], mapa_ref, texto_ref.split('\n'), tipo_bula)[2] 
+        for secao in mapa_ref
+    )
+    texto_belfar_reformatado = "\n".join(
+        obter_dados_secao(secao['canonico'], mapa_belfar, texto_belfar.split('\n'), tipo_bula)[2] 
+        for secao in mapa_belfar
+    )
+
+    # 2. Gera o HTML marcado usando os textos reformatados
+    html_ref_marcado = marcar_divergencias_html(
+        texto_original=texto_ref_reformatado, 
+        secoes_problema=diferencas_conteudo, 
+        erros_ortograficos=[], 
+        tipo_bula=tipo_bula, 
+        eh_referencia=True
+    ).replace('\n', '<br>')
+    
+    html_belfar_marcado = marcar_divergencias_html(
+        texto_original=texto_belfar_reformatado, 
+        secoes_problema=diferencas_conteudo, 
+        erros_ortograficos=erros_ortograficos, 
+        tipo_bula=tipo_bula, 
+        eh_referencia=False
+    ).replace('\n', '<br>')
+    # --- [FIM DA CORREÇÃO DA FORMATAÇÃO] ---
+
 
     # 2. Estilo da Caixa de Visualização
     caixa_style = (
