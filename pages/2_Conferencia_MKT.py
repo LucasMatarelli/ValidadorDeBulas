@@ -22,11 +22,14 @@ from thefuzz import fuzz
 from spellchecker import SpellChecker
 import pytesseract
 from PIL import Image
-import fitz  # PyMuPDF
+import fitz # PyMuPDF
 import docx
 import streamlit as st
 
 # ----------------- CONFIGURAÇÃO DA PÁGINA STREAMLIT -----------------
+# Deve ser a primeira chamada do Streamlit
+st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
+
 hide_streamlit_UI = """
             <style>
             [data-testid="stHeader"] { display: none !important; visibility: hidden !important; }
@@ -220,7 +223,7 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
             pass
 
     # Fallback OCR
-    st.info("Arquivo  com layout complexo detectado. Iniciando OCR (tesseract)...")
+    st.info("Arquivo com layout complexo detectado. Iniciando OCR (tesseract)...")
     texto_ocr = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         for page in doc:
@@ -616,8 +619,13 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             secao_canonico = diff.get('secao', '')
             anchor_id = _create_anchor_id(secao_canonico, "ref" if eh_referencia else "bel")
             conteudo_com_ancora = f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{conteudo_marcado}</div>"
-            # substituir apenas a primeira ocorrência para evitar múltiplas substituições
-            texto_trabalho = texto_trabalho.replace(conteudo_a_substituir, conteudo_com_ancora, 1)
+            
+            # Tenta substituir de forma mais segura
+            try:
+                texto_trabalho = texto_trabalho.replace(conteudo_a_substituir, conteudo_com_ancora, 1)
+            except re.error:
+                # Fallback se 'conteudo_a_substituir' for um regex inválido (raro, mas possível)
+                pass
 
     # marcar possíveis erros ortográficos (somente no texto do Belfar / marketing)
     if erros_ortograficos and not eh_referencia:
@@ -770,25 +778,34 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     mapa_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
     mapa_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
 
-    # Reformatar texto por seções detectadas (conservador: usa as seções detectadas no documento)
+    # --- INÍCIO DA CORREÇÃO DE ESPAÇAMENTO ---
+    # Reformatar texto por seções detectadas
     try:
-        texto_ref_reformatado = []
+        texto_ref_reformatado_lista = []
         for secao in mapa_ref:
             _, _, conteudo = obter_dados_secao(secao['canonico'], mapa_ref, texto_ref.split('\n'), tipo_bula)
             titulo = secao.get('titulo_encontrado', secao.get('canonico', ''))
-            texto_ref_reformatado.append(f"{titulo}\n\n{conteudo}")
-        texto_ref_reformatado = "\n\n".join(texto_ref_reformatado) if texto_ref_reformatado else texto_ref
+            # Adiciona o título em negrito e o conteúdo, separados por uma única quebra de linha
+            texto_ref_reformatado_lista.append(f"<strong>{titulo}</strong>\n{conteudo}")
+        
+        # Junta todas as seções com uma quebra de linha dupla (que vira <br><br>)
+        texto_ref_reformatado = "\n\n".join(texto_ref_reformatado_lista) if texto_ref_reformatado_lista else texto_ref
 
-        texto_belfar_reformatado = []
+        texto_belfar_reformatado_lista = []
         for secao in mapa_belfar:
             _, _, conteudo = obter_dados_secao(secao['canonico'], mapa_belfar, texto_belfar.split('\n'), tipo_bula)
             titulo = secao.get('titulo_encontrado', secao.get('canonico', ''))
-            texto_belfar_reformatado.append(f"{titulo}\n\n{conteudo}")
-        texto_belfar_reformatado = "\n\n".join(texto_belfar_reformatado) if texto_belfar_reformatado else texto_belfar
+            # Adiciona o título em negrito e o conteúdo
+            texto_belfar_reformatado_lista.append(f"<strong>{titulo}</strong>\n{conteudo}")
+        
+        # Junta todas as seções com uma quebra de linha dupla
+        texto_belfar_reformatado = "\n\n".join(texto_belfar_reformatado_lista) if texto_belfar_reformatado_lista else texto_belfar
+
     except Exception as e:
         st.error(f"Erro ao reformatar texto para visualização: {e}")
         texto_ref_reformatado = texto_ref
         texto_belfar_reformatado = texto_belfar
+    # --- FIM DA CORREÇÃO DE ESPAÇAMENTO ---
 
     html_ref_marcado = marcar_divergencias_html(
         texto_original=texto_ref_reformatado,
@@ -828,7 +845,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
 
 # ----------------- INTERFACE -----------------
-st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
 st.divider()
