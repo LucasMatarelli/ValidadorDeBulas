@@ -954,7 +954,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("Visualização Lado a Lado com Destaques")
     
-    # --- INÍCIO DA MODIFICAÇÃO ESTÉTICA (DO SEU CÓDIGO) ---
+    # --- INÍCIO DA MODIFICAÇÃO ESTÉTICA (DO SEU CÓGIGO) ---
     
     # 1. Estilo da Legenda
     legend_style = (
