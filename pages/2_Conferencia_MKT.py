@@ -112,11 +112,11 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
                 
                 # Concatena o texto da Coluna 1
                 for b in col1_blocks:
-                    texto_direto += b[4] + "\n"
+                    texto_direto += b[4] # O \n já está incluído no bloco
                 
                 # Concatena o texto da Coluna 2
                 for b in col2_blocks:
-                    texto_direto += b[4] + "\n"
+                    texto_direto += b[4] # O \n já está incluído no bloco
                 
                 texto_direto += "\n" # Adiciona uma quebra de página
     
@@ -153,7 +153,7 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
 
 
 # ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL (MODIFICADA) -----------------
-# --- [FUNÇÃO CORRIGIDA PARA O LAYOUT] ---
+# --- [FUNÇÃO CORRIGIDA] ---
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -178,6 +178,15 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = texto.replace('\u00A0', ' ')
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
+            # --- [CORREÇÃO TÍTULO GRUDADO] ---
+            # Insere quebra de linha antes de títulos numerados que estão grudados
+            # Ex: "...texto. 9. O QUE FAZER..."
+            padrao_titulo_paciente = r'([.!?])(\s*)(\d+\s*\.?\s*(?:PARA|COMO|QUANDO|O QU[ÊE]|ONDE|QUAIS)\b)'
+            texto = re.sub(padrao_titulo_paciente, r'\1\n\n\3', texto, flags=re.IGNORECASE)
+            padrao_titulo_prof = r'([.!?])(\s*)(\d+\s*\.?\s*(?:APRESENTAÇÕES|COMPOSIÇÃO|INDICAÇÕES|RESULTADOS|CARACTERÍSTICAS|CONTRAINDICAÇÕES|ADVERTÊNCIAS|INTERAÇÕES|CUIDADOS|POSOLOGIA|REAÇÕES|SUPERDOSE)\b)'
+            texto = re.sub(padrao_titulo_prof, r'\1\n\n\3', texto, flags=re.IGNORECASE)
+            # --- [FIM DA CORREÇÃO] ---
+
             linhas = texto.split('\n')
             
             # --- [FILTRO DE RUÍDO CORRIGIDO] ---
@@ -194,40 +203,32 @@ def extrair_texto(arquivo, tipo_arquivo):
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$' # Ruído do rodapé
             , re.IGNORECASE)
             
+            # --- [CORREÇÃO DO FILTRO DE LINHAS] ---
+            # A lógica anterior estava jogando fora linhas curtas (ex: "com", "um")
             linhas_filtradas = []
             for linha in linhas:
                 linha_strip = linha.strip()
                 if not padrao_ruido_linha.search(linha_strip):
-                    if len(linha_strip) > 1 or (len(linha_strip) == 1 and linha_strip.isdigit()):
-                        # --- [AQUI ESTÁ A CORREÇÃO DE LAYOUT] ---
-                        # Salvamos a 'linha' original (com espaços)
-                        # e não a 'linha_strip' (sem espaços)
-                        linhas_filtradas.append(linha) 
-                    elif linha_strip.isupper() and len(linha_strip) > 0: 
-                        linhas_filtradas.append(linha_strip)
+                    # Se a linha não for ruído, E
+                    # se ela não estiver completamente vazia (len > 0)
+                    if len(linha_strip) > 0:
+                        linhas_filtradas.append(linha) # Adiciona a linha ORIGINAL (com espaços)
+            # --- [FIM DA CORREÇÃO DO FILTRO] ---
             
             texto = "\n".join(linhas_filtradas)
             
             texto = re.sub(r'\n{3,}', '\n\n', texto) 
-            # --- [CORREÇÃO DE LAYOUT] ---
-            # Removida a linha abaixo que destruía a indentação
-            # texto = re.sub(r'[ \t]+', ' ', texto) 
             texto = texto.strip()
             
             # --- [NOVA CORREÇÃO DE FORMATAÇÃO] ---
             # Corrige palavras coladas em parênteses (ex: "ergot(exemplo...")
             texto = re.sub(r'(\w)\(', r'\1 (', texto)
-            
-            # --- [CORREÇÃO TÍTULO GRUDADO] ---
-            # Insere quebra de linha antes de títulos numerados que estão grudados
-            # Ex: "...texto. 9. O QUE FAZER..."
-            padrao_titulo_paciente = r'([.!?])(\s*)(\d+\s*\.\s*(?:PARA|COMO|QUANDO|O QUÊ|O QUE|ONDE|QUAIS)\b)'
-            texto = re.sub(padrao_titulo_paciente, r'\1\n\n\3', texto, flags=re.IGNORECASE)
             # --- [FIM DA CORREÇÃO] ---
 
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+# --- [FIM DA FUNÇÃO] ---
         
 # --- [FUNÇÃO 'truncar_apos_anvisa' REMOVIDA] ---
 # A lógica será aplicada inline e SOMENTE ao texto_ref,
