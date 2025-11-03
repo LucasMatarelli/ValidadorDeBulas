@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v19.5 - Correção de Falsos Títulos (token_set_ratio)
+# Sistema: AuditorIA de Bulas v19.6 - Correção de "Conteúdo Cruzado"
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v19.5: Usa fuzz.token_set_ratio para ignorar frases de advertência,
-#          mesmo que estejam parciais ou quebradas em várias linhas pelo OCR.
+# - v19.6: Remove lógica de 'fuzzy matching' entre seções diferentes, que estava
+#          puxando conteúdo errado (ex: 'Esquecer' puxava 'Contraindicações').
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -92,8 +92,6 @@ def is_titulo_secao(linha):
     
     for frase in FRASES_A_IGNORAR:
         # Usa token_set_ratio para pegar "linhas parciais"
-        # Ex: "TODO MEDICAMENTO" (100) vs "TODO...CRIANCAS"
-        # Ex: "FORA DO ALCANCE DAS CRIANCAS" (100) vs "TODO...CRIANCAS"
         # 95 é um limiar alto para garantir que é parte desta frase
         if fuzz.token_set_ratio(linha_norm_check, frase) > 95:
             return False
@@ -557,16 +555,12 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
-# ***** FUNÇÃO CORRIGIDA (v19.4) *****
+# ***** FUNÇÃO CORRIGIDA (v19.6) *****
 def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
-    
-    # --- INÍCIO DA CORREÇÃO v19.4 ---
-    # Adiciona a nova lista de seções para ignorar na verificação de *existência*
     secoes_ignorar_existencia_upper = [s.upper() for s in obter_secoes_ignorar_verificacao_existencia()]
-    # --- FIM DA CORREÇÃO v19.4 ---
 
     linhas_anvisa = texto_anvisa.split('\n')
     linhas_mkt = texto_mkt.split('\n')
@@ -575,59 +569,40 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
 
     for secao in secoes_esperadas:
     
-        # --- INÍCIO DA CORREÇÃO v19.4 ---
-        # Pula a verificação de existência para esta seção
         checar_existencia = secao.upper() not in secoes_ignorar_existencia_upper
-        # --- FIM DA CORREÇÃO v19.4 ---
     
-        melhor_titulo = None
         encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
+        # A função 'obter_dados_secao' já tem seu próprio fallback.
+        # Se ela não encontrar (nem no mapa, nem no fallback), 'encontrou_mkt' será False.
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
+        # --- INÍCIO DA CORREÇÃO v19.6 ---
+        # Removemos a lógica de 'fuzzy matching' entre seções diferentes.
+        # Se 'obter_dados_secao' falhou, é porque a seção não foi encontrada.
         if not encontrou_mkt:
-            # Tenta achar título similar no mapa_mkt com alta similaridade
-            melhor_score = 0
-            melhor_titulo = None
-            for m in mapa_mkt:
-                score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(secao), normalizar_titulo_para_comparacao(m['titulo_encontrado']))
-                if score > melhor_score:
-                    melhor_score = score
-                    melhor_titulo = m['titulo_encontrado']
-            
-            if melhor_score >= 95 and melhor_titulo:
-                # Encontrou um sinônimo/alias
-                encontrou_mkt = True
-                # extrair conteúdo do mapeamento encontrado
-                for m in mapa_mkt:
-                    if m['titulo_encontrado'] == melhor_titulo:
-                         # Re-chama obter_dados_secao com o 'canonico' do título encontrado
-                         _, _, conteudo_mkt = obter_dados_secao(m['canonico'], mapa_mkt, linhas_mkt, tipo_bula)
-                         break
-            elif checar_existencia: # <-- SÓ ADICIONA SE A SEÇÃO NÃO ESTIVER NA LISTA DE IGNORAR
+            if checar_existencia: 
                 secoes_faltantes.append(secao)
-                continue
-            else:
-                # A seção não foi encontrada, MAS está na lista para ignorar
-                # Então, apenas 'continue' sem adicionar a 'secoes_faltantes'
-                continue
+            continue # Pula para a próxima seção
+        # --- FIM DA CORREÇÃO v19.6 ---
 
-        if encontrou_anvisa and encontrou_mkt:
+        # Se chegou aqui, 'encontrou_mkt' é True
+        if encontrou_anvisa: # 'encontrou_anvisa' é sempre True, exceto em bulas muito mal formatadas
             secao_comp = normalizar_titulo_para_comparacao(secao)
-            titulo_mkt_comp = normalizar_titulo_para_comparacao(titulo_mkt if titulo_mkt else (melhor_titulo or ""))
+            titulo_mkt_comp = normalizar_titulo_para_comparacao(titulo_mkt or "")
+            
             if secao_comp != titulo_mkt_comp:
                 if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
-                    diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_mkt if titulo_mkt else melhor_titulo})
+                    diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_mkt})
 
             if secao.upper() in secoes_ignorar_upper:
                 continue
 
             if normalizar_texto(conteudo_anvisa) != normalizar_texto(conteudo_mkt):
-                titulo_real_encontrado = titulo_mkt if titulo_mkt else melhor_titulo
                 diferencas_conteudo.append({
                     'secao': secao,
                     'conteudo_anvisa': conteudo_anvisa,
                     'conteudo_mkt': conteudo_mkt,
-                    'titulo_encontrado': titulo_real_encontrado
+                    'titulo_encontrado': titulo_mkt
                 })
                 similaridades_secoes.append(0)
             else:
@@ -1028,4 +1003,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v19.5 | Correção de Falsos Títulos (token_set_ratio)")
+st.caption("Sistema de AuditorIA de Bulas v19.6 | Correção de 'Conteúdo Cruzado'")
