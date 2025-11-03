@@ -1,17 +1,17 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Sistema: AuditorIA de Bulas v19.0 - Versão corrigida completa
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - Esta é a versão completa do seu script com as correções solicitadas:
+# - Esta é a versão completa do script com as correções solicitadas:
 #   * Melhor detecção de títulos (inclui títulos quebrados em 1,2 ou 3 linhas)
 #   * Extração de conteúdo de seção mais robusta (usa mapa de seções como fallback)
 #   * Reflow de parágrafos ajustado para evitar "puxar" conteúdo da seção seguinte
 #   * Correções em marcação HTML, geração do relatório e visualização lado-a-lado
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run bula_auditoria.py`
-# - Caso queira otimizações adicionais para PDFs específicos, envie trechos problemáticos.
 
 import re
 import difflib
@@ -52,30 +52,42 @@ nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
+    """
+    Tenta extrair texto nativo usando PyMuPDF (fitz). Se falhar ou detectar PDF 'em curva' (muito pouco texto),
+    faz OCR página-a-página usando pytesseract em imagens rasterizadas (dpi=300).
+    Também tenta lidar com layout de 2 colunas: lê colunas esquerda então direita por bloco.
+    """
     texto_direto = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
             for page in doc:
+                # blocks = (x0, y0, x1, y1, "text", block_no, block_type)
                 blocks = page.get_text("blocks", sort=False)
-                middle_x = page.rect.width / 2
+                # heurística simples de split vertical: meio da página
+                middle_x = page.rect.width / 2.0
                 col1_blocks = []
                 col2_blocks = []
                 for b in blocks:
                     x0 = b[0]
-                    if x0 < middle_x:
+                    # se o bloco atravessa o meio, decidir por centro
+                    x_center = (b[0] + b[2]) / 2.0
+                    if x_center <= middle_x:
                         col1_blocks.append(b)
                     else:
                         col2_blocks.append(b)
+                # ordenar por y0 (top)
                 col1_blocks.sort(key=lambda b: b[1])
                 col2_blocks.sort(key=lambda b: b[1])
+                # concatenar coluna esquerda depois direita (por página)
                 for b in col1_blocks:
-                    texto_direto += b[4] + "\n"
+                    texto_direto += (b[4] or "") + "\n"
                 for b in col2_blocks:
-                    texto_direto += b[4] + "\n"
+                    texto_direto += (b[4] or "") + "\n"
                 texto_direto += "\n"
         if len(texto_direto.strip()) > 100:
             return texto_direto
     except Exception:
+        # tentativa fallback com get_text("text")
         try:
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 for page in doc:
@@ -85,14 +97,34 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
         except Exception:
             pass
 
-    st.info("Arquivo 'em curva' detectado. Iniciando leitura com OCR... Isso pode demorar um pouco.")
+    # Se chegou aqui: usar OCR
+    st.info("Arquivo 'em curva' detectado ou texto nativo insuficiente. Iniciando leitura com OCR... Isso pode demorar um pouco.")
     texto_ocr = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for i, page in enumerate(doc):
-            pix = page.get_pixmap(dpi=300)
-            img_bytes = pix.tobytes("png")
-            imagem = Image.open(io.BytesIO(img_bytes))
-            texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
+        for i, page in enumerate(doc, start=1):
+            try:
+                pix = page.get_pixmap(dpi=300)
+                img_bytes = pix.tobytes("png")
+                imagem = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                # separa imagem em duas colunas por metade (heurística)
+                w, h = imagem.size
+                split_x = w // 2
+                left_img = imagem.crop((0, 0, split_x, h))
+                right_img = imagem.crop((split_x, 0, w, h))
+                left_text = pytesseract.image_to_string(left_img, lang='por') or ""
+                right_text = pytesseract.image_to_string(right_img, lang='por') or ""
+                # juntar, preferindo texto da esquerda primeiro
+                page_text = left_text.strip() + "\n" + right_text.strip()
+                texto_ocr += page_text + "\n\n"
+            except Exception as e:
+                # fallback: OCR da imagem inteira
+                try:
+                    pix = page.get_pixmap(dpi=150)
+                    img_bytes = pix.tobytes("png")
+                    imagem = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                    texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n\n"
+                except Exception:
+                    st.warning(f"Erro OCR página {i}: {e}")
     return texto_ocr
 
 # ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
@@ -107,13 +139,16 @@ def extrair_texto(arquivo, tipo_arquivo):
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto = "\n".join([p.text for p in doc.paragraphs])
+        # limpeza básica
         if texto:
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
+            # junta hifenizações no final da linha
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
+            # remover linhas irrelevantes / ruído conhecido
             linhas = texto.split('\n')
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+' 
@@ -131,6 +166,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             for linha in linhas:
                 linha_strip = linha.strip()
                 if not padrao_ruido_linha.search(linha_strip):
+                    # mantem linhas significativas
                     if len(linha_strip) > 1 or (len(linha_strip) == 1 and linha_strip.isdigit()):
                         linhas_filtradas.append(linha)
                     elif linha_strip.isupper() and len(linha_strip) > 0:
@@ -138,6 +174,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = "\n".join(linhas_filtradas)
             texto = re.sub(r'\n{3,}', '\n\n', texto)
             texto = texto.strip()
+            # garantir espaço antes de parenteses que grudaram ao fim de palavra
             texto = re.sub(r'(\w)\(', r'\1 (', texto)
         return texto, None
     except Exception as e:
@@ -216,20 +253,24 @@ def _create_anchor_id(secao_nome, prefix):
 # ----------------- DETECÇÃO E MAPEAMENTO DE SEÇÕES -----------------
 def is_titulo_secao(linha):
     linha = linha.strip()
-    if len(linha) < 2:
+    if not linha or len(linha) < 2:
         return False
-    if len(linha) > 120:
+    if len(linha) > 130:
         return False
-    if re.search(r'\>\s*\<', linha):
-        return False
+    # evitar títulos com muitos símbolos estranhos
     non_alpha_ratio = len(re.findall(r'[^A-Za-z0-9À-ÖØ-öø-ÿ\s\.\-\(\)\:]', linha)) / max(1, len(linha))
     if non_alpha_ratio > 0.25:
         return False
+    # números de seção como "1." "1)" etc
     if re.match(r'^\d+\s*[\.\-\)]', linha):
         return True
     words = linha.split()
-    if len(words) <= 8 and (linha.upper() == linha or sum(1 for w in words if w and w[0].isupper()) >= len(words) - 1):
+    # se tudo em maiúsculas ou maioria dos inícios de palavras capitalizados
+    upper_count = sum(1 for w in words if w.isupper())
+    capstart_count = sum(1 for w in words if w and w[0].isupper())
+    if len(words) <= 8 and (upper_count >= len(words) - 1 or capstart_count >= len(words) - 1):
         return True
+    # títulos com tamanho moderado e poucas palavras
     if 1 < len(words) <= 15:
         if linha.endswith('.'):
             return False
@@ -258,11 +299,13 @@ def mapear_secoes(texto_completo, secoes_esperadas):
 
         best = {'score': 0, 'canonico': None, 'titulo_encontrado': None, 'num_linhas_titulo': 1}
 
+        # compara como 1 linha
         for titulo_possivel, canonico in titulos_possiveis.items():
             score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(linha_limpa))
             if score > best['score']:
                 best.update({'score': score, 'canonico': canonico, 'titulo_encontrado': linha_limpa, 'num_linhas_titulo': 1})
 
+        # tenta combinar com a linha seguinte (2 linhas de título)
         if (idx + 1) < len(linhas):
             linha2 = linhas[idx + 1].strip()
             if len(linha2.split()) <= 12:
@@ -272,10 +315,11 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                     if score > best['score']:
                         best.update({'score': score, 'canonico': canonico, 'titulo_encontrado': combinado, 'num_linhas_titulo': 2})
 
+        # tenta 3 linhas de título
         if (idx + 2) < len(linhas):
             linha2 = linhas[idx + 1].strip()
             linha3 = linhas[idx + 2].strip()
-            if len(linha2.split()) <= 15 and len(linha3.split()) <= 10:
+            if len(linha2.split()) <= 15 and len(linha3.split()) <= 12:
                 combinado3 = f"{linha_limpa} {linha2} {linha3}"
                 for titulo_possivel, canonico in titulos_possiveis.items():
                     score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(combinado3))
@@ -284,6 +328,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
 
         LIMIAR = 92
         if best['score'] >= LIMIAR:
+            # evitar duplicatas imediatas
             if not mapa or mapa[-1]['canonico'] != best['canonico'] or mapa[-1]['linha_inicio'] != idx:
                 mapa.append({
                     'canonico': best['canonico'],
@@ -300,6 +345,11 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
+    """
+    Dado um mapa de seções (mapear_secoes), encontra o conteúdo entre o título e o próximo título,
+    com heurísticas que também usam a lista completa de títulos esperados como referência.
+    Retorna (encontrou(bool), titulo_encontrado(str), conteudo(str)).
+    """
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
 
@@ -312,22 +362,29 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         num_linhas_titulo = secao_mapa.get('num_linhas_titulo', 1)
         linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
+        # procura próximo título a partir da lista de titulos esperados ou próximos no mapa de seções
         prox_idx = None
         j = linha_inicio_conteudo
         while j < len(linhas_texto):
             linha_atual = linhas_texto[j].strip()
+            if not linha_atual:
+                j += 1
+                continue
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
-            if any(t in linha_atual_norm and len(linha_atual_norm) > 0 for t in titulos_norm_set):
+            # se a linha atual contém um título esperado (heurística)
+            if any(linha_atual_norm.startswith(t) or t in linha_atual_norm for t in titulos_norm_set):
                 prox_idx = j
                 break
+            # testar combinação com a próxima linha
             if (j + 1) < len(linhas_texto):
                 combinacao = f"{linha_atual} {linhas_texto[j + 1].strip()}"
                 combinacao_norm = normalizar_titulo_para_comparacao(combinacao)
-                if any(t in combinacao_norm and len(combinacao_norm) > 0 for t in titulos_norm_set):
+                if any(combinacao_norm.startswith(t) or t in combinacao_norm for t in titulos_norm_set):
                     prox_idx = j
                     break
             j += 1
 
+        # fallback: usar mapa_secoes ordenado para achar o próximo título do documento
         if prox_idx is None:
             mapa_ordenado = sorted(mapa_secoes, key=lambda x: x['linha_inicio'])
             try:
@@ -345,20 +402,28 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         if not conteudo:
             return True, titulo_encontrado, ""
 
+        # Reflow mais conservador: evita juntar linhas quando a linha seguinte parece ser um título
         conteudo_refluxo = [conteudo[0]]
         for k in range(1, len(conteudo)):
             linha_anterior = conteudo_refluxo[-1]
             linha_atual = conteudo[k]
             linha_atual_strip = linha_atual.strip()
 
+            # detectar possível início de parágrafo ou título falso
             is_new_paragraph = False
             if not linha_atual_strip:
                 is_new_paragraph = True
             else:
                 primeiro_char = linha_atual_strip[0]
-                if primeiro_char.isupper() or re.match(r'^[\d\-\*•]', linha_atual_strip) or linha_atual_strip[0] in "“\"(":
+                if primeiro_char.isupper() and len(linha_atual_strip.split()) <= 3:
+                    # se a linha atual é curta e começa com maiúscula, pode ser título ou item numerado
+                    is_new_paragraph = True
+                if re.match(r'^[\d\-\*•]', linha_atual_strip):
+                    is_new_paragraph = True
+                if linha_atual_strip[0] in "“\"(":
                     is_new_paragraph = True
 
+            # detectar final de sentença para juntar
             is_end_of_sentence = bool(re.search(r'[.!?:]\s*$', linha_anterior.strip()))
 
             if not is_new_paragraph and not is_end_of_sentence:
@@ -367,11 +432,11 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 conteudo_refluxo.append(linha_atual)
 
         conteudo_final = "\n".join(conteudo_refluxo).strip()
+        # limpeza de espaços antes/depois de pontuação
         conteudo_final = re.sub(r'\s+([.,;:!?)\]])', r'\1', conteudo_final)
         conteudo_final = re.sub(r'([(\[])\s+', r'\1', conteudo_final)
         conteudo_final = re.sub(r'([.,;:!?)\]])(\w)', r'\1 \2', conteudo_final)
         conteudo_final = re.sub(r'(\w)([(\[])', r'\1 \2', conteudo_final)
-
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
@@ -393,6 +458,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
         if not encontrou_mkt:
+            # tenta achar título similar no mapa_mkt com alta similaridade
             melhor_score = 0
             melhor_titulo = None
             for m in mapa_mkt:
@@ -400,8 +466,8 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
                 if score > melhor_score:
                     melhor_score = score
                     melhor_titulo = m['titulo_encontrado']
-            if melhor_score >= 95:
-                diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
+            if melhor_score >= 95 and melhor_titulo:
+                # extrair conteúdo do mapeamento encontrado
                 for m in mapa_mkt:
                     if m['titulo_encontrado'] == melhor_titulo:
                         next_section_start = len(linhas_mkt)
@@ -419,8 +485,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
 
         if encontrou_anvisa and encontrou_mkt:
             secao_comp = normalizar_titulo_para_comparacao(secao)
-            titulo_mkt_comp = normalizar_titulo_para_comparacao(titulo_mkt if titulo_mkt else melhor_titulo)
-
+            titulo_mkt_comp = normalizar_titulo_para_comparacao(titulo_mkt if titulo_mkt else (melhor_titulo or ""))
             if secao_comp != titulo_mkt_comp:
                 if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
                     diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_mkt if titulo_mkt else melhor_titulo})
@@ -472,13 +537,22 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
 
-        spell.word_frequency.load_words(
-            vocab_referencia.union(entidades).union(palavras_a_ignorar)
-        )
+        # adicionar ao dicionário customizado palavras do texto de referência e entidades
+        try:
+            spell.word_frequency.load_words(list(vocab_referencia.union(entidades).union(palavras_a_ignorar)))
+        except Exception:
+            # fallback caso load_words não exista
+            for w in vocab_referencia.union(entidades).union(palavras_a_ignorar):
+                try:
+                    spell.word_frequency.add(w)
+                except Exception:
+                    pass
 
         palavras = re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_final_para_checar.lower())
         erros = spell.unknown(palavras)
-        return list(sorted(set([e for e in erros if len(e) > 3])))[:20]
+        # filtrar e ordenar
+        erros_filtrados = sorted(set([e for e in erros if len(e) > 3]))
+        return erros_filtrados[:20]
 
     except Exception:
         return []
@@ -486,6 +560,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     def tokenizar(txt):
+        # preserva quebras de linha como token separado
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
@@ -530,7 +605,8 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else:
             resultado += " " + tok
 
-    resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
+    # remover espaços indesejados entre marcações consecutivas
+    resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", r"\1 \2", resultado)
     return resultado
 
 # ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
@@ -538,19 +614,22 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     texto_trabalho = texto_original
     if secoes_problema:
         for diff in secoes_problema:
-            conteudo_ref = diff['conteudo_anvisa']
-            conteudo_belfar = diff['conteudo_mkt']
-            conteudo_marcado = marcar_diferencas_palavra_por_palavra(conteudo_ref, conteudo_belfar, eh_referencia)
+            conteudo_ref = diff.get('conteudo_anvisa', '') or ''
+            conteudo_belfar = diff.get('conteudo_mkt', '') or ''
             conteudo_a_substituir = conteudo_ref if eh_referencia else conteudo_belfar
-            secao_canonico = diff['secao']
+            if not conteudo_a_substituir:
+                continue
+            conteudo_marcado = marcar_diferencas_palavra_por_palavra(conteudo_ref, conteudo_belfar, eh_referencia)
+            secao_canonico = diff.get('secao', '')
             anchor_id = _create_anchor_id(secao_canonico, "ref" if eh_referencia else "bel")
             conteudo_com_ancora = f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{conteudo_marcado}</div>"
-            if conteudo_a_substituir and conteudo_a_substituir in texto_trabalho:
-                texto_trabalho = texto_trabalho.replace(conteudo_a_substituir, conteudo_com_ancora, 1)
+            # substituir apenas a primeira ocorrência para evitar múltiplas substituições
+            texto_trabalho = texto_trabalho.replace(conteudo_a_substituir, conteudo_com_ancora, 1)
 
+    # marcar possíveis erros ortográficos (somente no texto do Belfar / marketing)
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
-            pattern = r'(?<![<>a-zA-Z])(?<!mark>)(?<!;>)\b(' + re.escape(erro) + r')\b(?![<>])'
+            pattern = r'(?<![<>A-Za-z0-9])\b(' + re.escape(erro) + r')\b(?![<>A-Za-z0-9])'
             texto_trabalho = re.sub(
                 pattern,
                 r"<mark style='background-color: #FFDDC1; padding: 2px;'>\1</mark>",
@@ -558,21 +637,18 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
                 flags=re.IGNORECASE
             )
 
+    # destacar frase de aprovação ANVISA (se existir)
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
     if match:
         frase_anvisa = match.group(1)
-        if frase_anvisa in texto_trabalho:
-            texto_trabalho = texto_trabalho.replace(
-                frase_anvisa,
-                f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa}</mark>",
-                1
-            )
+        texto_trabalho = texto_trabalho.replace(frase_anvisa, f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa}</mark>", 1)
 
     return texto_trabalho
 
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
+    # script de scroll sincronizado
     js_scroll_script = """
     <script>
     if (!window.handleBulaScroll) {
@@ -606,13 +682,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.markdown(js_scroll_script, unsafe_allow_html=True)
 
     st.header("Relatório de Auditoria Inteligente")
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    regex_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
 
-    match_ref = re.search(regex_anvisa, texto_ref.lower())
-    match_belfar = re.search(regex_anvisa, texto_belfar.lower())
+    match_ref = re.search(regex_anvisa, texto_ref, re.IGNORECASE)
+    match_belfar = re.search(regex_anvisa, texto_belfar, re.IGNORECASE)
 
-    data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
-    data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
+    data_ref = match_ref.group(1).strip() if match_ref else "Não encontrada"
+    data_belfar = match_belfar.group(1).strip() if match_belfar else "Não encontrada"
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
@@ -643,17 +719,17 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         )
 
         for diff in diferencas_conteudo:
-            titulo_display = diff['secao']
+            titulo_display = diff.get('secao', 'Seção')
             with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
-                secao_canonico = diff['secao']
+                secao_canonico = diff.get('secao', '')
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
 
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_anvisa'], diff['conteudo_mkt'], eh_referencia=True
+                    diff.get('conteudo_anvisa', ''), diff.get('conteudo_mkt', ''), eh_referencia=True
                 ).replace('\n', '<br>')
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_anvisa'], diff['conteudo_mkt'], eh_referencia=False
+                    diff.get('conteudo_anvisa', ''), diff.get('conteudo_mkt', ''), eh_referencia=False
                 ).replace('\n', '<br>')
 
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
@@ -701,15 +777,21 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     mapa_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
     mapa_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
 
+    # Reformatar texto por seções detectadas (conservador: usa as seções detectadas no documento)
     try:
-        texto_ref_reformatado = "\n\n".join(
-            obter_dados_secao(secao['canonico'], mapa_ref, texto_ref.split('\n'), tipo_bula)[2]
-            for secao in mapa_ref
-        )
-        texto_belfar_reformatado = "\n\n".join(
-            obter_dados_secao(secao['canonico'], mapa_belfar, texto_belfar.split('\n'), tipo_bula)[2]
-            for secao in mapa_belfar
-        )
+        texto_ref_reformatado = []
+        for secao in mapa_ref:
+            _, _, conteudo = obter_dados_secao(secao['canonico'], mapa_ref, texto_ref.split('\n'), tipo_bula)
+            titulo = secao.get('titulo_encontrado', secao.get('canonico', ''))
+            texto_ref_reformatado.append(f"{titulo}\n\n{conteudo}")
+        texto_ref_reformatado = "\n\n".join(texto_ref_reformatado) if texto_ref_reformatado else texto_ref
+
+        texto_belfar_reformatado = []
+        for secao in mapa_belfar:
+            _, _, conteudo = obter_dados_secao(secao['canonico'], mapa_belfar, texto_belfar.split('\n'), tipo_bula)
+            titulo = secao.get('titulo_encontrado', secao.get('canonico', ''))
+            texto_belfar_reformatado.append(f"{titulo}\n\n{conteudo}")
+        texto_belfar_reformatado = "\n\n".join(texto_belfar_reformatado) if texto_belfar_reformatado else texto_belfar
     except Exception as e:
         st.error(f"Erro ao reformatar texto para visualização: {e}")
         texto_ref_reformatado = texto_ref
@@ -776,13 +858,16 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
 
             if not erro_ref:
-                regex_anvisa_trunc = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+                # tentar truncar texto_ref até a linha da data ANVISA (correção solicitada)
+                regex_anvisa_trunc = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4}"
                 match = re.search(regex_anvisa_trunc, texto_ref, re.IGNORECASE)
                 if match:
-                    end_of_line_pos = texto_ref.find('\n', match.end())
+                    # encontra início da linha onde a data aparece e trunca até essa linha (mantendo a linha)
+                    start = match.start()
+                    # busca o final da linha onde aparece a data
+                    end_of_line_pos = texto_ref.find('\n', start)
                     if end_of_line_pos != -1:
-                        texto_ref = texto_ref[:end_of_line_pos]
-
+                        texto_ref = texto_ref[:end_of_line_pos + 1]  # mantém até o fim da linha
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
