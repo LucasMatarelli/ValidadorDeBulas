@@ -50,237 +50,77 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR -----------------
+# ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR (VERSÃO MELHORADA) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Tenta extrair texto nativo usando PyMuPDF (fitz). Se falhar ou detectar PDF 'em curva' (muito pouco texto),
-    faz OCR página-a-página usando pytesseract em imagens rasterizadas (dpi=300).
-    Também tenta lidar com layout de 2 colunas: lê colunas esquerda então direita por bloco.
+    Extração otimizada para PDFs de 2 colunas.
+    Usa centro do bloco para decidir coluna e ordena por (y, x) dentro de cada coluna.
+    Fallback para OCR com Tesseract quando necessário.
     """
     texto_direto = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
             for page in doc:
-                # blocks = (x0, y0, x1, y1, "text", block_no, block_type)
-                blocks = page.get_text("blocks", sort=False)
-                # heurística simples de split vertical: meio da página
+                blocks = page.get_text("blocks", sort=False)  # cada block: (x0,y0,x1,y1,"text", ...)
                 middle_x = page.rect.width / 2.0
+
                 col1_blocks = []
                 col2_blocks = []
+
                 for b in blocks:
-                    x0 = b[0]
-                    # se o bloco atravessa o meio, decidir por centro
-                    x_center = (b[0] + b[2]) / 2.0
-                    if x_center <= middle_x:
-                        col1_blocks.append(b)
+                    x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
+                    # usa centro do bloco para decidir coluna (mais robusto que só x0)
+                    center_x = (x0 + x1) / 2.0
+                    if center_x <= middle_x:
+                        col1_blocks.append((y0, x0, text))
                     else:
-                        col2_blocks.append(b)
-                # ordenar por y0 (top)
-                col1_blocks.sort(key=lambda b: b[1])
-                col2_blocks.sort(key=lambda b: b[1])
-                # concatenar coluna esquerda depois direita (por página)
-                for b in col1_blocks:
-                    texto_direto += (b[4] or "") + "\n"
-                for b in col2_blocks:
-                    texto_direto += (b[4] or "") + "\n"
-                texto_direto += "\n"
+                        col2_blocks.append((y0, x0, text))
+
+                # Ordena dentro da coluna por y (top -> down) e depois por x (left -> right)
+                col1_blocks.sort(key=lambda t: (t[0], t[1]))
+                col2_blocks.sort(key=lambda t: (t[0], t[1]))
+
+                # Concatena coluna 1 primeiro, depois coluna 2 (ordem de leitura)
+                for _, _, txt in col1_blocks:
+                    texto_direto += txt + "\n"
+                for _, _, txt in col2_blocks:
+                    texto_direto += txt + "\n"
+
+                texto_direto += "\n"  # quebra de página
+
         if len(texto_direto.strip()) > 100:
+            # Limpa caracteres estranhos mínimos e retorna
             return texto_direto
-    except Exception:
-        # tentativa fallback com get_text("text")
+    except Exception as e:
+        # Tentativa simples caso blocks falhem
         try:
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+                texto_alt = ""
                 for page in doc:
-                    texto_direto += page.get_text("text") + "\n"
-            if len(texto_direto.strip()) > 100:
-                return texto_direto
+                    texto_alt += page.get_text("text") + "\n"
+                if len(texto_alt.strip()) > 100:
+                    return texto_alt
         except Exception:
             pass
 
-    # Se chegou aqui: usar OCR
-    st.info("Arquivo 'em curva' detectado ou texto nativo insuficiente. Iniciando leitura com OCR... Isso pode demorar um pouco.")
+    # Fallback OCR
+    st.info("Arquivo  com layout complexo detectado. Iniciando OCR (tesseract)...")
     texto_ocr = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for i, page in enumerate(doc, start=1):
-            try:
-                pix = page.get_pixmap(dpi=300)
-                img_bytes = pix.tobytes("png")
-                imagem = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-                # separa imagem em duas colunas por metade (heurística)
-                w, h = imagem.size
-                split_x = w // 2
-                left_img = imagem.crop((0, 0, split_x, h))
-                right_img = imagem.crop((split_x, 0, w, h))
-                left_text = pytesseract.image_to_string(left_img, lang='por') or ""
-                right_text = pytesseract.image_to_string(right_img, lang='por') or ""
-                # juntar, preferindo texto da esquerda primeiro
-                page_text = left_text.strip() + "\n" + right_text.strip()
-                texto_ocr += page_text + "\n\n"
-            except Exception as e:
-                # fallback: OCR da imagem inteira
-                try:
-                    pix = page.get_pixmap(dpi=150)
-                    img_bytes = pix.tobytes("png")
-                    imagem = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-                    texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n\n"
-                except Exception:
-                    st.warning(f"Erro OCR página {i}: {e}")
+        for page in doc:
+            pix = page.get_pixmap(dpi=300)
+            img_bytes = pix.tobytes("png")
+            imagem = Image.open(io.BytesIO(img_bytes))
+            texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
+
     return texto_ocr
 
-# ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
-def extrair_texto(arquivo, tipo_arquivo):
-    if arquivo is None:
-        return "", f"Arquivo {tipo_arquivo} não enviado."
-    try:
-        arquivo.seek(0)
-        texto = ""
-        if tipo_arquivo == 'pdf':
-            texto = extrair_texto_pdf_com_ocr(arquivo.read())
-        elif tipo_arquivo == 'docx':
-            doc = docx.Document(arquivo)
-            texto = "\n".join([p.text for p in doc.paragraphs])
-        # limpeza básica
-        if texto:
-            caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
-            for char in caracteres_invisiveis:
-                texto = texto.replace(char, '')
-            texto = texto.replace('\r\n', '\n').replace('\r', '\n')
-            texto = texto.replace('\u00A0', ' ')
-            # junta hifenizações no final da linha
-            texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
-            # remover linhas irrelevantes / ruído conhecido
-            linhas = texto.split('\n')
-            padrao_ruido_linha = re.compile(
-                r'bula do paciente|página \d+\s*de\s*\d+' 
-                r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
-                r'|(Impressãe|Impressão):? Frente/Verso|Papel[\.:]? Ap \d+gr'
-                r'|Cor:? Preta|contato:?|artes@belfar\.com\.br'
-                r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+|BUL\d+V\d+'
-                r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
-                r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
-                r'|^\s*\d+\s*mm\s*$'
-                r'|^\s*-\s*Normal e Negrito\. Corpo \d+\s*$'
-                r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$'
-            , re.IGNORECASE)
-            linhas_filtradas = []
-            for linha in linhas:
-                linha_strip = linha.strip()
-                if not padrao_ruido_linha.search(linha_strip):
-                    # mantem linhas significativas
-                    if len(linha_strip) > 1 or (len(linha_strip) == 1 and linha_strip.isdigit()):
-                        linhas_filtradas.append(linha)
-                    elif linha_strip.isupper() and len(linha_strip) > 0:
-                        linhas_filtradas.append(linha_strip)
-            texto = "\n".join(linhas_filtradas)
-            texto = re.sub(r'\n{3,}', '\n\n', texto)
-            texto = texto.strip()
-            # garantir espaço antes de parenteses que grudaram ao fim de palavra
-            texto = re.sub(r'(\w)\(', r'\1 (', texto)
-        return texto, None
-    except Exception as e:
-        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-
-# ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
-def obter_secoes_por_tipo(tipo_bula):
-    secoes = {
-        "Paciente": [
-            "APRESENTAÇÕES",
-            "COMPOSIÇÃO",
-            "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
-            "2. COMO ESTE MEDICAMENTO FUNCIONA?",
-            "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-            "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "6. COMO DEVO USAR ESTE MEDICAMENTO?",
-            "7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-            "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-            "DIZERES LEGAIS"
-        ],
-        "Profissional": [
-            "1. APRESENTAÇÕES",
-            "2. COMPOSIÇÃO",
-            "3. INDICAÇÕES",
-            "4. RESULTADOS DE EFICÁCIA",
-            "5. CARACTERÍSTICAS FARMACOLÓGICAS",
-            "6. CONTRAINDICAÇÕES",
-            "7. ADVERTÊNCIAS E PRECAUÇÕES",
-            "8. INTERAÇÕES MEDICAMENTOSAS",
-            "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
-            "10. POSOLOGIA E MODO DE USAR",
-            "11. REAÇÕES ADVERSAS",
-            "12. SUPERDOSE",
-            "DIZERES LEGAIS"
-        ]
-    }
-    return secoes.get(tipo_bula, [])
-
-def obter_aliases_secao():
-    return {
-        "3. INDICAÇÕES": "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "6. CONTRAINDICAÇÕES": "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "10. POSOLOGIA E MODO DE USAR": "6. COMO DEVO USAR ESTE MEDICAMENTO?",
-        "11. REAÇÕES ADVERSAS": "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "12. SUPERDOSE": "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
-    }
-
-def obter_secoes_ignorar_ortografia():
-    return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
-
-def obter_secoes_ignorar_comparacao():
-    return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES",
-            "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO"]
-
-# ----------------- NORMALIZAÇÃO -----------------
-def normalizar_texto(texto):
-    texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-    texto = re.sub(r'[^\w\s]', '', texto)
-    texto = ' '.join(texto.split())
-    return texto.lower()
-
-def normalizar_titulo_para_comparacao(texto):
-    texto_norm = normalizar_texto(texto)
-    texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
-    return texto_norm
-
-def _create_anchor_id(secao_nome, prefix):
-    norm = normalizar_texto(secao_nome)
-    norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
-    return f"anchor-{prefix}-{norm_safe}"
-
-# ----------------- DETECÇÃO E MAPEAMENTO DE SEÇÕES -----------------
-def is_titulo_secao(linha):
-    linha = linha.strip()
-    if not linha or len(linha) < 2:
-        return False
-    if len(linha) > 130:
-        return False
-    # evitar títulos com muitos símbolos estranhos
-    non_alpha_ratio = len(re.findall(r'[^A-Za-z0-9À-ÖØ-öø-ÿ\s\.\-\(\)\:]', linha)) / max(1, len(linha))
-    if non_alpha_ratio > 0.25:
-        return False
-    # números de seção como "1." "1)" etc
-    if re.match(r'^\d+\s*[\.\-\)]', linha):
-        return True
-    words = linha.split()
-    # se tudo em maiúsculas ou maioria dos inícios de palavras capitalizados
-    upper_count = sum(1 for w in words if w.isupper())
-    capstart_count = sum(1 for w in words if w and w[0].isupper())
-    if len(words) <= 8 and (upper_count >= len(words) - 1 or capstart_count >= len(words) - 1):
-        return True
-    # títulos com tamanho moderado e poucas palavras
-    if 1 < len(words) <= 15:
-        if linha.endswith('.'):
-            return False
-        return True
-    return False
-
+# ----------------- MAPEAR SEÇÕES (AJUSTES) -----------------
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
+
     titulos_possiveis = {}
     for secao in secoes_esperadas:
         titulos_possiveis[secao] = secao
@@ -289,157 +129,162 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             titulos_possiveis[alias] = canonico
 
     idx = 0
-    titulos_norm = {t: normalizar_titulo_para_comparacao(t) for t in titulos_possiveis.keys()}
-
     while idx < len(linhas):
         linha_limpa = linhas[idx].strip()
         if not is_titulo_secao(linha_limpa):
             idx += 1
             continue
 
-        best = {'score': 0, 'canonico': None, 'titulo_encontrado': None, 'num_linhas_titulo': 1}
+        # 1-linha
+        best_match_score_1 = 0
+        best_match_canonico_1 = None
+        for poss, canon in titulos_possiveis.items():
+            score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
+                                         normalizar_titulo_para_comparacao(linha_limpa))
+            if score > best_match_score_1:
+                best_match_score_1 = score
+                best_match_canonico_1 = canon
 
-        # compara como 1 linha
-        for titulo_possivel, canonico in titulos_possiveis.items():
-            score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(linha_limpa))
-            if score > best['score']:
-                best.update({'score': score, 'canonico': canonico, 'titulo_encontrado': linha_limpa, 'num_linhas_titulo': 1})
-
-        # tenta combinar com a linha seguinte (2 linhas de título)
+        # 2-linhas
+        best_match_score_2 = 0
+        best_match_canonico_2 = None
+        titulo_comb_2 = ""
         if (idx + 1) < len(linhas):
-            linha2 = linhas[idx + 1].strip()
-            if len(linha2.split()) <= 12:
-                combinado = f"{linha_limpa} {linha2}"
-                for titulo_possivel, canonico in titulos_possiveis.items():
-                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(combinado))
-                    if score > best['score']:
-                        best.update({'score': score, 'canonico': canonico, 'titulo_encontrado': combinado, 'num_linhas_titulo': 2})
+            next_line = linhas[idx + 1].strip()
+            # heurística: segunda linha pode ser mais longa agora (até 12 palavras)
+            if len(next_line.split()) < 12:
+                titulo_comb_2 = f"{linha_limpa} {next_line}"
+                for poss, canon in titulos_possiveis.items():
+                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
+                                                 normalizar_titulo_para_comparacao(titulo_comb_2))
+                    if score > best_match_score_2:
+                        best_match_score_2 = score
+                        best_match_canonico_2 = canon
 
-        # tenta 3 linhas de título
+        # 3-linhas (aumentado limites)
+        best_match_score_3 = 0
+        best_match_canonico_3 = None
+        titulo_comb_3 = ""
         if (idx + 2) < len(linhas):
-            linha2 = linhas[idx + 1].strip()
-            linha3 = linhas[idx + 2].strip()
-            if len(linha2.split()) <= 15 and len(linha3.split()) <= 12:
-                combinado3 = f"{linha_limpa} {linha2} {linha3}"
-                for titulo_possivel, canonico in titulos_possiveis.items():
-                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(combinado3))
-                    if score > best['score']:
-                        best.update({'score': score, 'canonico': canonico, 'titulo_encontrado': combinado3, 'num_linhas_titulo': 3})
+            l2 = linhas[idx + 1].strip()
+            l3 = linhas[idx + 2].strip()
+            # mais tolerância para linhas de título em 2ª/3ª linhas
+            if len(l2.split()) < 18 and len(l3.split()) < 14:
+                titulo_comb_3 = f"{linha_limpa} {l2} {l3}"
+                for poss, canon in titulos_possiveis.items():
+                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
+                                                 normalizar_titulo_para_comparacao(titulo_comb_3))
+                    if score > best_match_score_3:
+                        best_match_score_3 = score
+                        best_match_canonico_3 = canon
 
-        LIMIAR = 92
-        if best['score'] >= LIMIAR:
-            # evitar duplicatas imediatas
-            if not mapa or mapa[-1]['canonico'] != best['canonico'] or mapa[-1]['linha_inicio'] != idx:
-                mapa.append({
-                    'canonico': best['canonico'],
-                    'titulo_encontrado': best['titulo_encontrado'],
-                    'linha_inicio': idx,
-                    'score': best['score'],
-                    'num_linhas_titulo': best['num_linhas_titulo']
-                })
-            idx += best['num_linhas_titulo']
+        limiar_score = 90  # mais tolerante
+
+        # Prioriza 3 > 2 > 1
+        if best_match_score_3 >= limiar_score and best_match_score_3 >= best_match_score_2 and best_match_score_3 >= best_match_score_1:
+            if not mapa or mapa[-1]['canonico'] != best_match_canonico_3:
+                mapa.append({'canonico': best_match_canonico_3, 'titulo_encontrado': titulo_comb_3, 'linha_inicio': idx, 'score': best_match_score_3, 'num_linhas_titulo': 3})
+            idx += 3
+        elif best_match_score_2 >= limiar_score and best_match_score_2 >= best_match_score_1:
+            if not mapa or mapa[-1]['canonico'] != best_match_canonico_2:
+                mapa.append({'canonico': best_match_canonico_2, 'titulo_encontrado': titulo_comb_2, 'linha_inicio': idx, 'score': best_match_score_2, 'num_linhas_titulo': 2})
+            idx += 2
+        elif best_match_score_1 >= limiar_score:
+            if not mapa or mapa[-1]['canonico'] != best_match_canonico_1:
+                mapa.append({'canonico': best_match_canonico_1, 'titulo_encontrado': linha_limpa, 'linha_inicio': idx, 'score': best_match_score_1, 'num_linhas_titulo': 1})
+            idx += 1
         else:
             idx += 1
 
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
+# ----------------- OBTER DADOS DA SESSÃO (USANDO MAPA_SECOES QUANDO POSSÍVEL) -----------------
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
-    Dado um mapa de seções (mapear_secoes), encontra o conteúdo entre o título e o próximo título,
-    com heurísticas que também usam a lista completa de títulos esperados como referência.
-    Retorna (encontrou(bool), titulo_encontrado(str), conteudo(str)).
+    Extrai conteúdo de uma seção usando preferencialmente as posições no mapa_secoes.
+    Se mapa_secoes não contiver a seção, tenta heurística de busca (antiga).
     """
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
 
-    for i, secao_mapa in enumerate(mapa_secoes):
+    # Tenta encontrar no mapa_secoes diretamente
+    for idx_map, secao_mapa in enumerate(mapa_secoes):
         if secao_mapa['canonico'] != secao_canonico:
             continue
 
-        titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
         num_linhas_titulo = secao_mapa.get('num_linhas_titulo', 1)
         linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
-        # procura próximo título a partir da lista de titulos esperados ou próximos no mapa de seções
-        prox_idx = None
-        j = linha_inicio_conteudo
-        while j < len(linhas_texto):
-            linha_atual = linhas_texto[j].strip()
-            if not linha_atual:
-                j += 1
-                continue
-            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
-            # se a linha atual contém um título esperado (heurística)
-            if any(linha_atual_norm.startswith(t) or t in linha_atual_norm for t in titulos_norm_set):
-                prox_idx = j
-                break
-            # testar combinação com a próxima linha
-            if (j + 1) < len(linhas_texto):
-                combinacao = f"{linha_atual} {linhas_texto[j + 1].strip()}"
-                combinacao_norm = normalizar_titulo_para_comparacao(combinacao)
-                if any(combinacao_norm.startswith(t) or t in combinacao_norm for t in titulos_norm_set):
-                    prox_idx = j
-                    break
-            j += 1
+        # Usa o próximo título do mapa como fim se existir
+        if idx_map + 1 < len(mapa_secoes):
+            linha_fim = mapa_secoes[idx_map + 1]['linha_inicio']
+        else:
+            linha_fim = len(linhas_texto)
 
-        # fallback: usar mapa_secoes ordenado para achar o próximo título do documento
-        if prox_idx is None:
-            mapa_ordenado = sorted(mapa_secoes, key=lambda x: x['linha_inicio'])
-            try:
-                pos = next(k for k, v in enumerate(mapa_ordenado) if v['linha_inicio'] == linha_inicio and v['canonico'] == secao_canonico)
-                if pos + 1 < len(mapa_ordenado):
-                    prox_idx = mapa_ordenado[pos + 1]['linha_inicio']
-                else:
-                    prox_idx = len(linhas_texto)
-            except StopIteration:
-                prox_idx = len(linhas_texto)
+        # Proteção: evita índices inválidos
+        if linha_inicio_conteudo >= linha_fim:
+            return True, secao_mapa['titulo_encontrado'], ""
 
-        linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
-        conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
+        conteudo = [linhas_texto[i] for i in range(linha_inicio_conteudo, linha_fim)]
 
+        # Reflow (junta linhas que pertencem ao mesmo parágrafo)
         if not conteudo:
-            return True, titulo_encontrado, ""
+            return True, secao_mapa['titulo_encontrado'], ""
 
-        # Reflow mais conservador: evita juntar linhas quando a linha seguinte parece ser um título
         conteudo_refluxo = [conteudo[0]]
         for k in range(1, len(conteudo)):
-            linha_anterior = conteudo_refluxo[-1]
-            linha_atual = conteudo[k]
-            linha_atual_strip = linha_atual.strip()
+            prev = conteudo_refluxo[-1]
+            cur = conteudo[k]
+            cur_strip = cur.strip()
 
-            # detectar possível início de parágrafo ou título falso
-            is_new_paragraph = False
-            if not linha_atual_strip:
-                is_new_paragraph = True
+            # Heurística para decidir se inicia novo parágrafo
+            is_new_para = False
+            if not cur_strip:
+                is_new_para = True
             else:
-                primeiro_char = linha_atual_strip[0]
-                if primeiro_char.isupper() and len(linha_atual_strip.split()) <= 3:
-                    # se a linha atual é curta e começa com maiúscula, pode ser título ou item numerado
-                    is_new_paragraph = True
-                if re.match(r'^[\d\-\*•]', linha_atual_strip):
-                    is_new_paragraph = True
-                if linha_atual_strip[0] in "“\"(":
-                    is_new_paragraph = True
+                first_char = cur_strip[0]
+                if first_char.isupper() or first_char in '“"' or re.match(r'^[\d\-\*•]', cur_strip):
+                    is_new_para = True
 
-            # detectar final de sentença para juntar
-            is_end_of_sentence = bool(re.search(r'[.!?:]\s*$', linha_anterior.strip()))
-
-            if not is_new_paragraph and not is_end_of_sentence:
-                conteudo_refluxo[-1] = linha_anterior.rstrip() + " " + linha_atual.lstrip()
+            end_sentence = bool(re.search(r'[.!?:]$', prev.strip()))
+            if not is_new_para and not end_sentence:
+                conteudo_refluxo[-1] = prev.rstrip() + " " + cur.lstrip()
             else:
-                conteudo_refluxo.append(linha_atual)
+                conteudo_refluxo.append(cur)
 
         conteudo_final = "\n".join(conteudo_refluxo).strip()
-        # limpeza de espaços antes/depois de pontuação
+
+        # Limpeza de espaços com pontuação
         conteudo_final = re.sub(r'\s+([.,;:!?)\]])', r'\1', conteudo_final)
         conteudo_final = re.sub(r'([(\[])\s+', r'\1', conteudo_final)
         conteudo_final = re.sub(r'([.,;:!?)\]])(\w)', r'\1 \2', conteudo_final)
         conteudo_final = re.sub(r'(\w)([(\[])', r'\1 \2', conteudo_final)
-        return True, titulo_encontrado, conteudo_final
+
+        return True, secao_mapa['titulo_encontrado'], conteudo_final
+
+    # --- Se não encontrou no mapa_secoes (fallback antigo) ---
+    # Procura heurística por próximo título (igual à versão anterior, mas mais cuidadosa)
+    for i in range(len(linhas_texto)):
+        # procura o título que corresponda à secao_canonico
+        linha = linhas_texto[i].strip()
+        score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(linha), normalizar_titulo_para_comparacao(secao_canonico))
+        if score >= 90:
+            # a partir daqui, tenta achar próximo título (ou fim do texto)
+            inicio = i + 1
+            fim = len(linhas_texto)
+            for j in range(inicio, len(linhas_texto)):
+                cand = linhas_texto[j].strip()
+                cand_norm = normalizar_titulo_para_comparacao(cand)
+                if any(t in cand_norm and len(cand_norm)>0 for t in titulos_norm_set):
+                    fim = j
+                    break
+            conteudo = "\n".join(linhas_texto[inicio:fim]).strip()
+            return True, linha, conteudo
 
     return False, None, ""
+
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
