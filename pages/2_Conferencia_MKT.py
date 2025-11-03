@@ -142,18 +142,18 @@ def extrair_texto(arquivo, tipo_arquivo):
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO APRIMORADO ---
+            # --- [FILTRO DE RUÍDO CORRIGIDO] ---
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'  # Rodapé padrão
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*' # Ruído do MKT (com erros)
                 r'|(Impressãe|Impressão):? Frente/Verso|Papel[\.:]? Ap \d+gr' # Ruído do MKT (com erros)
                 r'|Cor:? Preta|contato:?|artes@belfar\.com\.br' # Ruído do MKT
-                r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+' # Nome do arquivo
+                r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+|BUL\d+V\d+' # <-- [MUDANÇA] Filtro genérico
                 r'|CLORIDRATO DE NAFAZOLINA: Times New Roman' # Ruído do MKT
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$' # Indicador de página
                 r'|^\s*\d+\s*mm\s*$' # Medidas (ex: 190 mm, 300 mm)
                 r'|^\s*-\s*Normal e Negrito\. Corpo \d+\s*$' # Linha de formatação
-                r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$' # Ruído do rodapé
+                r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$' # Ruído do rodapé
             , re.IGNORECASE)
             
             linhas_filtradas = []
@@ -175,6 +175,11 @@ def extrair_texto(arquivo, tipo_arquivo):
             # Removida a linha abaixo que destruía a indentação
             # texto = re.sub(r'[ \t]+', ' ', texto) 
             texto = texto.strip()
+            
+            # --- [NOVA CORREÇÃO DE FORMATAÇÃO] ---
+            # Corrige palavras coladas em parênteses (ex: "ergot(exemplo...")
+            texto = re.sub(r'(\w)\(', r'\1 (', texto)
+            # --- [FIM DA CORREÇÃO] ---
 
         return texto, None
     except Exception as e:
@@ -246,19 +251,25 @@ def _create_anchor_id(secao_nome, prefix):
     return f"anchor-{prefix}-{norm_safe}"
 
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (VERSÃO FINAL) -----------------
+# --- [FUNÇÃO CORRIGIDA] ---
 def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
-    # Mantido os limites do seu código (12 palavras, 80 caracteres)
-    if len(linha) < 4 or len(linha.split()) > 12: 
+    # --- [MUDANÇA] ---
+    # Permitir títulos muito curtos (como "9. O")
+    if len(linha) < 2: # Antes era 4
+        return False
+    # Aumentar o limite de palavras
+    if len(linha.split()) > 15: # Antes era 12
         return False
     if linha.endswith('.') or linha.endswith(':'):
         return False
     if re.search(r'\>\s*\<', linha):
         return False
-    if len(linha) > 80:
+    if len(linha) > 90: # Antes era 80
         return False
     return True
+    # --- [FIM DA MUDANÇA] ---
 
 # --- [FUNÇÃO MODIFICADA] ---
 def mapear_secoes(texto_completo, secoes_esperadas):
@@ -572,7 +583,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             return []
 
         spell = SpellChecker(language='pt')
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato", "dihidroergotamina"} # <-- Adicionado
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
@@ -619,9 +630,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else:
             marcado.append(tok)
 
-    # --- LÓGICA DE RECONSTRUÇÃO DE TEXTO CORRIGIDA ---
-    # Esta lógica junta os tokens de forma mais inteligente,
-    # evitando espaços antes de pontuação ou depois de quebras de linha.
+    # --- [LÓGICA DE RECONSTRUÇÃO DE TEXTO CORRIGIDA E SIMPLIFICADA] ---
     resultado = ""
     for i, tok in enumerate(marcado):
         if i == 0:
@@ -631,16 +640,18 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         tok_anterior_raw = re.sub(r'^<mark[^>]*>|</mark>$', '', marcado[i-1])
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
 
-        # Adiciona espaço SE:
-        # O token atual NÃO é pontuação, NÃO é newline, E
-        # O token anterior NÃO é newline, NÃO é parêntese de abertura
-        if not re.match(r'^[.,;:!?)\]]$', raw_tok) and \
-           raw_tok != '\n' and \
-           tok_anterior_raw != '\n' and \
-           not re.match(r'^[(\[]$', tok_anterior_raw):
-            resultado += " " + tok
-        else:
+        # Regra 1: Se o token atual ou anterior for newline, NUNCA adicionar espaço.
+        if raw_tok == '\n' or tok_anterior_raw == '\n':
             resultado += tok
+        # Regra 2: Se o token atual for pontuação de fechamento/meio, NUNCA adicionar espaço.
+        elif re.match(r'^[.,;:!?)\]]$', raw_tok):
+            resultado += tok
+        # Regra 3: Se o token anterior for pontuação de abertura, NUNCA adicionar espaço.
+        elif re.match(r'^[(\[]$', tok_anterior_raw):
+            resultado += tok
+        # Regra 4: Default (palavra, ou abertura), ADICIONAR espaço.
+        else:
+            resultado += " " + tok
     # --- FIM DA CORREÇÃO ---
             
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
@@ -791,23 +802,48 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
         for diff in diferencas_conteudo:
             
-            # --- [INÍCIO DA LÓGICA DE NUMERAÇÃO] ---
+            # --- [INÍCIO DA LÓGICA DE LIMPEZA DE TÍTULO] ---
             
-            secao_canonico_raw = diff['secao'] # Pega o nome canônico (Ex: "QUAIS OS MALES...")
-            titulo_display = diff.get('titulo_encontrado') or secao_canonico_raw
+            secao_canonico_raw = diff['secao'] # e.g., "PARA QUE ESTE MEDICAMENTO É INDICADO"
+            titulo_encontrado_sujo = diff.get('titulo_encontrado') or secao_canonico_raw
+            
+            titulo_limpo = titulo_encontrado_sujo
+            
+            # 1. Normaliza o nome canônico para busca (remove pontuação, etc.)
+            secao_canonico_norm = normalizar_titulo_para_comparacao(secao_canonico_raw)
+            
+            # 2. Tenta encontrar a versão canônica normalizada dentro do título "sujo" normalizado
+            match_canonico = re.search(re.escape(secao_canonico_norm), normalizar_titulo_para_comparacao(titulo_encontrado_sujo), re.IGNORECASE)
+            
+            if match_canonico:
+                # 3. Se achou, pega o título "sujo" original a partir da posição do match
+                # Isso remove o lixo do início, mas preserva a formatação original (números, etc.)
+                titulo_limpo = titulo_encontrado_sujo[match_canonico.start():]
+                
+                # 4. Tenta pegar a numeração (ex: "1. ") que vem ANTES
+                # Pega até 10 chars antes do início do match
+                prefix_start = max(0, match_canonico.start() - 10)
+                prefix_string = titulo_encontrado_sujo[prefix_start:match_canonico.start()]
+                
+                # Procura por "1. " ou "1) " etc.
+                match_num = re.search(r'(\d+\s*[\.\-)]*\s*)$', prefix_string)
+                if match_num:
+                    titulo_limpo = match_num.group(1) + titulo_limpo
+            
+            titulo_display = titulo_limpo.strip()
+            # --- [FIM DA LÓGICA DE LIMPEZA DE TÍTULO] ---
             
             if not titulo_display: 
                 titulo_display = secao_canonico_raw
 
-            # --- [NOVA LÓGICA PARA FORÇAR O NÚMERO 9] ---
-            secao_canonico_norm = normalizar_texto(secao_canonico_raw)
-            if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm:
+            # --- [LÓGICA PARA FORÇAR O NÚMERO 9 - MANTIDA] ---
+            secao_canonico_norm_check = normalizar_texto(secao_canonico_raw)
+            if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm_check:
                 if not normalizar_texto(titulo_display).startswith("9"):
                     titulo_display = f"9. {titulo_display}"
-            # --- [FIM DA NOVA LÓGICA] ---
+            # --- [FIM DA LÓGICA] ---
 
             with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
-            # --- [FIM DA LÓGICA DE NUMERAÇÃO] ---
             
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
@@ -824,9 +860,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
                 
-                # --- [LINHA CORRIGIDA - SEM O ERRO DE SINTAXE] ---
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
-                # --- [FIM DA CORREÇÃO] ---
 
                 c1, c2 = st.columns(2)
                 with c1:
