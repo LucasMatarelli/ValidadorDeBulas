@@ -195,12 +195,13 @@ def extrair_texto(arquivo, tipo_arquivo):
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
         "Paciente": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", 
+            "APRESENTAÇÕES", 
+            "COMPOSIÇÃO", 
             "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
             "2. COMO ESTE MEDICAMENTO FUNCIONA?", 
             "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?", # <-- Linha juntada
-            "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", # <-- Linha juntada
+            "4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?", # <-- Linha unificada
+            "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", # <-- Linha unificada
             "6. COMO DEVO USAR ESTE MEDICAMENTO?",
             "7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
             "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
@@ -208,43 +209,42 @@ def obter_secoes_por_tipo(tipo_bula):
             "DIZERES LEGAIS"
         ],
         "Profissional": [
-            "1. APRESENTAÇÕES", "2. COMPOSIÇÃO", "3. INDICAÇÕES", "4. RESULTADOS DE EFICÁCIA",
-            "5. CARACTERÍSTICAS FARMACOLÓGICAS", "6. CONTRAINDICAÇÕES",
-            "7. ADVERTÊNCIAS E PRECAUÇÕES", "8. INTERAÇÕES MEDICAMENTOSAS",
-            "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "10. POSOLOGIA E MODO DE USAR",
-            "11. REAÇÕES ADVERSAS", # <-- Número corrigido (era 9)
-            "12. SUPERDOSE", # <-- Número corrigido (era 10)
+            "1. APRESENTAÇÕES", 
+            "2. COMPOSIÇÃO", 
+            "3. INDICAÇÕES", 
+            "4. RESULTADOS DE EFICÁCIA",
+            "5. CARACTERÍSTICAS FARMACOLÓGICAS", 
+            "6. CONTRAINDICAÇÕES",
+            "7. ADVERTÊNCIAS E PRECAUÇÕES", 
+            "8. INTERAÇÕES MEDICAMENTOSAS",
+            "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", 
+            "10. POSOLOGIA E MODO DE USAR",
+            "11. REAÇÕES ADVERSAS", # <-- Numeração corrigida
+            "12. SUPERDOSE", # <-- Numeração corrigida
             "DIZERES LEGAIS"
         ]
     }
     return secoes.get(tipo_bula, [])
 
-# --- [FUNÇÃO DEIXADA COMO ESTAVA, MAS SERÁ REMOVIDA DA LÓGICA] ---
+# --- [FUNÇÃO ATUALIZADA] ---
 def obter_aliases_secao():
-    # Esta função não é mais necessária, pois a lista de seções é explícita.
-    # Mas mantê-la aqui não quebra o código que não a chama.
+    # Mapeia os novos títulos numerados de Profissional para Paciente
     return {
-        "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
-        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
+        "3. INDICAÇÕES": "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
+        "6. CONTRAINDICAÇÕES": "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "10. POSOLOGIA E MODO DE USAR": "6. COMO DEVO USAR ESTE MEDICAMENTO?",
+        "11. REAÇÕES ADVERSAS": "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        "12. SUPERDOSE": "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
     }
 
 def obter_secoes_ignorar_ortografia():
-    # Atualizado para ignorar os novos nomes
-    return ["COMPOSIÇÃO", "2. COMPOSIÇÃO", "DIZERES LEGAIS"]
+    return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
 def obter_secoes_ignorar_comparacao():
-    # Atualizado para ignorar os novos nomes
-    return [
-        "COMPOSIÇÃO", "2. COMPOSIÇÃO", 
-        "DIZERES LEGAIS", 
-        "APRESENTAÇÕES", "1. APRESENTAÇÕES",
-        "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", 
-        "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO"
-    ]
+    return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES", 
+            "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", 
+            "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO"]
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
@@ -256,14 +256,14 @@ def normalizar_texto(texto):
 def normalizar_titulo_para_comparacao(texto):
     """Normalização robusta para títulos, removendo acentos, pontuação e numeração inicial."""
     texto_norm = normalizar_texto(texto)
-    # Esta linha remove "1. ", "9. ", "APRESENTAÇÕES " etc. do início para comparar
+    # Esta linha é a CHAVE: ela remove "1. ", "2. ", etc., para a comparação
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
 # --- [NOVA FUNÇÃO ADICIONADA] ---
 def _create_anchor_id(secao_nome, prefix):
     """Cria um ID HTML seguro para a âncora."""
-    norm = normalizar_titulo_para_comparacao(secao_nome) # Usa a normalização que tira número
+    norm = normalizar_texto(secao_nome)
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
@@ -288,19 +288,18 @@ def is_titulo_secao(linha):
     return True
     # --- [FIM DA MUDANÇA] ---
 
-# --- [FUNÇÃO MODIFICADA - LÓGICA DE ALIAS REMOVIDA] ---
+# --- [FUNÇÃO MODIFICADA] ---
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     linhas = texto_completo.split('\n')
-    # aliases = obter_aliases_secao() # <-- REMOVIDO
+    aliases = obter_aliases_secao()
     
     titulos_possiveis = {}
     for secao in secoes_esperadas:
         titulos_possiveis[secao] = secao
-    
-    # --- Lógica de Alias removida daqui ---
-    # for alias, canonico in aliases.items():
-    #    ...
+    for alias, canonico in aliases.items():
+        if canonico in secoes_esperadas:
+            titulos_possiveis[alias] = canonico
 
     idx = 0
     while idx < len(linhas):
@@ -316,6 +315,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         best_match_score_1_linha = 0
         best_match_canonico_1_linha = None
         for titulo_possivel, titulo_canonico in titulos_possiveis.items():
+            # normalizar_titulo_para_comparacao remove o "1. " de ambos
             score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(linha_limpa))
             if score > best_match_score_1_linha:
                 best_match_score_1_linha = score
@@ -408,18 +408,13 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [FUNÇÃO SUBSTITUÍDA] ---
+# --- [FUNÇÃO ATUALIZADA] ---
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
     Esta versão verifica se o próximo título está em uma única linha ou dividido em duas linhas consecutivas.
     """
-    # Títulos oficiais da bula para o tipo selecionado
-    # Esta chamada agora retorna as listas enumeradas
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
-    
-    # Normaliza a lista de títulos oficiais uma vez para otimizar a busca
-    # Importante: usa a normalização que REMOVE os números
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
 
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -428,25 +423,16 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
         titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
-        # Usa a num_linhas_titulo do seu mapear_secoes
         num_linhas_titulo = secao_mapa.get('num_linhas_titulo', 1) 
-        
-        # O conteúdo começa DEPOIS do título (1, 2 ou 3 linhas)
         linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
-        # --- LÓGICA DE BUSCA APRIMORADA (1 ou 2 linhas) ---
         prox_idx = None
         for j in range(linha_inicio_conteudo, len(linhas_texto)):
-            # Verifica a linha atual (busca de 1 linha)
             linha_atual = linhas_texto[j].strip()
-            # Normaliza removendo o número
-            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
+            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual) # Remove "1. ", "2. "
 
-            # Verificamos se algum título oficial (normalizado) está CONTIDO na linha (normalizada)
             encontrou_titulo_1_linha = False
             for titulo_oficial_norm in titulos_norm_set:
-                # Adicionado 'and len(linha_atual_norm) > 0' para evitar linhas vazias
-                # Compara "para que este medicamento" (da lista) com "para que este medicamento" (do texto)
                 if titulo_oficial_norm in linha_atual_norm and len(linha_atual_norm) > 0:
                     encontrou_titulo_1_linha = True
                     break 
@@ -455,7 +441,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 prox_idx = j 
                 break 
 
-            # Se não encontrou, verifica a combinação da linha atual + próxima (busca de 2 linhas)
             if (j + 1) < len(linhas_texto):
                 linha_seguinte = linhas_texto[j + 1].strip()
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
@@ -463,7 +448,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
                 encontrou_titulo_2_linhas = False
                 for titulo_oficial_norm in titulos_norm_set:
-                     # Adicionado 'and len(titulo_duas_linhas_norm) > 0'
                     if titulo_oficial_norm in titulo_duas_linhas_norm and len(titulo_duas_linhas_norm) > 0:
                         encontrou_titulo_2_linhas = True
                         break 
@@ -471,30 +455,67 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 if encontrou_titulo_2_linhas:
                     prox_idx = j 
                     break 
-        # --- FIM DA LÓGICA DE BUSCA ---
 
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
-
         conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
-        conteudo_final = "\n".join(conteudo).strip()
+        
+        # --- [INÍCIO DA NOVA LÓGICA DE REFLUXO E LIMPEZA] ---
+        
+        if not conteudo:
+            return True, titulo_encontrado, ""
+
+        # 1. Reconstrói os parágrafos
+        conteudo_refluxo = [conteudo[0]]
+        for i in range(1, len(conteudo)):
+            linha_anterior = conteudo_refluxo[-1]
+            linha_atual = conteudo[i]
+            
+            linha_atual_strip = linha_atual.strip()
+            
+            # Heurística: Se a linha atual NÃO parece ser um novo parágrafo
+            # (não começa com maiúscula, número, ou bullet/asterisco)
+            # E a linha anterior NÃO é vazia,
+            # E a linha anterior NÃO termina com pontuação de fim de frase.
+            if (not linha_atual_strip or \
+                (not linha_atual_strip[0].isupper() and not linha_atual_strip[0] in "“\"" )) and \
+                (not re.match(r'^\s*[\d\-\*•]', linha_atual_strip)) and \
+                linha_anterior.strip() and \
+                (not re.search(r'[.!?:]$', linha_anterior.strip())):
+                
+                # Juntar com a linha anterior
+                conteudo_refluxo[-1] = linha_anterior.rstrip() + " " + linha_atual.lstrip()
+            else:
+                # É uma nova linha
+                conteudo_refluxo.append(linha_atual)
+
+        conteudo_final = "\n".join(conteudo_refluxo).strip()
+
+        # 2. Limpa o espaçamento da pontuação
+        # Remove espaços ANTES de pontuação: "exemplo , " -> "exemplo,"
+        conteudo_final = re.sub(r'\s+([.,;:!?)\]])', r'\1', conteudo_final)
+        # Remove espaços DEPOIS de pontuação de abertura: "( exemplo" -> "(exemplo"
+        conteudo_final = re.sub(r'([(\[])\s+', r'\1', conteudo_final)
+        # Garante espaço DEPOIS da pontuação (se seguido por letra): "exemplo,quadro" -> "exemplo, quadro"
+        conteudo_final = re.sub(r'([.,;:!?)\]])(\w)', r'\1 \2', conteudo_final)
+        # Garante espaço ANTES da pontuação de abertura (se seguido por letra): "exemplo(quadro" -> "exemplo (quadro"
+        conteudo_final = re.sub(r'(\w)([(\[])', r'\1 \2', conteudo_final)
+        # --- [FIM DA NOVA LÓGICA] ---
         
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
+# --- [FIM DA ATUALIZAÇÃO] ---
+
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 # --- [FUNÇÃO SUBSTITUÍDA] ---
 def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
-    # Lista de seções a ignorar (normalizadas e em maiúsculas)
-    secoes_ignorar_norm_upper = [normalizar_titulo_para_comparacao(s).upper() for s in obter_secoes_ignorar_comparacao()]
-
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
+    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
     linhas_anvisa = texto_anvisa.split('\n')
     linhas_mkt = texto_mkt.split('\n')
-    
-    # Passa o tipo_bula para o mapear_secoes
     mapa_anvisa = mapear_secoes(texto_anvisa, secoes_esperadas)
     mapa_mkt = mapear_secoes(texto_mkt, secoes_esperadas)
 
@@ -509,6 +530,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
             melhor_score = 0
             melhor_titulo = None
             for m in mapa_mkt:
+                # Compara "para que este med" (norm) com "para que este med" (norm)
                 score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(secao), normalizar_titulo_para_comparacao(m['titulo_encontrado']))
                 if score > melhor_score:
                     melhor_score = score
@@ -541,9 +563,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
                 if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
                     diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_mkt if titulo_mkt else melhor_titulo})
 
-            # --- [LÓGICA DE IGNORAR ATUALIZADA] ---
-            # Compara a forma NORMALIZADA do título
-            if secao_comp.upper() in secoes_ignorar_norm_upper:
+            if secao.upper() in secoes_ignorar_upper:
                 continue
 
             if normalizar_texto(conteudo_anvisa) != normalizar_texto(conteudo_mkt):
@@ -552,10 +572,10 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
                 titulo_real_encontrado = titulo_mkt if titulo_mkt else melhor_titulo
                 
                 diferencas_conteudo.append({
-                    'secao': secao, # <-- Passa o nome canônico "bonito"
+                    'secao': secao, # <-- Importante: 'secao' é o nome canônico (ex: "1. PARA QUE...")
                     'conteudo_anvisa': conteudo_anvisa, 
                     'conteudo_mkt': conteudo_mkt,
-                    'titulo_encontrado': titulo_real_encontrado # <-- Passa o título "sujo"
+                    'titulo_encontrado': titulo_real_encontrado # <-- Título "sujo" (ex: "cloridrato... 1. PARA QUE...")
                 })
                 similaridades_secoes.append(0)
             else:
@@ -571,8 +591,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         return []
 
     try:
-        # Lista de seções a ignorar (normalizadas e em maiúsculas)
-        secoes_ignorar_norm_upper = [normalizar_titulo_para_comparacao(s).upper() for s in obter_secoes_ignorar_ortografia()]
+        secoes_ignorar = obter_secoes_ignorar_ortografia()
         secoes_todas = obter_secoes_por_tipo(tipo_bula)
         texto_filtrado_para_checar = []
 
@@ -580,8 +599,10 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         linhas_texto = texto_para_checar.split('\n')
 
         for secao_nome in secoes_todas:
-            # --- [LÓGICA DE IGNORAR ATUALIZADA] ---
-            if normalizar_titulo_para_comparacao(secao_nome).upper() in secoes_ignorar_norm_upper:
+            # Converte '1. PARA QUE...' para 'PARA QUE...'
+            secao_nome_upper = normalizar_titulo_para_comparacao(secao_nome).upper() 
+            
+            if secao_nome.upper() in [s.upper() for s in secoes_ignorar]: # Checa por "COMPOSIÇÃO", "DIZERES LEGAIS"
                 continue
                 
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto, tipo_bula)
@@ -686,7 +707,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             # ^---------------------- CONFIRA A INDENTAÇÃO DESTAS LINHAS ----------------------^
             
             # ... (o resto do código da função)
-            secao_canonico = diff['secao'] # <-- Pega o nome "bonito" (ex: "1. PARA QUE...")
+            secao_canonico = diff['secao']
             anchor_id = _create_anchor_id(secao_canonico, "ref" if eh_referencia else "bel")
             # Adiciona a âncora (div) em volta do conteúdo
             # scroll-margin-top adiciona um "padding" ao rolar, para o título não ficar colado no topo
@@ -744,7 +765,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 console.error("ERRO: Âncoras '" + anchorIdRef + "' ou '" + anchorIdBel + "' não encontradas.");
                 return;
             }
-            containerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            containerRef.scrollIntoView({ behavior: 'smooth', 'block': 'start' });
             setTimeout(() => {
                 try {
                     var topPosRef = anchorRef.offsetTop - containerRef.offsetTop;
@@ -795,7 +816,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Arquivo da Anvisa: {data_ref}\n   - Arquivo Marketing: {data_belfar}") # Mantido seu recuo
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Arquivo da Anvisa: {data_ref}\n   - Arquivo Marketing: {data_bf}") # Mantido seu recuo
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula Arquivo Marketing ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
@@ -813,15 +834,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
         for diff in diferencas_conteudo:
             
-            # --- [LÓGICA DE TÍTULO SIMPLIFICADA] ---
-            # 'diff['secao']' agora é o nome canônico "bonito" da sua lista
-            # (ex: "1. PARA QUE ESTE MEDICAMENTO É INDICADO?")
+            # --- [NOVA LÓGICA DE TÍTULO SIMPLIFICADA] ---
+            # O 'secao' (diff['secao']) já é o nome canônico e numerado que queremos.
+            # Ex: "1. PARA QUE ESTE MEDICAMENTO É INDICADO?"
             titulo_display = diff['secao']
-            secao_canonico = diff['secao'] # Usado para os IDs de âncora
-            # --- [FIM DA LÓGICA DE TÍTULO] ---
+            # --- [FIM DA LÓGICA] ---
 
             with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
             
+                secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
@@ -829,7 +850,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 diff['conteudo_anvisa'], diff['conteudo_mkt'], eh_referencia=True
                 ).replace('\n', '<br>')
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                diff['conteudo_anvisa'], diff['conteudo_mkt'], eh_referencia=False
+                diff['conteudo_mkt'], diff['conteudo_mkt'], eh_referencia=False
                 ).replace('\n', '<br>')
                 
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
