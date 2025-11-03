@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v19.0 - Versão corrigida completa
+# Sistema: AuditorIA de Bulas v19.1 - Correção de Extração na Mesma Linha
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - Esta é a versão completa do script com as correções solicitadas:
-#   * Melhor detecção de títulos (inclui títulos quebrados em 1,2 ou 3 linhas)
-#   * Extração de conteúdo de seção mais robusta (usa mapa de seções como fallback)
-#   * Reflow de parágrafos ajustado para evitar "puxar" conteúdo da seção seguinte
-#   * Correções em marcação HTML, geração do relatório e visualização lado-a-lado
+# - v19.1: Corrige bug onde o conteúdo na mesma linha do título era ignorado.
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -351,6 +347,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 # ----------------- OBTER DADOS DA SESSÃO (USANDO MAPA_SECOES QUANDO POSSÍVEL) -----------------
+# ***** FUNÇÃO CORRIGIDA *****
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai conteúdo de uma seção usando preferencialmente as posições no mapa_secoes.
@@ -366,19 +363,68 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
         linha_inicio = secao_mapa['linha_inicio']
         num_linhas_titulo = secao_mapa.get('num_linhas_titulo', 1)
-        linha_inicio_conteudo = linha_inicio + num_linhas_titulo
+        
+        # --- INÍCIO DA CORREÇÃO ---
+        # Pega o conteúdo que pode estar na *mesma linha* do fim do título.
+        
+        # 1. Encontra a última linha do título
+        linha_fim_titulo_idx = linha_inicio + num_linhas_titulo - 1
+        texto_ultima_linha_titulo_raw = linhas_texto[linha_fim_titulo_idx]
+        
+        # 2. Encontra o texto "stripado" dessa última linha (que foi o usado na detecção)
+        #    Precisamos recriar o que o `mapear_secoes` fez para saber qual parte da linha é o título.
+        texto_ultima_linha_titulo_strip = ""
+        if num_linhas_titulo == 1:
+            texto_ultima_linha_titulo_strip = linhas_texto[linha_inicio].strip()
+        elif num_linhas_titulo == 2:
+            texto_ultima_linha_titulo_strip = linhas_texto[linha_inicio + 1].strip()
+        elif num_linhas_titulo == 3:
+            texto_ultima_linha_titulo_strip = linhas_texto[linha_inicio + 2].strip()
 
+        # 3. Encontra esse texto "stripado" dentro da linha "raw" e pega o que vem *depois*
+        conteudo_mesma_linha = ""
+        if texto_ultima_linha_titulo_strip: # Evita erro se a linha for vazia
+            # Tenta encontrar o texto stripado (que pode ser o título inteiro ou a última parte)
+            index_fim_titulo_na_linha = texto_ultima_linha_titulo_raw.find(texto_ultima_linha_titulo_strip)
+            
+            if index_fim_titulo_na_linha != -1:
+                inicio_conteudo = index_fim_titulo_na_linha + len(texto_ultima_linha_titulo_strip)
+                conteudo_mesma_linha = texto_ultima_linha_titulo_raw[inicio_conteudo:]
+            else:
+                # Fallback: Se não achar (ex: casing), tenta pelo título completo salvo no mapa
+                titulo_encontrado_raw = secao_mapa['titulo_encontrado']
+                index_fim_titulo_na_linha = texto_ultima_linha_titulo_raw.find(titulo_encontrado_raw)
+                if index_fim_titulo_na_linha != -1:
+                    inicio_conteudo = index_fim_titulo_na_linha + len(titulo_encontrado_raw)
+                    conteudo_mesma_linha = texto_ultima_linha_titulo_raw[inicio_conteudo:]
+
+        
+        # Limpa pontuação inicial (como ':', '.', '?' que podem grudar no título)
+        conteudo_mesma_linha = re.sub(r'^[?:.]\s*', '', conteudo_mesma_linha.strip()).strip()
+
+        # 4. Pega as linhas *seguintes*
+        linha_inicio_conteudo_seguinte = linha_inicio + num_linhas_titulo
+        
         # Usa o próximo título do mapa como fim se existir
         if idx_map + 1 < len(mapa_secoes):
             linha_fim = mapa_secoes[idx_map + 1]['linha_inicio']
         else:
             linha_fim = len(linhas_texto)
 
+        # 5. Monta o 'conteudo'
+        conteudo = []
+        if conteudo_mesma_linha: # Adiciona o conteúdo da primeira linha, se houver
+            conteudo.append(conteudo_mesma_linha)
+            
         # Proteção: evita índices inválidos
-        if linha_inicio_conteudo >= linha_fim:
-            return True, secao_mapa['titulo_encontrado'], ""
+        if linha_inicio_conteudo_seguinte < linha_fim:
+             conteudo.extend([linhas_texto[i] for i in range(linha_inicio_conteudo_seguinte, linha_fim)])
+        elif not conteudo_mesma_linha:
+             # Não há conteúdo na mesma linha E não há linhas seguintes = seção vazia
+             return True, secao_mapa['titulo_encontrado'], ""
+        
+        # --- FIM DA CORREÇÃO ---
 
-        conteudo = [linhas_texto[i] for i in range(linha_inicio_conteudo, linha_fim)]
 
         # Reflow (junta linhas que pertencem ao mesmo parágrafo)
         if not conteudo:
@@ -423,15 +469,34 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(linha), normalizar_titulo_para_comparacao(secao_canonico))
         if score >= 90:
             # a partir daqui, tenta achar próximo título (ou fim do texto)
-            inicio = i + 1
+            
+            # *** INÍCIO CORREÇÃO FALLBACK ***
+            # Pega conteúdo da mesma linha
+            conteudo_mesma_linha = ""
+            index_fim_titulo = linha.lower().find(secao_canonico.lower())
+            if index_fim_titulo != -1:
+                conteudo_mesma_linha = linha[index_fim_titulo + len(secao_canonico):]
+            conteudo_mesma_linha = re.sub(r'^[?:.]\s*', '', conteudo_mesma_linha.strip()).strip()
+
+            inicio_linhas_seguintes = i + 1
             fim = len(linhas_texto)
-            for j in range(inicio, len(linhas_texto)):
+            for j in range(inicio_linhas_seguintes, len(linhas_texto)):
                 cand = linhas_texto[j].strip()
                 cand_norm = normalizar_titulo_para_comparacao(cand)
                 if any(t in cand_norm and len(cand_norm)>0 for t in titulos_norm_set):
                     fim = j
                     break
-            conteudo = "\n".join(linhas_texto[inicio:fim]).strip()
+            
+            conteudo_linhas_seguintes = linhas_texto[inicio_linhas_seguintes:fim]
+            
+            conteudo_final_lista = []
+            if conteudo_mesma_linha:
+                conteudo_final_lista.append(conteudo_mesma_linha)
+            conteudo_final_lista.extend(conteudo_linhas_seguintes)
+            
+            conteudo = "\n".join(conteudo_final_lista).strip()
+             # *** FIM CORREÇÃO FALLBACK ***
+            
             return True, linha, conteudo
 
     return False, None, ""
@@ -466,14 +531,9 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
                 # extrair conteúdo do mapeamento encontrado
                 for m in mapa_mkt:
                     if m['titulo_encontrado'] == melhor_titulo:
-                        next_section_start = len(linhas_mkt)
-                        current_index = mapa_mkt.index(m)
-                        if current_index + 1 < len(mapa_mkt):
-                            next_section_start = mapa_mkt[current_index + 1]['linha_inicio']
-                        conteudo_mkt_raw = "\n".join(linhas_mkt[m['linha_inicio'] + m.get('num_linhas_titulo', 1) : next_section_start])
-                        temp_mapa = [{'canonico': secao, 'titulo_encontrado': melhor_titulo, 'linha_inicio': 0, 'num_linhas_titulo': 0}]
-                        _, _, conteudo_mkt = obter_dados_secao(secao, temp_mapa, conteudo_mkt_raw.split('\n'), tipo_bula)
-                        break
+                        # Re-chama obter_dados_secao com o 'canonico' do título encontrado
+                         _, _, conteudo_mkt = obter_dados_secao(m['canonico'], mapa_mkt, linhas_mkt, tipo_bula)
+                         break
                 encontrou_mkt = True
             else:
                 secoes_faltantes.append(secao)
@@ -622,6 +682,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
             # Tenta substituir de forma mais segura
             try:
+                # Usa count=1 para substituir apenas a primeira ocorrência
                 texto_trabalho = texto_trabalho.replace(conteudo_a_substituir, conteudo_com_ancora, 1)
             except re.error:
                 # Fallback se 'conteudo_a_substituir' for um regex inválido (raro, mas possível)
@@ -890,4 +951,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v19.0 | OCR & Layout Fix")
+st.caption("Sistema de AuditorIA de Bulas v19.1 | Correção de Extração na Mesma Linha")
