@@ -184,14 +184,11 @@ def truncar_apos_anvisa(texto):
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
-        # Encontra o final da linha após a data da ANVISA (incluindo a data)
         end_of_line_pos = texto.find('\n', match.end())
         if end_of_line_pos != -1:
-            # Retorna o texto ATÉ E INCLUINDO a linha com a data da ANVISA
-            return texto[:end_of_line_pos].strip()
+            return texto[:end_of_line_pos]
         else:
-            # Se não há quebra de linha após a data, retorna o texto todo
-            return texto.strip()
+            return texto
     return texto
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
@@ -726,15 +723,18 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (BELFAR)", data_belfar)
+    # --- [AJUSTE DE RÓTULO 1] ---
+    col3.metric("Data ANVISA (Marketing)", data_belfar)
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: `{data_ref}`\n   - BELFAR: `{data_belfar}`") # Mantido seu recuo
+    # --- [AJUSTE DE RÓTULO 2] ---
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Arquivo da Anvisa: {data_ref}\n   - Arquivo Marketing: {data_belfar}") # Mantido seu recuo
 
     if secoes_faltantes:
-        st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
+        # --- [AJUSTE DE RÓTULO 3] ---
+        st.error(f"🚨 **Seções faltantes na bula Arquivo Marketing ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
         
@@ -788,10 +788,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown("**Referência:** (Clique na caixa para rolar)")
+                    # --- [AJUSTE DE RÓTULO 4] ---
+                    st.markdown("**Arquivo da Anvisa:** (Clique na caixa para rolar)")
                     st.markdown(html_ref_box, unsafe_allow_html=True)
                 with c2:
-                    st.markdown("**BELFAR:** (Clique na caixa para rolar)")
+                    # --- [AJUSTE DE RÓTULO 5] ---
+                    st.markdown("**Arquivo Marketing:** (Clique na caixa para rolar)")
                     st.markdown(html_bel_box, unsafe_allow_html=True)
     else:
         st.success("✅ Conteúdo das seções está idêntico")
@@ -846,9 +848,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2 = st.columns(2, gap="medium")
     with col1:
         # 3. Título como H4 (um pouco menor que subheader)
+        # Este 'nome_ref' já será "Arquivo da Anvisa" por causa da chamada da função
         st.markdown(f"#### {nome_ref}") 
         st.markdown(f"<div id='container-ref-scroll' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
+        # Este 'nome_belfar' já será "Arquivo Marketing"
         st.markdown(f"#### {nome_belfar}")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
@@ -870,7 +874,7 @@ with col2:
     st.subheader("📄 Arquivo Marketing")
     pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
-if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
             
@@ -882,15 +886,22 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
-            if not erro_belfar:
-                texto_belfar = truncar_apos_anvisa(texto_belfar)
+            
+            # --- [CORREÇÃO PRINCIPAL DO BUG] ---
+            # A linha abaixo foi removida. O arquivo do marketing não deve ser truncado,
+            # pois a data da Anvisa pode aparecer no meio do texto (em layout de colunas),
+            # o que estava cortando o arquivo antes do fim.
+            
+            # if not erro_belfar:
+            #     texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigido erro de variável
             else:
+                # Os rótulos aqui já estão corretos como você pediu
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v19.0 | OCR & Layout Fix")  
+st.caption("Sistema de AuditorIA de Bulas v19.0 | OCR & Layout Fix")
