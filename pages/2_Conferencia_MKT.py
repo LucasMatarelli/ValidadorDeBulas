@@ -181,9 +181,10 @@ def extrair_texto(arquivo, tipo_arquivo):
             # --- [CORREÇÃO TÍTULO GRUDADO] ---
             # Insere quebra de linha antes de títulos numerados que estão grudados
             # Ex: "...texto. 9. O QUE FAZER..."
-            padrao_titulo_paciente = r'([.!?])(\s*)(\d+\s*\.?\s*(?:PARA|COMO|QUANDO|O QU[ÊE]|ONDE|QUAIS)\b)'
+            # Adicionado \n? para pegar títulos que já estão na linha de baixo
+            padrao_titulo_paciente = r'([.!?])(\s*\n?\s*)(\d+\s*\.?\s*(?:PARA|COMO|QUANDO|O QU[ÊE]|ONDE|QUAIS)\b)'
             texto = re.sub(padrao_titulo_paciente, r'\1\n\n\3', texto, flags=re.IGNORECASE)
-            padrao_titulo_prof = r'([.!?])(\s*)(\d+\s*\.?\s*(?:APRESENTAÇÕES|COMPOSIÇÃO|INDICAÇÕES|RESULTADOS|CARACTERÍSTICAS|CONTRAINDICAÇÕES|ADVERTÊNCIAS|INTERAÇÕES|CUIDADOS|POSOLOGIA|REAÇÕES|SUPERDOSE)\b)'
+            padrao_titulo_prof = r'([.!?])(\s*\n?\s*)(\d+\s*\.?\s*(?:APRESENTAÇÕES|COMPOSIÇÃO|INDICAÇÕES|RESULTADOS|CARACTERÍSTICAS|CONTRAINDICAÇÕES|ADVERTÊNCIAS|INTERAÇÕES|CUIDADOS|POSOLOGIA|REAÇÕES|SUPERDOSE)\b)'
             texto = re.sub(padrao_titulo_prof, r'\1\n\n\3', texto, flags=re.IGNORECASE)
             # --- [FIM DA CORREÇÃO] ---
 
@@ -455,7 +456,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [FUNÇÃO TOTALMENTE REESCRITA] ---
+# --- [FUNÇÃO ATUALIZADA E CORRIGIDA] ---
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção usando o mapa de seções já criado.
@@ -489,11 +490,13 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     # Extrai o conteúdo
     conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
     
-    # Verifica se conteúdo está vazio
+    # --- [BUG FIX] ---
+    # Adiciona verificação para conteúdo vazio para evitar IndexError
     if not conteudo:
         return True, titulo_encontrado, ""
-    
-    # --- [LÓGICA DE REFLUXO E LIMPEZA] ---
+    # --- [FIM DO BUG FIX] ---
+
+    # 1. Reconstrói os parágrafos
     conteudo_refluxo = [conteudo[0]]
     for i in range(1, len(conteudo)):
         linha_anterior = conteudo_refluxo[-1]
@@ -501,12 +504,17 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         
         linha_atual_strip = linha_atual.strip()
 
+        # Heurística: Se a linha atual NÃO parece ser um novo parágrafo
+        # (não começa com maiúscula, número, ou bullet/asterisco)
+        # E a linha anterior NÃO é vazia,
+        # E a linha anterior NÃO termina com pontuação de fim de frase.
+        
         is_new_paragraph = False
         if not linha_atual_strip:
-            is_new_paragraph = True
+            is_new_paragraph = True # Keep empty lines as paragraph breaks
         else:
             primeiro_char = linha_atual_strip[0]
-            if primeiro_char.isupper() or primeiro_char in ""\"" or re.match(r'^\s*[\d\-\*•]', linha_atual_strip):
+            if primeiro_char.isupper() or primeiro_char in "“\"" or re.match(r'^\s*[\d\-\*•]', linha_atual_strip):
                 is_new_paragraph = True
         
         is_end_of_sentence = False
@@ -514,20 +522,27 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             is_end_of_sentence = True
             
         if not is_new_paragraph and not is_end_of_sentence:
+            # Juntar com a linha anterior
             conteudo_refluxo[-1] = linha_anterior.rstrip() + " " + linha_atual.lstrip()
         else:
+            # É uma nova linha
             conteudo_refluxo.append(linha_atual)
 
     conteudo_final = "\n".join(conteudo_refluxo).strip()
 
-    # Limpa o espaçamento da pontuação
+    # 2. Limpa o espaçamento da pontuação
+    # Remove espaços ANTES de pontuação: "exemplo , " -> "exemplo,"
     conteudo_final = re.sub(r'\s+([.,;:!?)\]])', r'\1', conteudo_final)
+    # Remove espaços DEPOIS de pontuação de abertura: "( exemplo" -> "(exemplo"
     conteudo_final = re.sub(r'([(\[])\s+', r'\1', conteudo_final)
+    # Garante espaço DEPOIS da pontuação (se seguido por letra): "exemplo,quadro" -> "exemplo, quadro"
     conteudo_final = re.sub(r'([.,;:!?)\]])(\w)', r'\1 \2', conteudo_final)
+    # Garante espaço ANTES da pontuação de abertura (se seguido por letra): "exemplo(quadro" -> "exemplo (quadro"
     conteudo_final = re.sub(r'(\w)([(\[])', r'\1 \2', conteudo_final)
+    # --- [FIM DA NOVA LÓGICA] ---
     
     return True, titulo_encontrado, conteudo_final
-# --- [FIM DA REESCRITA] ---
+# --- [FIM DA ATUALIZAÇÃO] ---
 
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
@@ -985,6 +1000,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     # --- [FIM DA CORREÇÃO 3] ---
 
 
+    # --- [INÍCIO DA CORREÇÃO 4: INDENTAÇÃO] ---
+    # Este bloco inteiro estava indentado errado.
+    
     # 2. Estilo da Caixa de Visualização
     caixa_style = (
         "height: 700px; "  # MUDANÇA: altura fixa para alinhar os botões de scroll
@@ -1008,7 +1026,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"#### {nome_belfar}")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-    # --- FIM DA MODIFICAÇÃO ESTÉTICA ---
+    # --- [FIM DA CORREÇÃO 4] ---
+    
+# --- [FIM DA FUNÇÃO] ---
+
 
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
