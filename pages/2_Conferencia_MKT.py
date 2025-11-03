@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v19.6 - Correção de "Conteúdo Cruzado"
+# Sistema: AuditorIA de Bulas v19.7 - Correção de Fallback (Falsos Faltantes)
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v19.6: Remove lógica de 'fuzzy matching' entre seções diferentes, que estava
-#          puxando conteúdo errado (ex: 'Esquecer' puxava 'Contraindicações').
+# - v19.7: Corrige a lógica de 'fallback' em obter_dados_secao, que falhava em
+#          encontrar títulos com pequenas variações (typos, "esse" vs "este"),
+#          marcando-os incorretamente como 'faltantes'.
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -388,7 +389,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 # ----------------- OBTER DADOS DA SESSÃO (USANDO MAPA_SECOES QUANDO POSSÍVEL) -----------------
-# ***** FUNÇÃO CORRIGIDA (v19.2) *****
+# ***** FUNÇÃO CORRIGIDA (v19.7) *****
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai conteúdo de uma seção usando preferencialmente as posições no mapa_secoes.
@@ -501,26 +502,35 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado_final, conteudo_final
 
     # --- LÓGICA DE FALLBACK (SE NÃO ACHOU NO MAPA) ---
-    # Esta lógica também foi corrigida para encontrar conteúdo na mesma linha
+    # ***** INÍCIO DA CORREÇÃO v19.7 *****
     
     for i in range(len(linhas_texto)):
         linha_raw = linhas_texto[i].strip()
         if not linha_raw: continue
         
-        # Tenta encontrar um título real (canonico ou alias) dentro da linha
-        best_real_title_match = None
-        for title_text in sorted(titulos_reais_possiveis, key=len, reverse=True):
-            index = linha_raw.upper().find(title_text.upper())
-            if index != -1:
-                # Faz um fuzzy match SÓ NA PARTE DO TÍTULO para confirmar
-                titulo_candidato_raw = linha_raw[index : index + len(title_text)]
-                score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_candidato_raw), normalizar_titulo_para_comparacao(secao_canonico))
-                if score >= 90:
-                     best_real_title_match = titulo_candidato_raw
-                     break
+        # Compara a linha inteira normalizada com o canônico normalizado
+        linha_norm = normalizar_titulo_para_comparacao(linha_raw)
+        secao_canon_norm = normalizar_titulo_para_comparacao(secao_canonico)
         
-        if best_real_title_match:
+        score = fuzz.token_set_ratio(linha_norm, secao_canon_norm)
+        
+        if score >= 90: # Se a linha *é* o título (com ou sem lixo, com ou sem "7.", com typos)
             # Encontrou! Agora divide a linha
+            # Tenta achar o melhor ponto de divisão (o título real)
+            best_real_title_match = None
+            for title_text in sorted(titulos_reais_possiveis, key=len, reverse=True):
+                # Procura pelo texto do título (canônico ou alias) dentro da linha
+                index = linha_raw.upper().find(title_text.upper())
+                if index != -1:
+                    best_real_title_match = linha_raw[index : index + len(title_text)]
+                    break
+            
+            # Se não achou um 'find' (ex: typo "ESSE" vs "ESTE"),
+            # usa o 'linha_raw' inteiro como título, pois o score foi > 90
+            if not best_real_title_match:
+                best_real_title_match = linha_raw
+            
+            # ... resto da lógica de extração ...
             index_fim_titulo = linha_raw.upper().find(best_real_title_match.upper()) + len(best_real_title_match)
             titulo_encontrado_final = linha_raw[:index_fim_titulo].strip()
             conteudo_mesma_linha = linha_raw[index_fim_titulo:]
@@ -550,6 +560,8 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             # (Falta Reflow aqui, mas para fallback é aceitável)
             
             return True, titulo_encontrado_final, conteudo
+    
+    # ***** FIM DA CORREÇÃO v19.7 *****
 
     return False, None, ""
 
@@ -572,12 +584,10 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
         checar_existencia = secao.upper() not in secoes_ignorar_existencia_upper
     
         encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
-        # A função 'obter_dados_secao' já tem seu próprio fallback.
-        # Se ela não encontrar (nem no mapa, nem no fallback), 'encontrou_mkt' será False.
+        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v19.7) tentará encontrar a seção
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
         # --- INÍCIO DA CORREÇÃO v19.6 ---
-        # Removemos a lógica de 'fuzzy matching' entre seções diferentes.
         # Se 'obter_dados_secao' falhou, é porque a seção não foi encontrada.
         if not encontrou_mkt:
             if checar_existencia: 
@@ -1003,4 +1013,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v19.6 | Correção de 'Conteúdo Cruzado'")
+st.caption("Sistema de AuditorIA de Bulas v19.7 | Correção de Fallback (Falsos Faltantes)")
