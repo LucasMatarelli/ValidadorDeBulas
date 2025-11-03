@@ -88,9 +88,11 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
     texto_direto = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         for page in doc:
-            # --- [CORREÇÃO DE LAYOUT] ---
-            # Troca de "blocks" para "text" para preservar quebras de linha
-            texto_direto += page.get_text("text", sort=True) + "\n"
+            # --- [CORREÇÃO DE LAYOUT DE COLUNA] ---
+            # Troca de "text" (sort=True) para "text" (default)
+            # O default (sort=False) preserva a ordem das colunas (L-R, T-B)
+            # que é o que precisamos para o arquivo do marketing.
+            texto_direto += page.get_text("text") + "\n" # <-- MUDANÇA IMPORTANTE
 
     # Se a extração direta funcionar bem (mais de 100 caracteres), retorna o resultado
     if len(texto_direto.strip()) > 100:
@@ -122,7 +124,7 @@ def extrair_texto(arquivo, tipo_arquivo):
         texto = ""
         
         if tipo_arquivo == 'pdf':
-            # Usa a nova função que tem o fallback para OCR
+            # Usa a nova função que tem o fallback para OCR e a correção de colunas
             texto = extrair_texto_pdf_com_ocr(arquivo.read())
         
         elif tipo_arquivo == 'docx':
@@ -178,18 +180,10 @@ def extrair_texto(arquivo, tipo_arquivo):
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
         
-def truncar_apos_anvisa(texto):
-    if not isinstance(texto, str):
-        return texto
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match = re.search(regex_anvisa, texto, re.IGNORECASE)
-    if match:
-        end_of_line_pos = texto.find('\n', match.end())
-        if end_of_line_pos != -1:
-            return texto[:end_of_line_pos]
-        else:
-            return texto
-    return texto
+# --- [FUNÇÃO 'truncar_apos_anvisa' REMOVIDA] ---
+# A lógica será aplicada inline e SOMENTE ao texto_ref,
+# para garantir que o texto_belfar (Marketing) NUNCA seja cortado.
+
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
@@ -220,7 +214,7 @@ def obter_aliases_secao():
         "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
         "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
         "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
-        "REAÇÕES ADVERSas": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
         "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
     }
@@ -312,7 +306,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                         best_match_score_2_linhas = score
                         best_match_canonico_2_linhas = titulo_canonico
 
-        # --- [NOVA LÓGICA] ---
+        # --- [LÓGICA DE 3 LINHAS CORRIGIDA] ---
         # 3. Checa 3 linhas (para casos como a Seção 9)
         best_match_score_3_linhas = 0
         best_match_canonico_3_linhas = None
@@ -320,15 +314,17 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if (idx + 2) < len(linhas):
             linha_seguinte = linhas[idx + 1].strip()
             linha_terceira = linhas[idx + 2].strip()
-            # Heurística: segunda e terceira linhas de título são curtas
-            if len(linha_seguinte.split()) < 10 and len(linha_terceira.split()) < 7: 
+            
+            # --- [HEURÍSTICA CORRIGIDA] ---
+            # A linha 2 da Seção 9 tem 12 palavras. Aumentado o limite.
+            if len(linha_seguinte.split()) < 15 and len(linha_terceira.split()) < 10: 
                 titulo_combinado_3_linhas = f"{linha_limpa} {linha_seguinte} {linha_terceira}"
                 for titulo_possivel, titulo_canonico in titulos_possiveis.items():
                     score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(titulo_combinado_3_linhas))
                     if score > best_match_score_3_linhas:
                         best_match_score_3_linhas = score
                         best_match_canonico_3_linhas = titulo_canonico
-        # --- [FIM DA NOVA LÓGICA] ---
+        # --- [FIM DA CORREÇÃO DE 3 LINHAS] ---
         
         limiar_score = 95
         
@@ -756,8 +752,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.header("Relatório de Auditoria Inteligente")
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    
+    # Busca datas nos textos originais (e não truncados)
     match_ref = re.search(regex_anvisa, texto_ref.lower())
     match_belfar = re.search(regex_anvisa, texto_belfar.lower())
+    
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
@@ -923,17 +922,18 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
             
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
 
-            # --- [CORREÇÃO 1 - TRUNCAMENTO] ---
-            # O texto da Anvisa DEVE ser truncado
+            # --- [CORREÇÃO DE TRUNCAMENTO (CORTE)] ---
             if not erro_ref:
-                texto_ref = truncar_apos_anvisa(texto_ref)
+                # Aplica a lógica de truncamento SOMENTE ao texto_ref
+                regex_anvisa_trunc = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+                match = re.search(regex_anvisa_trunc, texto_ref, re.IGNORECASE)
+                if match:
+                    end_of_line_pos = texto_ref.find('\n', match.end())
+                    if end_of_line_pos != -1:
+                        texto_ref = texto_ref[:end_of_line_pos]
             
-            # O texto do Marketing NÃO DEVE ser truncado, pois a data pode
-            # estar no meio do arquivo (devido ao layout de colunas).
-            # Garantia de que a linha foi removida:
-            # if not erro_belfar:
-            #     texto_belfar = truncar_apos_anvisa(texto_belfar) # <--- REMOVIDO
-            # --- [FIM DA CORREÇÃO 1] ---
+            # O texto_belfar (Marketing) NÃO é truncado.
+            # --- [FIM DA CORREÇÃO] ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
