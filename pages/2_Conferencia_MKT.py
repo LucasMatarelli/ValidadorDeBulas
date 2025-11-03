@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.0 - Correção de Limiar (fuzz.token_set_ratio)
+# Sistema: AuditorIA de Bulas v19.9 - Correção de Fallback (fuzz.ratio)
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.0: Reajusta o limiar do fallback para token_set_ratio > 95.
-#          Isso previne o "roubo" de conteúdo (scores ~94) mas permite
-#          matches corretos com pequenas variações (scores 100).
+# - v19.9: Muda o fallback para usar 'fuzz.ratio' (mais restrito) em vez de
+#          'token_set_ratio' (muito relaxado), prevenindo o "roubo" de conteúdo
+#          entre seções (ex: "ESQUECER" roubando "COMO FUNCIONA").
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -389,7 +389,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 # ----------------- OBTER DADOS DA SESSÃO (USANDO MAPA_SECOES QUANDO POSSÍVEL) -----------------
-# ***** FUNÇÃO CORRIGIDA (v20.0) *****
+# ***** FUNÇÃO CORRIGIDA (v19.9) *****
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai conteúdo de uma seção usando preferencialmente as posições no mapa_secoes.
@@ -502,7 +502,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado_final, conteudo_final
 
     # --- LÓGICA DE FALLBACK (SE NÃO ACHOU NO MAPA) ---
-    # ***** INÍCIO DA CORREÇÃO v20.0 *****
+    # ***** INÍCIO DA CORREÇÃO v19.9 *****
     
     for i in range(len(linhas_texto)):
         linha_raw = linhas_texto[i].strip()
@@ -519,19 +519,22 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             continue
         # --- FIM CORREÇÃO v19.8 ---
 
-        # --- CORREÇÃO v20.0 ---
+        # --- CORREÇÃO v19.9 ---
         # Compara a linha inteira normalizada com o canônico normalizado
-        # Usa 'fuzz.token_set_ratio' (relaxado) para pegar variações,
-        # MAS com um limiar ALTO (95) para rejeitar falsos-positivos (que dão ~94).
+        # Usa 'fuzz.ratio' (restrito) em vez de 'token_set_ratio' (relaxado)
+        # para evitar falsos-positivos de seções que compartilham palavras.
         linha_norm = normalizar_titulo_para_comparacao(linha_raw)
         secao_canon_norm = normalizar_titulo_para_comparacao(secao_canonico)
         
-        score = fuzz.token_set_ratio(linha_norm, secao_canon_norm) # <-- MUDANÇA AQUI
+        score = fuzz.ratio(linha_norm, secao_canon_norm) # <-- MUDANÇA AQUI
         
-        limiar_fallback = 95 # <-- MUDANÇA AQUI (era 85 com fuzz.ratio)
+        # O score 'ratio' será mais baixo que 'token_set_ratio',
+        # mas será ALTO (ex: 97%) para a seção certa, mesmo com "7."
+        # e BAIXO (ex: 47%) para seções erradas como "COMO FUNCIONA".
+        limiar_fallback = 85 # Um pouco mais baixo para 'ratio'
         
         if score >= limiar_fallback:
-        # --- FIM CORREÇÃO v20.0 ---
+        # --- FIM CORREÇÃO v19.9 ---
 
             # Encontrou! Agora divide a linha
             # Tenta achar o melhor ponto de divisão (o título real)
@@ -576,7 +579,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             
             return True, titulo_encontrado_final, conteudo
     
-    # ***** FIM DA CORREÇÃO v20.0 *****
+    # ***** FIM DA CORREÇÃO v19.9 *****
 
     return False, None, ""
 
@@ -599,7 +602,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
         checar_existencia = secao.upper() not in secoes_ignorar_existencia_upper
     
         encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
-        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v20.0) tentará encontrar a seção
+        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v19.9) tentará encontrar a seção
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
         # --- INÍCIO DA CORREÇÃO v19.6 ---
@@ -918,8 +921,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # Itera sobre os canônicos para garantir a ordem
         for secao_canon in obter_secoes_por_tipo(tipo_bula):
             # Encontra a seção no mapa (se existir)
-            encontrou, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_ref, texto_ref.split('\n'), tipo_bula)
-            if encontrou:
+            mapa_entry = next((m for m in mapa_ref if m['canonico'] == secao_canon), None)
+            if mapa_entry:
+                # USA A FUNÇÃO CORRIGIDA para pegar o título certo e o conteúdo certo
+                _, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_ref, texto_ref.split('\n'), tipo_bula)
                 # Adiciona o título em negrito e o conteúdo, separados por uma única quebra de linha
                 texto_ref_reformatado_lista.append(f"<strong>{titulo_real}</strong>\n{conteudo}")
         
@@ -928,8 +933,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
         texto_belfar_reformatado_lista = []
         for secao_canon in obter_secoes_por_tipo(tipo_bula):
-            encontrou, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
-            if encontrou:
+            mapa_entry = next((m for m in mapa_belfar if m['canonico'] == secao_canon), None)
+            if mapa_entry:
+                _, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
                 # Adiciona o título em negrito e o conteúdo
                 texto_belfar_reformatado_lista.append(f"<strong>{titulo_real}</strong>\n{conteudo}")
         
@@ -1025,4 +1031,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.0 | Correção de Limiar (fuzz.token_set_ratio)")
+st.caption("Sistema de AuditorIA de Bulas v19.9 | Correção de Fallback (fuzz.ratio)")
