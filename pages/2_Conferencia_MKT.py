@@ -220,7 +220,7 @@ def obter_aliases_secao():
         "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
         "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
         "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
-        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        "REAÇÕES ADVERSas": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
         "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
     }
@@ -266,7 +266,7 @@ def is_titulo_secao(linha):
         return False
     return True
 
-# --- FUNÇÃO MANTIDA DO SEU SCRIPT (ESTÁ CORRETA) ---
+# --- [FUNÇÃO MODIFICADA] ---
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     linhas = texto_completo.split('\n')
@@ -287,7 +287,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             idx += 1
             continue
 
-        # --- LÓGICA DE DETECÇÃO DE TÍTULO DE 1 OU 2 LINHAS ---
+        # --- LÓGICA DE DETECÇÃO DE TÍTULO DE 1, 2 OU 3 LINHAS ---
+        
+        # 1. Checa 1 linha
         best_match_score_1_linha = 0
         best_match_canonico_1_linha = None
         for titulo_possivel, titulo_canonico in titulos_possiveis.items():
@@ -296,32 +298,74 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 best_match_score_1_linha = score
                 best_match_canonico_1_linha = titulo_canonico
 
+        # 2. Checa 2 linhas
         best_match_score_2_linhas = 0
         best_match_canonico_2_linhas = None
-        titulo_combinado = ""
+        titulo_combinado_2_linhas = ""
         if (idx + 1) < len(linhas):
             linha_seguinte = linhas[idx + 1].strip()
-            if len(linha_seguinte.split()) < 7:
-                titulo_combinado = f"{linha_limpa} {linha_seguinte}"
+            if len(linha_seguinte.split()) < 7: # Heurística: segunda linha de título é curta
+                titulo_combinado_2_linhas = f"{linha_limpa} {linha_seguinte}"
                 for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(titulo_combinado))
+                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(titulo_combinado_2_linhas))
                     if score > best_match_score_2_linhas:
                         best_match_score_2_linhas = score
                         best_match_canonico_2_linhas = titulo_canonico
+
+        # --- [NOVA LÓGICA] ---
+        # 3. Checa 3 linhas (para casos como a Seção 9)
+        best_match_score_3_linhas = 0
+        best_match_canonico_3_linhas = None
+        titulo_combinado_3_linhas = ""
+        if (idx + 2) < len(linhas):
+            linha_seguinte = linhas[idx + 1].strip()
+            linha_terceira = linhas[idx + 2].strip()
+            # Heurística: segunda e terceira linhas de título são curtas
+            if len(linha_seguinte.split()) < 10 and len(linha_terceira.split()) < 7: 
+                titulo_combinado_3_linhas = f"{linha_limpa} {linha_seguinte} {linha_terceira}"
+                for titulo_possivel, titulo_canonico in titulos_possiveis.items():
+                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(titulo_combinado_3_linhas))
+                    if score > best_match_score_3_linhas:
+                        best_match_score_3_linhas = score
+                        best_match_canonico_3_linhas = titulo_canonico
+        # --- [FIM DA NOVA LÓGICA] ---
         
         limiar_score = 95
         
-        if best_match_score_2_linhas > best_match_score_1_linha and best_match_score_2_linhas >= limiar_score:
+        # --- [LÓGICA DE DECISÃO ATUALIZADA] ---
+        # Prioriza o melhor match (3 > 2 > 1)
+        
+        if best_match_score_3_linhas > best_match_score_2_linhas and \
+           best_match_score_3_linhas > best_match_score_1_linha and \
+           best_match_score_3_linhas >= limiar_score:
+            
+            # Match de 3 linhas
+            if not mapa or mapa[-1]['canonico'] != best_match_canonico_3_linhas:
+                mapa.append({
+                    'canonico': best_match_canonico_3_linhas,
+                    'titulo_encontrado': titulo_combinado_3_linhas,
+                    'linha_inicio': idx,
+                    'score': best_match_score_3_linhas,
+                    'num_linhas_titulo': 3  # <-- Importante
+                })
+            idx += 3 # <-- Pula 3 linhas
+            
+        elif best_match_score_2_linhas > best_match_score_1_linha and best_match_score_2_linhas >= limiar_score:
+            
+            # Match de 2 linhas
             if not mapa or mapa[-1]['canonico'] != best_match_canonico_2_linhas:
                 mapa.append({
                     'canonico': best_match_canonico_2_linhas,
-                    'titulo_encontrado': titulo_combinado,
+                    'titulo_encontrado': titulo_combinado_2_linhas,
                     'linha_inicio': idx,
                     'score': best_match_score_2_linhas,
                     'num_linhas_titulo': 2
                 })
-            idx += 2
+            idx += 2 # <-- Pula 2 linhas
+
         elif best_match_score_1_linha >= limiar_score:
+            
+            # Match de 1 linha
             if not mapa or mapa[-1]['canonico'] != best_match_canonico_1_linha:
                 mapa.append({
                     'canonico': best_match_canonico_1_linha,
@@ -332,7 +376,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 })
             idx += 1
         else:
+            # Nenhum match, avança 1 linha
             idx += 1
+        # --- [FIM DA LÓGICA DE DECISÃO] ---
             
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
@@ -378,7 +424,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         # Usa a num_linhas_titulo do seu mapear_secoes
         num_linhas_titulo = secao_mapa.get('num_linhas_titulo', 1) 
         
-        # O conteúdo começa DEPOIS do título (1 ou 2 linhas)
+        # O conteúdo começa DEPOIS do título (1, 2 ou 3 linhas)
         linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
         # --- LÓGICA DE BUSCA APRIMORADA (1 ou 2 linhas) ---
@@ -723,17 +769,14 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    # --- [AJUSTE DE RÓTULO 1] ---
     col3.metric("Data ANVISA (Marketing)", data_belfar)
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    # --- [AJUSTE DE RÓTULO 2] ---
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Arquivo da Anvisa: {data_ref}\n   - Arquivo Marketing: {data_belfar}") # Mantido seu recuo
 
     if secoes_faltantes:
-        # --- [AJUSTE DE RÓTULO 3] ---
         st.error(f"🚨 **Seções faltantes na bula Arquivo Marketing ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
@@ -788,11 +831,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    # --- [AJUSTE DE RÓTULO 4] ---
                     st.markdown("**Arquivo da Anvisa:** (Clique na caixa para rolar)")
                     st.markdown(html_ref_box, unsafe_allow_html=True)
                 with c2:
-                    # --- [AJUSTE DE RÓTULO 5] ---
                     st.markdown("**Arquivo Marketing:** (Clique na caixa para rolar)")
                     st.markdown(html_bel_box, unsafe_allow_html=True)
     else:
@@ -848,11 +889,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2 = st.columns(2, gap="medium")
     with col1:
         # 3. Título como H4 (um pouco menor que subheader)
-        # Este 'nome_ref' já será "Arquivo da Anvisa" por causa da chamada da função
         st.markdown(f"#### {nome_ref}") 
         st.markdown(f"<div id='container-ref-scroll' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
-        # Este 'nome_belfar' já será "Arquivo Marketing"
         st.markdown(f"#### {nome_belfar}")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
@@ -884,21 +923,21 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
             
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
 
+            # --- [CORREÇÃO 1 - TRUNCAMENTO] ---
+            # O texto da Anvisa DEVE ser truncado
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
             
-            # --- [CORREÇÃO PRINCIPAL DO BUG] ---
-            # A linha abaixo foi removida. O arquivo do marketing não deve ser truncado,
-            # pois a data da Anvisa pode aparecer no meio do texto (em layout de colunas),
-            # o que estava cortando o arquivo antes do fim.
-            
+            # O texto do Marketing NÃO DEVE ser truncado, pois a data pode
+            # estar no meio do arquivo (devido ao layout de colunas).
+            # Garantia de que a linha foi removida:
             # if not erro_belfar:
-            #     texto_belfar = truncar_apos_anvisa(texto_belfar)
+            #     texto_belfar = truncar_apos_anvisa(texto_belfar) # <--- REMOVIDO
+            # --- [FIM DA CORREÇÃO 1] ---
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigido erro de variável
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
-                # Os rótulos aqui já estão corretos como você pediu
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
