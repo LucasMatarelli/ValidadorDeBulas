@@ -954,7 +954,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("Visualização Lado a Lado com Destaques")
     
-    # --- INÍCIO DA MODIFICAÇÃO ESTÉTICA (DO SEU CÓGIGO) ---
+    # --- INÍCIO DA MODIFICAÇÃO ESTÉTICA (DO SEU CÓDIGO) ---
     
     # 1. Estilo da Legenda
     legend_style = (
@@ -985,6 +985,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     
     # Adicionado try/except para depuração, caso obter_dados_secao falhe
     try:
+        # --- [CORREÇÃO] Usa o texto *original* (texto_ref) para remontar, não o reformatado
         texto_ref_reformatado = "\n\n".join(
             obter_dados_secao(secao['canonico'], mapa_ref, texto_ref.split('\n'), tipo_bula)[2] 
             for secao in mapa_ref
@@ -1001,7 +1002,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     # 2. Gera o HTML marcado usando os textos reformatados
     html_ref_marcado = marcar_divergencias_html(
-        texto_original=texto_ref_reformatado, 
+        texto_original=texto_ref_reformatado, # <-- Usa o texto reformatado
         secoes_problema=diferencas_conteudo, 
         erros_ortograficos=[], 
         tipo_bula=tipo_bula, 
@@ -1010,7 +1011,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     
     # --- [CORREÇÃO 3: 'marcar_divergc' -> 'marcar_divergencias_html'] ---
     html_belfar_marcado = marcar_divergencias_html(
-        texto_original=texto_belfar_reformatado, 
+        texto_original=texto_belfar_reformatado, # <-- Usa o texto reformatado
         secoes_problema=diferencas_conteudo, 
         erros_ortograficos=erros_ortograficos, 
         tipo_bula=tipo_bula, 
