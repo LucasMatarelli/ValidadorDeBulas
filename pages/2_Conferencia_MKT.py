@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v19.8 - Correção Final de Fallback (Anti-Roubo)
+# Sistema: AuditorIA de Bulas v20.1 - Correção de Conteúdo (Falsos Positivos e Lixo de Rodapé)
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v19.8: Adiciona verificação no 'fallback' para impedir que uma seção
-#          "roube" o conteúdo de outra seção já mapeada (ex: "ESQUECER" roubando "QUANDO NÃO DEVO USAR").
+# - v20.1: Aumenta limiar do fallback para 95 (corrige 'roubo' de conteúdo)
+#          e adiciona filtro de lixo de rodapé (corrige 'BUL_CLORIDRATO...').
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -117,6 +117,22 @@ def _create_anchor_id(secao_canonico, prefix):
     if not norm:
         norm = "secao-default"
     return f"anchor-{prefix}-{norm}"
+
+# --- INÍCIO DA CORREÇÃO v20.1 (Anti-Lixo) ---
+def is_garbage_line(linha_norm):
+    """Verifica (de forma normalizada) se a linha é lixo de rodapé/metadados."""
+    if not linha_norm:
+        return False
+    GARBAGE_KEYWORDS = [
+        'medida da bula', 'tipologia da bula', 'bulcloridrato', 'belfarcombr', 'artesbelfarcombr',
+        'contato 31 2105', 'bul_cloridrato', 'verso medida', '190 x 300 mm', 'papel ap 56gr'
+    ]
+    for key in GARBAGE_KEYWORDS:
+        if key in linha_norm:
+            return True
+    return False
+# --- FIM DA CORREÇÃO v20.1 ---
+
 
 # --- LÓGICA DE NEGÓCIO (LISTAS DE SEÇÕES) ---
 # !!! IMPORTANTE: Ajuste estas listas conforme sua necessidade !!!
@@ -388,7 +404,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 # ----------------- OBTER DADOS DA SESSÃO (USANDO MAPA_SECOES QUANDO POSSÍVEL) -----------------
-# ***** FUNÇÃO CORRIGIDA (v19.8) *****
+# ***** FUNÇÃO CORRIGIDA (v20.1) *****
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai conteúdo de uma seção usando preferencialmente as posições no mapa_secoes.
@@ -464,6 +480,15 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         elif not conteudo_mesma_linha:
              # Não há conteúdo na mesma linha E não há linhas seguintes = seção vazia
              return True, titulo_encontrado_final, ""
+             
+        # --- INÍCIO DA CORREÇÃO v20.1 (Anti-Lixo) ---
+        conteudo_filtrado = []
+        for linha in conteudo:
+            if is_garbage_line(normalizar_texto(linha)):
+                break # Para de adicionar linhas ao encontrar lixo
+            conteudo_filtrado.append(linha)
+        conteudo = conteudo_filtrado # Substitui o conteúdo
+        # --- FIM DA CORREÇÃO v20.1 ---
 
         # Reflow (junta linhas que pertencem ao mesmo parágrafo)
         if not conteudo:
@@ -501,20 +526,17 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado_final, conteudo_final
 
     # --- LÓGICA DE FALLBACK (SE NÃO ACHOU NO MAPA) ---
-    # ***** INÍCIO DA CORREÇÃO v19.8 *****
+    # ***** INÍCIO DA CORREÇÃO v20.0 (Anti-Roubo) E v20.1 (Anti-Lixo) *****
     
     for i in range(len(linhas_texto)):
         linha_raw = linhas_texto[i].strip()
         if not linha_raw: continue
 
-        # --- CORREÇÃO v19.8 ---
+        # --- CORREÇÃO v19.8 (Anti-Roubo) ---
         # Se esta linha já foi mapeada para OUTRA seção, PULE.
-        # Isso previne que "ESQUECER" (score 94) roube a linha de "QUANDO NÃO DEVO USAR" (score 100)
         linha_ja_mapeada = False
         for m in mapa_secoes:
             if m['linha_inicio'] == i:
-                # Esta linha já foi identificada como um título (ex: "QUANDO NÃO DEVO USAR...")
-                # Não devemos usá-la como fallback para "ESQUECER..."
                 linha_ja_mapeada = True
                 break
         if linha_ja_mapeada:
@@ -525,9 +547,16 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         linha_norm = normalizar_titulo_para_comparacao(linha_raw)
         secao_canon_norm = normalizar_titulo_para_comparacao(secao_canonico)
         
+        # --- CORREÇÃO v20.0 (Anti-Roubo) ---
+        # Usa 'token_set_ratio' (relaxado) para pegar variações (ex: "7. O QUE..."),
+        # MAS com um limiar ALTO (95) para rejeitar falsos-positivos (que dão ~94).
         score = fuzz.token_set_ratio(linha_norm, secao_canon_norm)
         
-        if score >= 90: # Se a linha *é* o título (com ou sem lixo, com ou sem "7.", com typos)
+        limiar_fallback = 95 # <-- MUDANÇA AQUI (era 90)
+        
+        if score >= limiar_fallback:
+        # --- FIM CORREÇÃO v20.0 ---
+
             # Encontrou! Agora divide a linha
             # Tenta achar o melhor ponto de divisão (o título real)
             best_real_title_match = None
@@ -538,12 +567,9 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                     best_real_title_match = linha_raw[index : index + len(title_text)]
                     break
             
-            # Se não achou um 'find' (ex: typo "ESSE" vs "ESTE"),
-            # usa o 'linha_raw' inteiro como título, pois o score foi > 90
             if not best_real_title_match:
                 best_real_title_match = linha_raw
             
-            # ... resto da lógica de extração ...
             index_fim_titulo = linha_raw.upper().find(best_real_title_match.upper()) + len(best_real_title_match)
             titulo_encontrado_final = linha_raw[:index_fim_titulo].strip()
             conteudo_mesma_linha = linha_raw[index_fim_titulo:]
@@ -554,6 +580,14 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             fim = len(linhas_texto)
             for j in range(inicio_linhas_seguintes, len(linhas_texto)):
                 cand = linhas_texto[j].strip()
+                cand_norm_check = normalizar_texto(cand) # v20.1
+
+                # --- CORREÇÃO v20.1 (Anti-Lixo) ---
+                if is_garbage_line(cand_norm_check): # <-- ADICIONADO
+                    fim = j
+                    break
+                # --- FIM CORREÇÃO v20.1 ---
+                
                 # A CORREÇÃO v19.5 ATUA AQUI TAMBÉM:
                 if is_titulo_secao(cand):
                     cand_norm = normalizar_titulo_para_comparacao(cand)
@@ -574,7 +608,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             
             return True, titulo_encontrado_final, conteudo
     
-    # ***** FIM DA CORREÇÃO v19.8 *****
+    # ***** FIM DA CORREÇÃO v20.0/v20.1 *****
 
     return False, None, ""
 
@@ -597,7 +631,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
         checar_existencia = secao.upper() not in secoes_ignorar_existencia_upper
     
         encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
-        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v19.8) tentará encontrar a seção
+        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v20.1) tentará encontrar a seção
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
         # --- INÍCIO DA CORREÇÃO v19.6 ---
@@ -916,10 +950,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # Itera sobre os canônicos para garantir a ordem
         for secao_canon in obter_secoes_por_tipo(tipo_bula):
             # Encontra a seção no mapa (se existir)
-            mapa_entry = next((m for m in mapa_ref if m['canonico'] == secao_canon), None)
-            if mapa_entry:
-                # USA A FUNÇÃO CORRIGIDA para pegar o título certo e o conteúdo certo
-                _, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_ref, texto_ref.split('\n'), tipo_bula)
+            encontrou, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_ref, texto_ref.split('\n'), tipo_bula)
+            if encontrou:
                 # Adiciona o título em negrito e o conteúdo, separados por uma única quebra de linha
                 texto_ref_reformatado_lista.append(f"<strong>{titulo_real}</strong>\n{conteudo}")
         
@@ -928,9 +960,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
         texto_belfar_reformatado_lista = []
         for secao_canon in obter_secoes_por_tipo(tipo_bula):
-            mapa_entry = next((m for m in mapa_belfar if m['canonico'] == secao_canon), None)
-            if mapa_entry:
-                _, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
+            encontrou, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
+            if encontrou:
                 # Adiciona o título em negrito e o conteúdo
                 texto_belfar_reformatado_lista.append(f"<strong>{titulo_real}</strong>\n{conteudo}")
         
@@ -985,7 +1016,7 @@ st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
 st.divider()
 
-st.header("📋 Configuração da Auditoria")
+st.header("📋 Configuração da AuditorIA")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
