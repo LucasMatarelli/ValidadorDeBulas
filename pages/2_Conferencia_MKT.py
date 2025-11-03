@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.1 - Correção de Conteúdo (Falsos Positivos e Lixo de Rodapé)
+# Sistema: AuditorIA de Bulas v20.0 - Correção de Limiar (fuzz.token_set_ratio)
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.1: Aumenta limiar do fallback para 95 (corrige 'roubo' de conteúdo)
-#          e adiciona filtro de lixo de rodapé (corrige 'BUL_CLORIDRATO...').
+# - v20.0: Reajusta o limiar do fallback para token_set_ratio > 95.
+#          Isso previne o "roubo" de conteúdo (scores ~94) mas permite
+#          matches corretos com pequenas variações (scores 100).
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -117,22 +118,6 @@ def _create_anchor_id(secao_canonico, prefix):
     if not norm:
         norm = "secao-default"
     return f"anchor-{prefix}-{norm}"
-
-# --- INÍCIO DA CORREÇÃO v20.1 (Anti-Lixo) ---
-def is_garbage_line(linha_norm):
-    """Verifica (de forma normalizada) se a linha é lixo de rodapé/metadados."""
-    if not linha_norm:
-        return False
-    GARBAGE_KEYWORDS = [
-        'medida da bula', 'tipologia da bula', 'bulcloridrato', 'belfarcombr', 'artesbelfarcombr',
-        'contato 31 2105', 'bul_cloridrato', 'verso medida', '190 x 300 mm', 'papel ap 56gr'
-    ]
-    for key in GARBAGE_KEYWORDS:
-        if key in linha_norm:
-            return True
-    return False
-# --- FIM DA CORREÇÃO v20.1 ---
-
 
 # --- LÓGICA DE NEGÓCIO (LISTAS DE SEÇÕES) ---
 # !!! IMPORTANTE: Ajuste estas listas conforme sua necessidade !!!
@@ -404,7 +389,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 # ----------------- OBTER DADOS DA SESSÃO (USANDO MAPA_SECOES QUANDO POSSÍVEL) -----------------
-# ***** FUNÇÃO CORRIGIDA (v20.1) *****
+# ***** FUNÇÃO CORRIGIDA (v20.0) *****
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai conteúdo de uma seção usando preferencialmente as posições no mapa_secoes.
@@ -480,15 +465,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         elif not conteudo_mesma_linha:
              # Não há conteúdo na mesma linha E não há linhas seguintes = seção vazia
              return True, titulo_encontrado_final, ""
-             
-        # --- INÍCIO DA CORREÇÃO v20.1 (Anti-Lixo) ---
-        conteudo_filtrado = []
-        for linha in conteudo:
-            if is_garbage_line(normalizar_texto(linha)):
-                break # Para de adicionar linhas ao encontrar lixo
-            conteudo_filtrado.append(linha)
-        conteudo = conteudo_filtrado # Substitui o conteúdo
-        # --- FIM DA CORREÇÃO v20.1 ---
 
         # Reflow (junta linhas que pertencem ao mesmo parágrafo)
         if not conteudo:
@@ -526,13 +502,13 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado_final, conteudo_final
 
     # --- LÓGICA DE FALLBACK (SE NÃO ACHOU NO MAPA) ---
-    # ***** INÍCIO DA CORREÇÃO v20.0 (Anti-Roubo) E v20.1 (Anti-Lixo) *****
+    # ***** INÍCIO DA CORREÇÃO v20.0 *****
     
     for i in range(len(linhas_texto)):
         linha_raw = linhas_texto[i].strip()
         if not linha_raw: continue
 
-        # --- CORREÇÃO v19.8 (Anti-Roubo) ---
+        # --- CORREÇÃO v19.8 ---
         # Se esta linha já foi mapeada para OUTRA seção, PULE.
         linha_ja_mapeada = False
         for m in mapa_secoes:
@@ -543,16 +519,16 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             continue
         # --- FIM CORREÇÃO v19.8 ---
 
+        # --- CORREÇÃO v20.0 ---
         # Compara a linha inteira normalizada com o canônico normalizado
+        # Usa 'fuzz.token_set_ratio' (relaxado) para pegar variações,
+        # MAS com um limiar ALTO (95) para rejeitar falsos-positivos (que dão ~94).
         linha_norm = normalizar_titulo_para_comparacao(linha_raw)
         secao_canon_norm = normalizar_titulo_para_comparacao(secao_canonico)
         
-        # --- CORREÇÃO v20.0 (Anti-Roubo) ---
-        # Usa 'token_set_ratio' (relaxado) para pegar variações (ex: "7. O QUE..."),
-        # MAS com um limiar ALTO (95) para rejeitar falsos-positivos (que dão ~94).
-        score = fuzz.token_set_ratio(linha_norm, secao_canon_norm)
+        score = fuzz.token_set_ratio(linha_norm, secao_canon_norm) # <-- MUDANÇA AQUI
         
-        limiar_fallback = 95 # <-- MUDANÇA AQUI (era 90)
+        limiar_fallback = 95 # <-- MUDANÇA AQUI (era 85 com fuzz.ratio)
         
         if score >= limiar_fallback:
         # --- FIM CORREÇÃO v20.0 ---
@@ -580,14 +556,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             fim = len(linhas_texto)
             for j in range(inicio_linhas_seguintes, len(linhas_texto)):
                 cand = linhas_texto[j].strip()
-                cand_norm_check = normalizar_texto(cand) # v20.1
-
-                # --- CORREÇÃO v20.1 (Anti-Lixo) ---
-                if is_garbage_line(cand_norm_check): # <-- ADICIONADO
-                    fim = j
-                    break
-                # --- FIM CORREÇÃO v20.1 ---
-                
                 # A CORREÇÃO v19.5 ATUA AQUI TAMBÉM:
                 if is_titulo_secao(cand):
                     cand_norm = normalizar_titulo_para_comparacao(cand)
@@ -608,7 +576,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             
             return True, titulo_encontrado_final, conteudo
     
-    # ***** FIM DA CORREÇÃO v20.0/v20.1 *****
+    # ***** FIM DA CORREÇÃO v20.0 *****
 
     return False, None, ""
 
@@ -631,7 +599,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
         checar_existencia = secao.upper() not in secoes_ignorar_existencia_upper
     
         encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
-        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v20.1) tentará encontrar a seção
+        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v20.0) tentará encontrar a seção
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
         # --- INÍCIO DA CORREÇÃO v19.6 ---
@@ -1016,7 +984,7 @@ st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
 st.divider()
 
-st.header("📋 Configuração da AuditorIA")
+st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
@@ -1057,4 +1025,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v19.8 | Correção Final de Fallback (Anti-Roubo)")
+st.caption("Sistema de AuditorIA de Bulas v20.0 | Correção de Limiar (fuzz.token_set_ratio)")
