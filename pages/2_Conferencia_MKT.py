@@ -744,7 +744,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 
 # ----------------- RELATÓRIO -----------------
-# --- [FUNÇÃO SUBSTITUÍDA] ---
+# --- [FUNÇÃO SUBSTITUÍDA E CORRIGIDA] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     # --- [NOVO] Script Global (Plano C) ---
@@ -816,7 +816,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Arquivo da Anvisa: {data_ref}\n   - Arquivo Marketing: {data_bf}") # Mantido seu recuo
+    # --- [CORREÇÃO 1: data_bf -> data_belfar] ---
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Arquivo da Anvisa: {data_ref}\n   - Arquivo Marketing: {data_belfar}") # Mantido seu recuo
+    # --- [FIM DA CORREÇÃO 1] ---
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula Arquivo Marketing ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
@@ -850,14 +852,16 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 diff['conteudo_anvisa'], diff['conteudo_mkt'], eh_referencia=True
                 ).replace('\n', '<br>')
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                diff['conteudo_mkt'], diff['conteudo_mkt'], eh_referencia=False
+                diff['conteudo_anvisa'], diff['conteudo_mkt'], eh_referencia=False
                 ).replace('\n', '<br>')
                 
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
                 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
                 
+                # --- [CORREÇÃO 2: expander_html_baf -> expander_html_belfar] ---
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
+                # --- [FIM DA CORREÇÃO 2] ---
 
                 c1, c2 = st.columns(2)
                 with c1:
