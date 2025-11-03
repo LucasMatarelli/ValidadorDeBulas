@@ -78,25 +78,62 @@ nlp = carregar_modelo_spacy()
 
 
 # ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR -----------------
-# --- [FUNÇÃO CORRIGIDA PARA O LAYOUT] ---
+# --- [FUNÇÃO REESCRITA PARA LAYOUT DE 2 COLUNAS] ---
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
     Tenta extrair texto de um PDF. Se o resultado for fraco (sinal de texto em curva),
     usa OCR como alternativa (fallback).
+    Esta versão é otimizada para PDFs de 2 colunas.
     """
-    # --- TENTATIVA 1: Extração Direta (Rápida e Ideal) ---
+    # --- TENTATIVA 1: Extração Direta por Colunas ---
     texto_direto = ""
-    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for page in doc:
-            # --- [CORREÇÃO DE LAYOUT DE COLUNA] ---
-            # Troca de "text" (sort=True) para "text" (default)
-            # O default (sort=False) preserva a ordem das colunas (L-R, T-B)
-            # que é o que precisamos para o arquivo do marketing.
-            texto_direto += page.get_text("text") + "\n" # <-- MUDANÇA IMPORTANTE
-
-    # Se a extração direta funcionar bem (mais de 100 caracteres), retorna o resultado
-    if len(texto_direto.strip()) > 100:
-        return texto_direto
+    try:
+        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+            for page in doc:
+                # Pega os blocos de texto (x0, y0, x1, y1, "texto", ...)
+                blocks = page.get_text("blocks", sort=False) 
+                
+                # Define o ponto central da página para separar as colunas
+                middle_x = page.rect.width / 2
+                
+                col1_blocks = []
+                col2_blocks = []
+                
+                for b in blocks:
+                    x0 = b[0] # Posição x inicial do bloco
+                    if x0 < middle_x:
+                        col1_blocks.append(b)
+                    else:
+                        col2_blocks.append(b)
+                
+                # Ordena cada coluna de cima para baixo (pelo y0)
+                col1_blocks.sort(key=lambda b: b[1])
+                col2_blocks.sort(key=lambda b: b[1])
+                
+                # Concatena o texto da Coluna 1
+                for b in col1_blocks:
+                    texto_direto += b[4] + "\n"
+                
+                # Concatena o texto da Coluna 2
+                for b in col2_blocks:
+                    texto_direto += b[4] + "\n"
+                
+                texto_direto += "\n" # Adiciona uma quebra de página
+    
+        # Se a extração direta funcionar bem (mais de 100 caracteres), retorna o resultado
+        if len(texto_direto.strip()) > 100:
+            return texto_direto
+            
+    except Exception as e:
+        # Se a leitura de blocos falhar, tenta a leitura simples
+        try:
+            with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+                for page in doc:
+                    texto_direto += page.get_text("text") + "\n"
+            if len(texto_direto.strip()) > 100:
+                return texto_direto
+        except Exception as e2:
+            pass # Falha, segue para OCR
 
     # --- TENTATIVA 2: Extração por OCR (Lenta, para arquivos em curva) ---
     st.info("Arquivo 'em curva' detectado. Iniciando leitura com OCR... Isso pode demorar um pouco.")
@@ -112,6 +149,7 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
             texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
     
     return texto_ocr
+# --- [FIM DA REESCRITA] ---
 
 
 # ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL (MODIFICADA) -----------------
