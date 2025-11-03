@@ -455,114 +455,79 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [FUNÇÃO ATUALIZADA E CORRIGIDA] ---
+# --- [FUNÇÃO TOTALMENTE REESCRITA] ---
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
-    Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
-    Esta versão verifica se o próximo título está em uma única linha ou dividido em duas linhas consecutivas.
+    Extrai o conteúdo de uma seção usando o mapa de seções já criado.
+    NOVA ABORDAGEM: Usa os índices do próprio mapa para delimitar as seções.
     """
-    titulos_lista = obter_secoes_por_tipo(tipo_bula)
-    titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
-
+    # Encontra a seção atual no mapa
+    idx_secao_atual = None
     for i, secao_mapa in enumerate(mapa_secoes):
-        if secao_mapa['canonico'] != secao_canonico:
-            continue
-
-        titulo_encontrado = secao_mapa['titulo_encontrado']
-        linha_inicio = secao_mapa['linha_inicio']
-        num_linhas_titulo = secao_mapa.get('num_linhas_titulo', 1) 
-        linha_inicio_conteudo = linha_inicio + num_linhas_titulo
-
-        prox_idx = None
-        for j in range(linha_inicio_conteudo, len(linhas_texto)):
-            linha_atual = linhas_texto[j].strip()
-            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual) # Remove "1. ", "2. "
-
-            encontrou_titulo_1_linha = False
-            for titulo_oficial_norm in titulos_norm_set:
-                if titulo_oficial_norm in linha_atual_norm and len(linha_atual_norm) > 0:
-                    encontrou_titulo_1_linha = True
-                    break 
-            
-            if encontrou_titulo_1_linha:
-                prox_idx = j 
-                break 
-
-            if (j + 1) < len(linhas_texto):
-                linha_seguinte = linhas_texto[j + 1].strip()
-                titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
-                titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
-
-                encontrou_titulo_2_linhas = False
-                for titulo_oficial_norm in titulos_norm_set:
-                    if titulo_oficial_norm in titulo_duas_linhas_norm and len(titulo_duas_linhas_norm) > 0:
-                        encontrou_titulo_2_linhas = True
-                        break 
-                
-                if encontrou_titulo_2_linhas:
-                    prox_idx = j 
-                    break 
-
-        linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
-        conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
+        if secao_mapa['canonico'] == secao_canonico:
+            idx_secao_atual = i
+            break
+    
+    # Se não encontrou a seção, retorna vazio
+    if idx_secao_atual is None:
+        return False, None, ""
+    
+    secao_atual = mapa_secoes[idx_secao_atual]
+    titulo_encontrado = secao_atual['titulo_encontrado']
+    linha_inicio = secao_atual['linha_inicio']
+    num_linhas_titulo = secao_atual.get('num_linhas_titulo', 1)
+    linha_inicio_conteudo = linha_inicio + num_linhas_titulo
+    
+    # Determina o fim da seção:
+    # Se existe uma próxima seção no mapa, usa sua linha_inicio
+    # Caso contrário, vai até o final do texto
+    if idx_secao_atual + 1 < len(mapa_secoes):
+        linha_fim = mapa_secoes[idx_secao_atual + 1]['linha_inicio']
+    else:
+        linha_fim = len(linhas_texto)
+    
+    # Extrai o conteúdo
+    conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
+    
+    # Verifica se conteúdo está vazio
+    if not conteudo:
+        return True, titulo_encontrado, ""
+    
+    # --- [LÓGICA DE REFLUXO E LIMPEZA] ---
+    conteudo_refluxo = [conteudo[0]]
+    for i in range(1, len(conteudo)):
+        linha_anterior = conteudo_refluxo[-1]
+        linha_atual = conteudo[i]
         
-        # --- [INÍCIO DA NOVA LÓGICA DE REFLUXO E LIMPEZA - CORRIGIDA] ---
+        linha_atual_strip = linha_atual.strip()
+
+        is_new_paragraph = False
+        if not linha_atual_strip:
+            is_new_paragraph = True
+        else:
+            primeiro_char = linha_atual_strip[0]
+            if primeiro_char.isupper() or primeiro_char in ""\"" or re.match(r'^\s*[\d\-\*•]', linha_atual_strip):
+                is_new_paragraph = True
         
-        # --- [BUG FIX] ---
-        # Adiciona verificação para conteúdo vazio para evitar IndexError
-        if not conteudo:
-            return True, titulo_encontrado, ""
-        # --- [FIM DO BUG FIX] ---
-
-        # 1. Reconstrói os parágrafos
-        conteudo_refluxo = [conteudo[0]]
-        for i in range(1, len(conteudo)):
-            linha_anterior = conteudo_refluxo[-1]
-            linha_atual = conteudo[i]
+        is_end_of_sentence = False
+        if not linha_anterior.strip() or re.search(r'[.!?:]$', linha_anterior.strip()):
+            is_end_of_sentence = True
             
-            linha_atual_strip = linha_atual.strip()
+        if not is_new_paragraph and not is_end_of_sentence:
+            conteudo_refluxo[-1] = linha_anterior.rstrip() + " " + linha_atual.lstrip()
+        else:
+            conteudo_refluxo.append(linha_atual)
 
-            # Heurística: Se a linha atual NÃO parece ser um novo parágrafo
-            # (não começa com maiúscula, número, ou bullet/asterisco)
-            # E a linha anterior NÃO é vazia,
-            # E a linha anterior NÃO termina com pontuação de fim de frase.
-            
-            is_new_paragraph = False
-            if not linha_atual_strip:
-                is_new_paragraph = True # Keep empty lines as paragraph breaks
-            else:
-                primeiro_char = linha_atual_strip[0]
-                if primeiro_char.isupper() or primeiro_char in "“\"" or re.match(r'^\s*[\d\-\*•]', linha_atual_strip):
-                    is_new_paragraph = True
-            
-            is_end_of_sentence = False
-            if not linha_anterior.strip() or re.search(r'[.!?:]$', linha_anterior.strip()):
-                is_end_of_sentence = True
-                
-            if not is_new_paragraph and not is_end_of_sentence:
-                # Juntar com a linha anterior
-                conteudo_refluxo[-1] = linha_anterior.rstrip() + " " + linha_atual.lstrip()
-            else:
-                # É uma nova linha
-                conteudo_refluxo.append(linha_atual)
+    conteudo_final = "\n".join(conteudo_refluxo).strip()
 
-        conteudo_final = "\n".join(conteudo_refluxo).strip()
-
-        # 2. Limpa o espaçamento da pontuação
-        # Remove espaços ANTES de pontuação: "exemplo , " -> "exemplo,"
-        conteudo_final = re.sub(r'\s+([.,;:!?)\]])', r'\1', conteudo_final)
-        # Remove espaços DEPOIS de pontuação de abertura: "( exemplo" -> "(exemplo"
-        conteudo_final = re.sub(r'([(\[])\s+', r'\1', conteudo_final)
-        # Garante espaço DEPOIS da pontuação (se seguido por letra): "exemplo,quadro" -> "exemplo, quadro"
-        conteudo_final = re.sub(r'([.,;:!?)\]])(\w)', r'\1 \2', conteudo_final)
-        # Garante espaço ANTES da pontuação de abertura (se seguido por letra): "exemplo(quadro" -> "exemplo (quadro"
-        conteudo_final = re.sub(r'(\w)([(\[])', r'\1 \2', conteudo_final)
-        # --- [FIM DA NOVA LÓGICA] ---
-        
-        return True, titulo_encontrado, conteudo_final
-
-    return False, None, ""
-# --- [FIM DA ATUALIZAÇÃO] ---
+    # Limpa o espaçamento da pontuação
+    conteudo_final = re.sub(r'\s+([.,;:!?)\]])', r'\1', conteudo_final)
+    conteudo_final = re.sub(r'([(\[])\s+', r'\1', conteudo_final)
+    conteudo_final = re.sub(r'([.,;:!?)\]])(\w)', r'\1 \2', conteudo_final)
+    conteudo_final = re.sub(r'(\w)([(\[])', r'\1 \2', conteudo_final)
+    
+    return True, titulo_encontrado, conteudo_final
+# --- [FIM DA REESCRITA] ---
 
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
