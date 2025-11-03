@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v19.2 - Correção de Split (Título/Conteúdo)
+# Sistema: AuditorIA de Bulas v19.3 - Correção de Falsos Títulos (Advertências)
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v19.2: Corrige bug onde o conteúdo na mesma linha do título era considerado parte do título.
+# - v19.3: Corrige bug onde frases de advertência (ex: "TODO MEDICAMENTO...") eram
+#          identificadas como títulos, cortando a extração de conteúdo.
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -70,12 +71,31 @@ def normalizar_titulo_para_comparacao(titulo):
     """Normalização mais agressiva para títulos."""
     return normalizar_texto(titulo)
 
+# ***** FUNÇÃO CORRIGIDA (v19.3) *****
 def is_titulo_secao(linha):
     """
     Heurística simples para identificar um provável título de seção.
     """
     if not linha:
         return False
+        
+    # --- INÍCIO DA CORREÇÃO v19.3 ---
+    # Lista de frases em CAIXA ALTA que NÃO são títulos
+    FRASES_A_IGNORAR = {
+        "TODO MEDICAMENTO DEVE SER MANTIDO FORA DO ALCANCE DAS CRIANCAS", # Normalizado
+        "SIGA CORRETAMENTE O MODO DE USAR",
+        "NAO DESAPARECENDO OS SINTOMAS PROCURE ORIENTACAO MEDICA" # Normalizado
+    }
+    
+    # Normaliza a linha para checagem (remove acentos, pontuação, etc.)
+    linha_norm_check = normalizar_texto(linha) 
+    
+    for frase in FRASES_A_IGNORAR:
+        # Compara as duas strings normalizadas
+        if fuzz.ratio(linha_norm_check, frase) > 90:
+            return False
+    # --- FIM DA CORREÇÃO v19.3 ---
+
     # Se for tudo maiúsculo e curto (menos de 15 palavras)
     if linha.isupper() and len(linha.split()) < 15:
         return True
@@ -278,6 +298,8 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     idx = 0
     while idx < len(linhas):
         linha_limpa = linhas[idx].strip()
+        
+        # AQUI É ONDE A CORREÇÃO v19.3 ATUA:
         if not is_titulo_secao(linha_limpa):
             idx += 1
             continue
@@ -343,6 +365,8 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 mapa.append({'canonico': best_match_canonico_1, 'titulo_encontrado': linha_limpa, 'linha_inicio': idx, 'score': best_match_score_1, 'num_linhas_titulo': 1})
             idx += 1
         else:
+            # Se 'is_titulo_secao' for True (ex: "TODO MEDICAMENTO...") mas não der match
+            # com nenhum título real, ele cai aqui e avança, não adicionando ao mapa.
             idx += 1
 
     mapa.sort(key=lambda x: x['linha_inicio'])
@@ -492,11 +516,12 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             fim = len(linhas_texto)
             for j in range(inicio_linhas_seguintes, len(linhas_texto)):
                 cand = linhas_texto[j].strip()
-                cand_norm = normalizar_titulo_para_comparacao(cand)
-                # Verifica se é um TÍTULO de seção, e não apenas se contém as palavras
-                if is_titulo_secao(cand) and any(fuzz.token_set_ratio(t, cand_norm) > 90 for t in titulos_norm_set):
-                    fim = j
-                    break
+                # A CORREÇÃO v19.3 ATUA AQUI TAMBÉM:
+                if is_titulo_secao(cand):
+                    cand_norm = normalizar_titulo_para_comparacao(cand)
+                    if any(fuzz.token_set_ratio(t, cand_norm) > 90 for t in titulos_norm_set):
+                        fim = j
+                        break
             
             conteudo_linhas_seguintes = linhas_texto[inicio_linhas_seguintes:fim]
             
@@ -855,20 +880,26 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     # Reformatar texto por seções detectadas
     try:
         texto_ref_reformatado_lista = []
-        for secao in mapa_ref:
-            # USA A FUNÇÃO CORRIGIDA para pegar o título certo e o conteúdo certo
-            _, titulo_real, conteudo = obter_dados_secao(secao['canonico'], mapa_ref, texto_ref.split('\n'), tipo_bula)
-            # Adiciona o título em negrito e o conteúdo, separados por uma única quebra de linha
-            texto_ref_reformatado_lista.append(f"<strong>{titulo_real}</strong>\n{conteudo}")
+        # Itera sobre os canônicos para garantir a ordem
+        for secao_canon in obter_secoes_por_tipo(tipo_bula):
+            # Encontra a seção no mapa (se existir)
+            mapa_entry = next((m for m in mapa_ref if m['canonico'] == secao_canon), None)
+            if mapa_entry:
+                # USA A FUNÇÃO CORRIGIDA para pegar o título certo e o conteúdo certo
+                _, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_ref, texto_ref.split('\n'), tipo_bula)
+                # Adiciona o título em negrito e o conteúdo, separados por uma única quebra de linha
+                texto_ref_reformatado_lista.append(f"<strong>{titulo_real}</strong>\n{conteudo}")
         
         # Junta todas as seções com uma quebra de linha dupla (que vira <br><br>)
         texto_ref_reformatado = "\n\n".join(texto_ref_reformatado_lista) if texto_ref_reformatado_lista else texto_ref
 
         texto_belfar_reformatado_lista = []
-        for secao in mapa_belfar:
-            _, titulo_real, conteudo = obter_dados_secao(secao['canonico'], mapa_belfar, texto_belfar.split('\n'), tipo_bula)
-            # Adiciona o título em negrito e o conteúdo
-            texto_belfar_reformatado_lista.append(f"<strong>{titulo_real}</strong>\n{conteudo}")
+        for secao_canon in obter_secoes_por_tipo(tipo_bula):
+            mapa_entry = next((m for m in mapa_belfar if m['canonico'] == secao_canon), None)
+            if mapa_entry:
+                _, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
+                # Adiciona o título em negrito e o conteúdo
+                texto_belfar_reformatado_lista.append(f"<strong>{titulo_real}</strong>\n{conteudo}")
         
         # Junta todas as seções com uma quebra de linha dupla
         texto_belfar_reformatado = "\n\n".join(texto_belfar_reformatado_lista) if texto_belfar_reformatado_lista else texto_belfar
@@ -962,4 +993,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v19.2 | Correção de Split (Título/Conteúdo)")
+st.caption("Sistema de AuditorIA de Bulas v19.3 | Correção de Falsos Títulos (Advertências)")
