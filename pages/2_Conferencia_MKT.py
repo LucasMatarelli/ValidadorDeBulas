@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v19.7 - Correção de Fallback (Falsos Faltantes)
+# Sistema: AuditorIA de Bulas v19.8 - Correção Final de Fallback (Anti-Roubo)
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v19.7: Corrige a lógica de 'fallback' em obter_dados_secao, que falhava em
-#          encontrar títulos com pequenas variações (typos, "esse" vs "este"),
-#          marcando-os incorretamente como 'faltantes'.
+# - v19.8: Adiciona verificação no 'fallback' para impedir que uma seção
+#          "roube" o conteúdo de outra seção já mapeada (ex: "ESQUECER" roubando "QUANDO NÃO DEVO USAR").
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -389,7 +388,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 # ----------------- OBTER DADOS DA SESSÃO (USANDO MAPA_SECOES QUANDO POSSÍVEL) -----------------
-# ***** FUNÇÃO CORRIGIDA (v19.7) *****
+# ***** FUNÇÃO CORRIGIDA (v19.8) *****
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai conteúdo de uma seção usando preferencialmente as posições no mapa_secoes.
@@ -502,12 +501,26 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado_final, conteudo_final
 
     # --- LÓGICA DE FALLBACK (SE NÃO ACHOU NO MAPA) ---
-    # ***** INÍCIO DA CORREÇÃO v19.7 *****
+    # ***** INÍCIO DA CORREÇÃO v19.8 *****
     
     for i in range(len(linhas_texto)):
         linha_raw = linhas_texto[i].strip()
         if not linha_raw: continue
-        
+
+        # --- CORREÇÃO v19.8 ---
+        # Se esta linha já foi mapeada para OUTRA seção, PULE.
+        # Isso previne que "ESQUECER" (score 94) roube a linha de "QUANDO NÃO DEVO USAR" (score 100)
+        linha_ja_mapeada = False
+        for m in mapa_secoes:
+            if m['linha_inicio'] == i:
+                # Esta linha já foi identificada como um título (ex: "QUANDO NÃO DEVO USAR...")
+                # Não devemos usá-la como fallback para "ESQUECER..."
+                linha_ja_mapeada = True
+                break
+        if linha_ja_mapeada:
+            continue
+        # --- FIM CORREÇÃO v19.8 ---
+
         # Compara a linha inteira normalizada com o canônico normalizado
         linha_norm = normalizar_titulo_para_comparacao(linha_raw)
         secao_canon_norm = normalizar_titulo_para_comparacao(secao_canonico)
@@ -561,7 +574,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             
             return True, titulo_encontrado_final, conteudo
     
-    # ***** FIM DA CORREÇÃO v19.7 *****
+    # ***** FIM DA CORREÇÃO v19.8 *****
 
     return False, None, ""
 
@@ -584,7 +597,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
         checar_existencia = secao.upper() not in secoes_ignorar_existencia_upper
     
         encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
-        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v19.7) tentará encontrar a seção
+        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v19.8) tentará encontrar a seção
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
         # --- INÍCIO DA CORREÇÃO v19.6 ---
@@ -800,7 +813,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     """
     st.markdown(js_scroll_script, unsafe_allow_html=True)
 
-    st.header("Relatório de Auditoria Inteligente")
+    st.header("Relatório de AuditorIA Inteligente")
     regex_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
 
     match_ref = re.search(regex_anvisa, texto_ref, re.IGNORECASE)
@@ -1013,4 +1026,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v19.7 | Correção de Fallback (Falsos Faltantes)")
+st.caption("Sistema de AuditorIA de Bulas v19.8 | Correção Final de Fallback (Anti-Roubo)")
