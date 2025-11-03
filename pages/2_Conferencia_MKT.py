@@ -217,6 +217,12 @@ def extrair_texto(arquivo, tipo_arquivo):
             # --- [NOVA CORREÇÃO DE FORMATAÇÃO] ---
             # Corrige palavras coladas em parênteses (ex: "ergot(exemplo...")
             texto = re.sub(r'(\w)\(', r'\1 (', texto)
+            
+            # --- [CORREÇÃO TÍTULO GRUDADO] ---
+            # Insere quebra de linha antes de títulos numerados que estão grudados
+            # Ex: "...texto. 9. O QUE FAZER..."
+            padrao_titulo_paciente = r'([.!?])(\s*)(\d+\s*\.\s*(?:PARA|COMO|QUANDO|O QUÊ|O QUE|ONDE|QUAIS)\b)'
+            texto = re.sub(padrao_titulo_paciente, r'\1\n\n\3', texto, flags=re.IGNORECASE)
             # --- [FIM DA CORREÇÃO] ---
 
         return texto, None
@@ -286,6 +292,8 @@ def obter_secoes_ignorar_comparacao():
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
+    if not isinstance(texto, str): # Adiciona verificação de tipo para evitar TypeErrors
+        return ""
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
     texto = ' '.join(texto.split())
@@ -999,14 +1007,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         eh_referencia=True
     ).replace('\n', '<br>')
     
-    html_belfar_marcado = marcar_divergc(
+    # --- [CORREÇÃO 3: 'marcar_divergc' -> 'marcar_divergencias_html'] ---
+    html_belfar_marcado = marcar_divergencias_html(
         texto_original=texto_belfar_reformatado, 
         secoes_problema=diferencas_conteudo, 
         erros_ortograficos=erros_ortograficos, 
         tipo_bula=tipo_bula, 
         eh_referencia=False
     ).replace('\n', '<br>')
-    # --- [FIM DA CORREÇÃO DA FORMATAÇÃO] ---
+    # --- [FIM DA CORREÇÃO 3] ---
 
 
     # 2. Estilo da Caixa de Visualização
