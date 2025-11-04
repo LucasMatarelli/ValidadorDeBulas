@@ -211,17 +211,31 @@ def normalizar_titulo_para_comparacao(texto):
     return texto_norm
 
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (VERSÃO FINAL) -----------------
+
+# --- INÍCIO DA CORREÇÃO (LIMITE DE PALAVRAS) ---
 def is_titulo_secao(linha):
+    """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
-    if len(linha) < 4 or len(linha.split()) > 12:
+    
+    # Aumentado o limite de 12 para 15 palavras
+    if len(linha) < 4 or len(linha.split()) > 15: 
         return False
+        
+    # Se terminar com ponto ou dois-pontos, é conteúdo, não título.
     if linha.endswith('.') or linha.endswith(':'):
         return False
+        
+    # Se tiver tags HTML (lixo de extração), não é título
     if re.search(r'\>\s*\<', linha):
         return False
+        
+    # Limite de comprimento (títulos muito longos são conteúdo)
     if len(linha) > 80:
         return False
+        
     return True
+# --- FIM DA CORREÇÃO ---
+
 
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
@@ -292,13 +306,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- INÍCIO DA CORREÇÃO (VAZAMENTO DE SEÇÃO) ---
-# A função foi simplificada para usar APENAS o mapa.
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
     """
     Extrai o conteúdo de uma seção com base no mapa pré-processado.
-    Isso evita "vazamento" de seções, pois usa o mapa para definir
-    o início e o fim.
     """
     
     # 1. Encontra o índice da nossa seção no mapa
@@ -308,7 +318,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
             idx_secao_atual = i
             break
     
-    # Se a seção não foi encontrada no mapa, retorna
     if idx_secao_atual == -1:
         return False, None, ""
 
@@ -318,24 +327,20 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
     linha_inicio = secao_atual_info['linha_inicio']
     num_linhas_titulo = secao_atual_info.get('num_linhas_titulo', 1)
     
-    # O conteúdo começa DEPOIS do título
     linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
     # 3. Encontra a linha de início da *próxima* seção para definir o fim
-    linha_fim = len(linhas_texto) # Padrão: vai até o fim do documento
+    linha_fim = len(linhas_texto) 
     
     if (idx_secao_atual + 1) < len(mapa_secoes):
-        # Encontrou uma seção seguinte no mapa
         secao_seguinte_info = mapa_secoes[idx_secao_atual + 1]
         linha_fim = secao_seguinte_info['linha_inicio']
 
-    # 4. Extrai o conteúdo entre o início desta seção e o início da próxima
+    # 4. Extrai o conteúdo
     conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
     conteudo_final = "\n".join(conteudo).strip()
     
     return True, titulo_encontrado, conteudo_final
-# --- FIM DA CORREÇÃO ---
-
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
@@ -349,7 +354,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
 
     for secao in secoes_esperadas:
-        # --- CORREÇÃO (parâmetro tipo_bula removido) ---
         encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref)
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar)
 
@@ -396,7 +400,6 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             if secao_nome.upper() in [s.upper() for s in secoes_ignorar]:
                 continue
             
-            # --- CORREÇÃO (parâmetro tipo_bula removido) ---
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto)
             if encontrou and conteudo:
                 texto_filtrado_para_checar.append(conteudo)
@@ -685,10 +688,8 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # Extrai o texto da Anvisa (1 coluna)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
-            # Extrai o texto do Marketing (2 colunas)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
 
             if not erro_ref:
@@ -706,4 +707,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.4 | Correção de Vazamento de Seção")
+st.caption("Sistema de Auditoria de Bulas v18.5 | Correção de Limite de Palavras do Título")
