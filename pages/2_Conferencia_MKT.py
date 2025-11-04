@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.13 - Correção de NameError
+# Sistema: AuditorIA de Bulas v20.14 - Prioridade de OCR
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.13:
-#   1. Corrige um `NameError` na função `verificar_secoes_e_conteudo`.
-#   2. A chamada para `obter_dados_secao` estava usando a variável
-#      inexistente `tipo_bo_bula` em vez de `tipo_bula`.
+# - v20.14:
+#   1. INVERTE a lógica de extração para priorizar a correção
+#      em vez da velocidade.
+#   2. Tentativa 1: OCR (Tesseract) é executado PRIMEIRO.
+#      Isso força a leitura correta de arquivos com camada
+#      de texto corrompida (como Bula_Mkt.pdf).
+#   3. Tentativas 2, 3, 4 (Simples, Blocks, Layout) agora são
+#      usadas como FALLBACK caso o OCR falhe.
 #
 # - Mantenha Tesseract e o modelo SpaCy instalados: tesseract + pt_core_news_lg
 # - Para usar no Streamlit, salve este arquivo e execute streamlit run seu_arquivo.py
@@ -253,21 +257,16 @@ def obter_secoes_ignorar_verificacao_existencia():
     # --- FIM DA ATUALIZAÇÃO v20.5 ---
 
 
-# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.11) -----------------
+# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.14) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Extração em 4 etapas (v20.11 - Detector de Corrupção):
-    1. Tenta extração "Simples" (rápido, bom para texto limpo).
-    2. Tenta extração com 'blocks' (lógica manual de 2 colunas).
-    3. Tenta extração com 'layout' (ótimo para colunas complexas).
-    4. Tenta OCR (Tesseract) como último recurso.
-    Adicionado "detector de corrupção" (ex: 'daulodencaudas', 'võmitos')
-    para forçar o OCR em arquivos com camada de texto corrompida.
+    Extração em 4 etapas (v20.14 - Prioridade de OCR):
+    1. Tenta OCR (Tesseract) PRIMEIRO. É a mais robusta para
+       arquivos com camada de texto corrompida (ex: Bula_Mkt.pdf).
+    2. Fallback 1: Modo "Simples" (rápido).
+    3. Fallback 2: Modo "Blocks" (lógica manual de 2 colunas).
+    4. Fallback 3: Modo "Layout" (ótimo para colunas complexas).
     """
-    
-    # Palavras-chave que indicam a camada de texto corrompida
-    # (encontradas no Bula_Mkt.pdf)
-    CORRUPTION_KEYWORDS = ["daulodencaudas", "võmitos", "imitação"]
     
     num_paginas = 0
     try:
@@ -276,24 +275,39 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
     except Exception:
         pass # Falha ao abrir, OCR vai tentar
 
-    # --- Tentativa 1: Modo "Simples" (page.get_text("text")) ---
+    # --- Tentativa 1: OCR (Tesseract) - PRIORIDADE MÁXIMA ---
+    texto_ocr = ""
+    try:
+        st.info("Iniciando extração... (Tentativa 1: OCR)")
+        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                pix = page.get_pixmap(dpi=300)
+                img_bytes = pix.tobytes("png")
+                imagem = Image.open(io.BytesIO(img_bytes))
+                texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
+        
+        if len(texto_ocr.strip()) > 200:
+            return texto_ocr # OCR funcionou
+            
+    except Exception as e_ocr:
+        st.warning(f"OCR falhou (Tentativa 1): {e_ocr}. Tentando métodos de extração de texto...")
+        pass # OCR falhou, tenta os métodos de texto
+
+    # --- Tentativa 2: Modo "Simples" (page.get_text("text")) ---
     texto_simples = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
             for page in doc:
                 texto_simples += page.get_text("text") + "\n"
         
-        texto_simples_lower = texto_simples.lower()
-        # v20.11: Detector de Corrupção
-        if any(key in texto_simples_lower for key in CORRUPTION_KEYWORDS):
-            pass # É lixo, deixa falhar e ir para a próxima tentativa
-        elif len(texto_simples.strip()) > 200 and texto_simples.count('\n') > (num_paginas * 2):
+        if len(texto_simples.strip()) > 200 and texto_simples.count('\n') > (num_paginas * 2):
             return texto_simples # Texto parece bom
             
     except Exception as e:
         pass # Falha, tenta o próximo método
     
-    # --- Tentativa 2: Modo "Blocks" (Lógica manual de 2 colunas) ---
+    # --- Tentativa 3: Modo "Blocks" (Lógica manual de 2 colunas) ---
     texto_direto = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -322,17 +336,13 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
 
                 texto_direto += "\n"  # quebra de página
         
-        texto_direto_lower = texto_direto.lower()
-        # v20.11: Detector de Corrupção
-        if any(key in texto_direto_lower for key in CORRUPTION_KEYWORDS):
-            pass # É lixo, deixa falhar
-        elif len(texto_direto.strip()) > 100 and texto_direto.count('\n') > (num_paginas * 2):
+        if len(texto_direto.strip()) > 100 and texto_direto.count('\n') > (num_paginas * 2):
              return texto_direto # Texto parece bom
 
     except Exception as e:
         pass # Falha, tenta o próximo método
 
-    # --- Tentativa 3: Modo Layout (Bom para colunas complexas) ---
+    # --- Tentativa 4: Modo Layout (Bom para colunas complexas) ---
     texto_layout = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -340,32 +350,16 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
                 # flags=fitz.TEXTFLAGS_LAYOUT tenta preservar o layout, inclusive colunas
                 texto_layout += page.get_text("text", flags=fitz.TEXTFLAGS_LAYOUT) + "\n"
         
-        texto_layout_lower = texto_layout.lower()
-        # v20.11: Detector de Corrupção
-        if any(key in texto_layout_lower for key in CORRUPTION_KEYWORDS):
-            pass # É lixo, deixa falhar
-        elif len(texto_layout.strip()) > 200 and texto_layout.count('\n') > (num_paginas * 2):
+        if len(texto_layout.strip()) > 200 and texto_layout.count('\n') > (num_paginas * 2):
             return texto_layout # Texto parece bom
             
     except Exception as e:
-        pass # Falha, tenta o próximo método
+        pass 
 
-    # --- Tentativa 4: Fallback OCR ---
-    st.info("Arquivo com layout complexo ou camada de texto corrompida. Iniciando OCR (tesseract)...")
-    texto_ocr = ""
-    try:
-        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-            for page in doc:
-                pix = page.get_pixmap(dpi=300)
-                img_bytes = pix.tobytes("png")
-                imagem = Image.open(io.BytesIO(img_bytes))
-                texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
-    except Exception as e_ocr:
-        st.error(f"Falha no OCR: {e_ocr}")
-        return texto_ocr # Retorna o que conseguiu (pode ser vazio)
-
+    # Se TUDO falhou, retorna o que conseguiu do OCR (mesmo que vazio)
+    st.error("Falha em todos os métodos de extração. O PDF pode estar corrompido.")
     return texto_ocr
-# --- FIM DA MELHORIA v20.11 ---
+# --- FIM DA MELHORIA v20.14 ---
 
 # ----------------- EXTRAÇÃO DE DOCX (ADICIONADA) -----------------
 def extrair_texto_docx(arquivo_bytes):
@@ -1212,4 +1206,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.13 | Correção de NameError")
+st.caption("Sistema de AuditorIA de Bulas v20.14 | Prioridade de OCR")
