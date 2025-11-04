@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.12 - Correção de Typo
+# Sistema: AuditorIA de Bulas v20.13 - Correção de NameError
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.12:
-#   1. Corrige um `NameError` na função `is_garbage_line`.
-#   2. O loop estava chamando `GARBage_KEYWORDS` (com typo) em vez
-#      de `GARBAGE_KEYWORDS`.
+# - v20.13:
+#   1. Corrige um `NameError` na função `verificar_secoes_e_conteudo`.
+#   2. A chamada para `obter_dados_secao` estava usando a variável
+#      inexistente `tipo_bo_bula` em vez de `tipo_bula`.
 #
 # - Mantenha Tesseract e o modelo SpaCy instalados: tesseract + pt_core_news_lg
 # - Para usar no Streamlit, salve este arquivo e execute streamlit run seu_arquivo.py
@@ -767,7 +767,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     return False, None, ""
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
-# ***** FUNÇÃO ATUALIZADA (v20.5) *****
+# ***** FUNÇÃO ATUALIZADA (v20.13) *****
 def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
@@ -785,7 +785,10 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
     
         checar_existencia = normalizar_titulo_para_comparacao(secao) not in secoes_ignorar_existencia_upper
     
-        encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bo_bula)
+        # --- INÍCIO DA CORREÇÃO v20.13 ---
+        # Corrigido o NameError de 'tipo_bo_bula' para 'tipo_bula'
+        encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
+        # --- FIM DA CORREÇÃO v20.13 ---
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
         # Se 'obter_dados_secao' falhou, é porque a seção não foi encontrada.
@@ -1209,4 +1212,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.12 | Correção de Typo")
+st.caption("Sistema de AuditorIA de Bulas v20.13 | Correção de NameError")
