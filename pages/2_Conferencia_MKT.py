@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 # (Seu código v26.1 completo e corrigido)
-# Versão v26.7:
-# 1. CORRIGIDO: Função 'truncar_apos_anvisa' agora remove texto NA MESMA LINHA após a data.
-# 2. Mantém a marcação azul com prioridade.
+# Versão v26.8:
+# 1. CORRIGIDO: Aplica a função 'truncar_apos_anvisa' TAMBÉM ao 'texto_ref' (Arquivo ANVISA).
+# 2. Mantém a correção do truncamento na mesma linha (v26.7).
 # 3. Mantém a exibição de TODAS as seções (idênticas e divergentes).
 # 4. Mantém a lista de seções exata (numeração híbrida).
 
@@ -121,7 +121,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
-# --- CORREÇÃO (v26.7) ---
 # Função 'truncar_apos_anvisa' reescrita para cortar o lixo na mesma linha.
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
@@ -156,7 +155,6 @@ def truncar_apos_anvisa(texto):
     # Ex: "...pela Anvisa em 05 / 02 / 2024 ."
     # Todo o lixo (ex: "4 FR ML 60...") é removido.
     return texto[:cut_off_position]
-# --- FIM DA CORREÇÃO ---
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
@@ -614,11 +612,9 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     
-    # --- CORREÇÃO (v26.7) ---
     # Regex que aceita espaços na data (ex: 05 / 02 / 2024)
     # Captura 1: frase inteira, Captura 2: só a data
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
-    # --- FIM DA CORREÇÃO ---
     
     match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
     match_belfar = re.search(regex_anvisa, texto_belfar.lower()) if texto_belfar else None
@@ -865,6 +861,13 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             # Extrai o texto da Anvisa (1 coluna, com sort)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
+            # --- CORREÇÃO (v26.8) ---
+            # Aplica o truncamento também ao arquivo ANVISA (ref)
+            if not erro_ref:
+                texto_ref = corrigir_quebras_em_titulos(texto_ref) # Consistência
+                texto_ref = truncar_apos_anvisa(texto_ref)
+            # --- FIM DA CORREÇÃO ---
+            
             # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
@@ -875,7 +878,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_bfalar}")
             elif not texto_ref or not texto_belfar:
                  st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
@@ -884,4 +887,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.7 | Correção de Truncamento ANVISA")
+st.caption("Sistema de Auditoria de Bulas v26.8 | Truncamento aplicado a ambos os arquivos")
