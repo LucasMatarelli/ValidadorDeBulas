@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.8 - Filtro de Conteúdo e Correção de Data
+# Sistema: AuditorIA de Bulas v20.9 - Limpeza de Caracteres Invisíveis (SyntaxError)
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.8: (CORREÇÃO CRÍTICA) Modifica 'extrair_texto_pdf_com_ocr' para
-#          ignorar blocos de texto nos 12% superiores (cabeçalho) e 12%
-#          inferiores (rodapé) da página. Isso remove o "lixo" (metadata,
-#          cores, etc.) ANTES do mapeamento, corrigindo o bug das seções em branco.
-# - v20.8: Modifica 'marcar_divergencias_html' para que a regex da
-#          data ANVISA aceite quebras de linha ([\s\n]+), corrigindo
-#          o bug de não-destaque.
+# - v20.9: (CORREÇÃO DE SYNTAXERROR) Limpa todos os 'non-breaking spaces' (U+00A0)
+#          do arquivo, que estavam causando o erro 'ast.parse'.
+# - v20.8: (Mantido) Filtro de Bbox no extrator de PDF para ignorar 12% do topo/rodapé,
+#          corrigindo o bug das seções em branco.
+# - v20.8: (Mantido) Regex da data ANVISA corrigida para aceitar quebras de linha.
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -32,6 +30,7 @@ import streamlit as st
 # Deve ser a primeira chamada do Streamlit
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
+# v20.9: Limpo de caracteres invisíveis
 hide_streamlit_UI = """
             <style>
             [data-testid="stHeader"] { display: none !important; visibility: hidden !important; }
@@ -1188,6 +1187,7 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
 
             if not erro_ref and texto_ref: # Adicionada checagem se texto_ref não é None
                 # tentar truncar texto_ref até a linha da data ANVISA (correção solicitada)
+                # v20.8: Regex atualizada para aceitar quebras de linha
                 regex_anvisa_trunc = r"(?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprovação[\s\n]+na[\s\n]+anvisa:)[\s\n]*[\d]{1,2}/[\d]{1,2}/[\d]{2,4}"
                 match = re.search(regex_anvisa_trunc, texto_ref, re.IGNORECASE)
                 if match:
@@ -1208,4 +1208,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.8 | Filtro de Conteúdo de Rodapé")
+st.caption("Sistema de AuditorIA de Bulas v20.9 | Limpeza de SyntaxError e Filtro de Rodapé")
