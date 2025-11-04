@@ -109,7 +109,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
-            # texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE) # Removido
+            # texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
             linhas = texto.split('\n')
             
@@ -190,7 +190,7 @@ def obter_secoes_por_tipo(tipo_bula):
 def obter_aliases_secao():
     return {
         "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICamento?",
         "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
         "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
         "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
@@ -222,7 +222,8 @@ def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
     
-    if len(linha) < 4 or len(linha.split()) > 15: 
+    # Aumentado para 20
+    if len(linha) < 4 or len(linha.split()) > 20: 
         return False
         
     if linha.endswith('.') or linha.endswith(':'):
@@ -231,13 +232,14 @@ def is_titulo_secao(linha):
     if re.search(r'\>\s*\<', linha):
         return False
         
-    # Aumentado para 90 para títulos longos que refluíram
-    if len(linha) > 90:
+    # Aumentado para 100 para títulos longos refluidos
+    if len(linha) > 100:
         return False
         
     return True
 
-# --- INÍCIO DA CORREÇÃO (v18.9) ---
+# --- INÍCIO DA CORREÇÃO (v19.0) ---
+# Adiciona lógica de 3 linhas e reverte para token_set_ratio
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     linhas = texto_completo.split('\n')
@@ -249,6 +251,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     for alias, canonico in aliases.items():
         if canonico in secoes_esperadas:
             titulos_possiveis[alias] = canonico
+            
+    # Cria um set de títulos normalizados para consulta rápida
+    titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
 
     idx = 0
     while idx < len(linhas):
@@ -258,65 +263,65 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             idx += 1
             continue
 
-        best_match_score_1_linha = 0
-        best_match_canonico_1_linha = None
+        # --- LÓGICA DE DETECÇÃO DE TÍTULO DE 1, 2 ou 3 LINHAS ---
         
-        # Normaliza a linha limpa *uma vez*
-        norm_linha_limpa = normalizar_titulo_para_comparacao(linha_limpa)
-        
-        for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-            norm_titulo_possivel = normalizar_titulo_para_comparacao(titulo_possivel)
-            
-            # MUDANÇA: Troca 'token_set_ratio' por 'ratio'
-            # 'ratio' é mais estrito e não dá 100% para subconjuntos.
-            score = fuzz.ratio(norm_titulo_possivel, norm_linha_limpa)
-            
-            if score > best_match_score_1_linha:
-                best_match_score_1_linha = score
-                best_match_canonico_1_linha = titulo_canonico
+        best_score = 0
+        best_canonico = None
+        best_num_linhas = 0
+        best_titulo_encontrado = ""
 
-        best_match_score_2_linhas = 0
-        best_match_canonico_2_linhas = None
-        titulo_combinado = ""
+        # Teste 1: Título em 1 linha
+        norm_linha_1 = normalizar_titulo_para_comparacao(linha_limpa)
+        for titulo_norm, canonico in titulos_norm_lookup.items():
+            score = fuzz.token_set_ratio(titulo_norm, norm_linha_1)
+            if score > best_score:
+                best_score = score
+                best_canonico = canonico
+                best_num_linhas = 1
+                best_titulo_encontrado = linha_limpa
+        
+        # Teste 2: Título em 2 linhas
         if (idx + 1) < len(linhas):
-            linha_seguinte = linhas[idx + 1].strip()
-            if len(linha_seguinte.split()) < 7:
-                titulo_combinado = f"{linha_limpa} {linha_seguinte}"
-                norm_titulo_combinado = normalizar_titulo_para_comparacao(titulo_combinado)
-                
-                for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-                    norm_titulo_possivel = normalizar_titulo_para_comparacao(titulo_possivel)
-                    
-                    # MUDANÇA: Troca 'token_set_ratio' por 'ratio'
-                    score = fuzz.ratio(norm_titulo_possivel, norm_titulo_combinado)
-                    
-                    if score > best_match_score_2_linhas:
-                        best_match_score_2_linhas = score
-                        best_match_canonico_2_linhas = titulo_canonico
+            linha_2 = linhas[idx + 1].strip()
+            titulo_combinado_2 = f"{linha_limpa} {linha_2}"
+            if is_titulo_secao(titulo_combinado_2): # Verifica se a combinação ainda é um título
+                norm_linha_2 = normalizar_titulo_para_comparacao(titulo_combinado_2)
+                for titulo_norm, canonico in titulos_norm_lookup.items():
+                    score = fuzz.token_set_ratio(titulo_norm, norm_linha_2)
+                    if score > best_score:
+                        best_score = score
+                        best_canonico = canonico
+                        best_num_linhas = 2
+                        best_titulo_encontrado = titulo_combinado_2
         
-        # Limiar mais baixo para 'fuzz.ratio'
-        limiar_score = 90 
+        # Teste 3: Título em 3 linhas
+        if (idx + 2) < len(linhas):
+            linha_2 = linhas[idx + 1].strip()
+            linha_3 = linhas[idx + 2].strip()
+            titulo_combinado_3 = f"{linha_limpa} {linha_2} {linha_3}"
+            if is_titulo_secao(titulo_combinado_3): # Verifica se a combinação ainda é um título
+                norm_linha_3 = normalizar_titulo_para_comparacao(titulo_combinado_3)
+                for titulo_norm, canonico in titulos_norm_lookup.items():
+                    score = fuzz.token_set_ratio(titulo_norm, norm_linha_3)
+                    if score > best_score:
+                        best_score = score
+                        best_canonico = canonico
+                        best_num_linhas = 3
+                        best_titulo_encontrado = titulo_combinado_3
         
-        if best_match_score_2_linhas > best_match_score_1_linha and best_match_score_2_linhas >= limiar_score:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico_2_linhas:
+        # Limiar de 95% para token_set_ratio
+        limiar_score = 95
+        
+        if best_score >= limiar_score:
+            if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
-                    'canonico': best_match_canonico_2_linhas,
-                    'titulo_encontrado': titulo_combinado,
+                    'canonico': best_canonico,
+                    'titulo_encontrado': best_titulo_encontrado,
                     'linha_inicio': idx,
-                    'score': best_match_score_2_linhas,
-                    'num_linhas_titulo': 2
+                    'score': best_score,
+                    'num_linhas_titulo': best_num_linhas
                 })
-            idx += 2
-        elif best_match_score_1_linha >= limiar_score:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico_1_linha:
-                mapa.append({
-                    'canonico': best_match_canonico_1_linha,
-                    'titulo_encontrado': linha_limpa,
-                    'linha_inicio': idx,
-                    'score': best_match_score_1_linha,
-                    'num_linhas_titulo': 1
-                })
-            idx += 1
+            idx += best_num_linhas # Pula o número de linhas que o título usou
         else:
             idx += 1
             
@@ -379,11 +384,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         if encontrou_ref and encontrou_belfar:
             if secao.upper() in secoes_ignorar_upper:
                 continue
-            
-            # DEBUG:
-            # if secao == "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?":
-            #     st.error(f"REF: {conteudo_ref}")
-            #     st.error(f"BELFAR: {conteudo_belfar}")
 
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
                 diferencas_conteudo.append({'secao': secao, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
@@ -731,4 +731,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.9 | Correção de Mapeamento (fuzz.ratio)")
+st.caption("Sistema de Auditoria de Bulas v19.0 | Correção de Mapeamento (3 Linhas)")
