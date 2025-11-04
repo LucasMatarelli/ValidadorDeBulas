@@ -47,23 +47,6 @@ hide_streamlit_UI = """
                 display: none !important;
                 visibility: hidden !important;
             }
-            
-            /* --- MELHORIA DE LAYOUT: Estilo para parágrafos --- */
-            /* Adiciona um espaçamento padrão entre os parágrafos gerados */
-            .stMarkdown div[style*="caixa_style"] p {
-                margin-bottom: 1em; /* Espaçamento entre parágrafos */
-            }
-            .stMarkdown div[style*="expander_caixa_style"] p {
-                margin-bottom: 1em; /* Espaçamento entre parágrafos */
-            }
-            /* Remove o espaçamento extra do último parágrafo */
-            .stMarkdown div[style*="caixa_style"] p:last-child {
-                margin-bottom: 0;
-            }
-            .stMarkdown div[style*="expander_caixa_style"] p:last-child {
-                margin-bottom: 0;
-            }
-
             </style>
             """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
@@ -81,26 +64,39 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO -----------------
-def extrair_texto(arquivo, tipo_arquivo):
+# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA) -----------------
+def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
+    """
+    Extrai texto de arquivos, com lógica condicional para PDFs de 1 ou 2 colunas.
+    
+    :param is_marketing_pdf: True se for o PDF do MKT (2 colunas), False caso contrário.
+    """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
         arquivo.seek(0)
         texto = ""
+        full_text_list = []
+        
         if tipo_arquivo == 'pdf':
-            full_text_list = []
-            
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                for page in doc:
-                    rect = page.rect
-                    clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
-                    clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
-                    texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
-                    texto_direita = page.get_text("text", clip=clip_direita, sort=True)
-                    full_text_list.append(texto_esquerda)
-                    full_text_list.append(texto_direita)
-                    
+                # --- INÍCIO DA CORREÇÃO (CONTEÚDO FALTANDO) ---
+                if is_marketing_pdf:
+                    # Lógica de 2 colunas SÓ para o PDF do Marketing
+                    for page in doc:
+                        rect = page.rect
+                        clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
+                        clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
+                        texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
+                        texto_direita = page.get_text("text", clip=clip_direita, sort=True)
+                        full_text_list.append(texto_esquerda)
+                        full_text_list.append(texto_direita)
+                else:
+                    # Lógica de 1 coluna (padrão) para o PDF da Anvisa
+                    for page in doc:
+                        full_text_list.append(page.get_text("text", sort=True))
+                # --- FIM DA CORREÇÃO ---
+            
             texto = "\n\n".join(full_text_list)
         
         elif tipo_arquivo == 'docx':
@@ -204,7 +200,7 @@ def obter_secoes_ignorar_comparacao():
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
-    if not isinstance(texto, str): # Defesa extra
+    if not isinstance(texto, str):
         return ""
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
@@ -563,7 +559,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (BELFAR)", data_belfar)
+    col3.metric("Data ANVISA (Referência)", data_ref) # Mudado para data_ref para ser mais útil
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
@@ -571,23 +567,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: {data_ref}\n   - BELFAR: {data_belfar}")
     
     # --- INÍCIO DA CORREÇÃO DE LAYOUT (BAGUNÇADO) ---
-    # Helper function para formatar o texto com parágrafos HTML corretos
     def formatar_html_para_leitura(html_content):
+        """Reverte para a lógica de <br> para preservar o layout original."""
         if html_content is None:
-            return "<p></p>"
-        # 1. Substitui quebras de parágrafo (2+ newlines) por tags <p>
-        #    Isso cria parágrafos reais.
-        paragrafos_html = re.sub(r'\n{2,}', '</p><p>', html_content)
-        
-        # 2. Substitui quebras de linha únicas (lixo de extração) por espaço
-        #    Isso faz o texto fluir dentro do parágrafo.
-        paragrafos_html = paragrafos_html.replace('\n', ' ')
-        
-        # 3. Remove tags <p> vazias que podem ter sido criadas
-        paragrafos_html = re.sub(r'<p>\s*</p>', '', paragrafos_html)
-        
-        # 4. Envolve o bloco todo em uma tag <p> inicial e final
-        return f"<p>{paragrafos_html}</p>"
+            return ""
+        # Preserva todas as quebras de linha como <br>
+        return html_content.replace('\n', '<br>')
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
     if secoes_faltantes:
@@ -602,7 +587,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
             "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
             "font-family: 'Georgia', 'Times New Roman', serif; text-align: left;"
-            "overflow-wrap: break-word; word-break: break-word;" # Adicionado para segurança
+            "overflow-wrap: break-word; word-break: break-word;"
         )
 
         for diff in diferencas_conteudo:
@@ -611,7 +596,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 conteudo_ref_str = diff.get('conteudo_ref') or ""
                 conteudo_belfar_str = diff.get('conteudo_belfar') or ""
 
-                # Obter o HTML bruto com as marcações
                 html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=True
                 )
@@ -619,7 +603,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
 
-                # **APLICA A CORREÇÃO DE LAYOUT AQUI**
+                # Aplica a formatação <br>
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
@@ -661,11 +645,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
-    # Obter o HTML bruto com as marcações
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # **APLICA A CORREÇÃO DE LAYOUT AQUI TAMBÉM**
+    # Aplica a formatação <br>
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
 
@@ -679,7 +662,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "padding: 20px 24px; "
         "background-color: #ffffff; "
         "font-size: 15px; "
-        "line-height: 1.7; "       # Espaçamento entre linhas DENTRO de um parágrafo
+        "line-height: 1.7; "
         "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "
         "text-align: left; "
         "overflow-wrap: break-word; "
@@ -697,13 +680,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2 = st.columns(2, gap="large")
     with col1:
         st.markdown(f"<div style='{title_style}'>{nome_ref}</div>", unsafe_allow_html=True)
-        # A classe 'caixa_style' é adicionada aqui para o CSS no topo funcionar
-        st.markdown(f"<div class='caixa_style' style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='caixa_style' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-# ----------------- INTERFACE -----------------
+# ----------------- INTERFACE (COM CHAMADA CORRIGIDA) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
@@ -724,8 +706,14 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         with st.spinner("🔄 Processando e analisando as bulas..."):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
+            
+            # --- INÍCIO DA CHAMADA CORRIGIDA ---
+            # Extrai o texto da Anvisa (1 coluna)
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
+            
+            # Extrai o texto do Marketing (2 colunas)
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+            # --- FIM DA CHAMADA CORRIGIDA ---
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -735,11 +723,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             elif not texto_ref or not texto_belfar:
-                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
+                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente (verifique o arquivo da Anvisa).")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.2 | Layout de Parágrafos Corrigido")
+st.caption("Sistema de Auditoria de Bulas v18.3 | Extração (1-col) e Layout (br) Corrigidos")
