@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 # (Seu código v26.1 completo e corrigido)
-# Versão v26.5:
-# 1. Corrige a função 'truncar_apos_anvisa' para usar a regex flexível.
-# 2. Garante que a marcação AZUL (ANVISA) tenha prioridade e sobrescreva outras cores.
+# Versão v26.6:
+# 1. CORRIGIDO: Regex da data ANVISA para aceitar espaços (ex: "05 / 02 / 2024")
+# 2. CORRIGIDO: Isso conserta o truncamento (corte) do texto e a marcação azul.
 # 3. Mantém a exibição de TODAS as seções (idênticas e divergentes).
 # 4. Mantém a lista de seções exata (numeração híbrida).
 
@@ -125,9 +125,9 @@ def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
     
-    # --- CORREÇÃO (v26.5) ---
-    # Usa a regex mais flexível (com aprova\w+) para garantir o match
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    # --- CORREÇÃO (v26.6) ---
+    # Regex que aceita espaços na data (ex: 05 / 02 / 2024)
+    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
     # --- FIM DA CORREÇÃO ---
     
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
@@ -568,9 +568,10 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 flags=re.IGNORECASE
             )
             
-    # --- CORREÇÃO MARCAÇÃO AZUL (v26.5) ---
+    # --- CORREÇÃO MARCAÇÃO AZUL (v26.6) ---
     # 3. Marca Azul (ANVISA) POR ÚLTIMO, para ter prioridade visual.
-    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    #    Regex que aceita espaços na data (ex: 05 / 02 / 2024)
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     
     # Esta função é chamada pelo re.sub. Ela limpa marcas antigas (amarelo/rosa)
     # da frase da ANVISA e aplica a marca azul.
@@ -596,11 +597,17 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    
+    # --- CORREÇÃO (v26.6) ---
+    # Regex que aceita espaços na data (ex: 05 / 02 / 2024)
+    # Captura 1: frase inteira, Captura 2: só a data
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
+    # --- FIM DA CORREÇÃO ---
     
     match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
     match_belfar = re.search(regex_anvisa, texto_belfar.lower()) if texto_belfar else None
     
+    # Pega o grupo 2 (só a data)
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
@@ -848,10 +855,8 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if not erro_belfar:
                 # Aplica correção de títulos quebrados ANTES de truncar e mapear
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
-                # --- CORREÇÃO (v26.5) ---
                 # Garante que o truncamento está sendo chamado
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
-                # --- FIM DA CORREÇÃO ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
@@ -863,4 +868,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.5 | Correção de Marcação ANVISA")
+st.caption("Sistema de Auditoria de Bulas v26.6 | Correção de Regex ANVISA (Truncar e Marcar)")
