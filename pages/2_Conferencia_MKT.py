@@ -1,8 +1,10 @@
 # pages/2_Conferencia_MKT.py
 # (Seu código v26.1 completo e corrigido)
-# Versão v26.4:
-# 1. Mostra TODAS as seções (idênticas e divergentes) em expanders.
-# 2. Usa a lista de seções exata (numeração híbrida) fornecida pelo usuário.
+# Versão v26.5:
+# 1. Corrige a função 'truncar_apos_anvisa' para usar a regex flexível.
+# 2. Garante que a marcação AZUL (ANVISA) tenha prioridade e sobrescreva outras cores.
+# 3. Mantém a exibição de TODAS as seções (idênticas e divergentes).
+# 4. Mantém a lista de seções exata (numeração híbrida).
 
 # --- IMPORTS ---
 import re
@@ -122,20 +124,27 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    
+    # --- CORREÇÃO (v26.5) ---
+    # Usa a regex mais flexível (com aprova\w+) para garantir o match
+    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    # --- FIM DA CORREÇÃO ---
+    
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
-        end_of_line_pos = texto.find('\n', match.end())
+        # Encontra a próxima quebra de linha DEPOIS do fim da data
+        end_of_line_pos = texto.find('\n', match.end()) 
         if end_of_line_pos != -1:
-            return texto[:end_of_line_pos]
+            # Retorna o texto ATÉ (e incluindo) a linha da data
+            return texto[:end_of_line_pos] 
         else:
-            return texto
+            # Se não houver \n (data é a última coisa), retorna tudo até o fim do match
+            return texto[:match.end()]
     return texto
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
     
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
     # Lista de seções exatamente como pedida pelo usuário (numeração híbrida)
     secoes = {
         "Paciente": [
@@ -157,12 +166,10 @@ def obter_secoes_por_tipo(tipo_bula):
             "9. REAÇÕES ADVERSAS", "10. SUPERDOSE", "DIZERES LEGAIS"
         ]
     }
-    # --- FIM DA ALTERAÇÃO ---
     
     return secoes.get(tipo_bula, [])
 
 def obter_aliases_secao():
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
     # Atualiza os aliases para apontar para os nomes canônicos corretos (com e sem número)
     return {
         # Aliases Paciente
@@ -188,19 +195,14 @@ def obter_aliases_secao():
         "REAÇÕES ADVERSAS": "9. REAÇÕES ADVERSAS",
         "SUPERDOSE": "10. SUPERDOSE"
     }
-    # --- FIM DA ALTERAÇÃO ---
 
 def obter_secoes_ignorar_ortografia():
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
     # Usa os nomes canônicos corretos (sem número)
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
-    # --- FIM DA ALTERAÇÃO ---
 
 def obter_secoes_ignorar_comparacao():
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
     # Retorna uma lista vazia para forçar a comparação de TODAS as seções.
     return []
-    # --- FIM DA ALTERAÇÃO ---
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
@@ -273,11 +275,9 @@ def is_titulo_secao(linha):
     if len(linha) > 100:
         return False
         
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
     # Permite títulos não numerados que são totalmente maiúsculos (APRESENTAÇÕES, COMPOSIÇÃO)
     if linha.isupper():
         return True
-    # --- FIM DA ALTERAÇÃO ---
         
     return False
             
@@ -368,11 +368,9 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_faltantes = []
     diferencas_titulos = []
     
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
     # Cria uma lista abrangente para TODAS as seções (idênticas, diferentes, faltantes)
     relatorio_comparacao_completo = []
     similaridade_geral = []
-    # --- FIM DA ALTERAÇÃO ---
     
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()] # Agora é uma lista vazia
 
@@ -385,7 +383,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref)
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar)
 
-        # --- ALTERAÇÃO SOLICITADA (v26.4) ---
         # Lógica para popular o relatório completo
         
         if not encontrou_belfar:
@@ -421,7 +418,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                     'conteudo_belfar': conteudo_belfar
                 })
                 similaridade_geral.append(100)
-        # --- FIM DA ALTERAÇÃO ---
 
     titulos_ref_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_ref}
     titulos_belfar_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_belfar}
@@ -450,11 +446,9 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         linhas_texto = texto_para_checar.split('\n')
 
         for secao_nome in secoes_todas:
-            # --- ALTERAÇÃO SOLICITADA (v26.4) ---
             # Compara usando o nome canônico correto (ex: "COMPOSIÇÃO")
             if secao_nome.upper() in [s.upper() for s in secoes_ignorar]:
                 continue
-            # --- FIM DA ALTERAÇÃO ---
             
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto)
             if encontrou and conteudo:
@@ -542,7 +536,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
 def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
     
-    # secoes_problema_lista_dicionarios é a lista 'relatorio_comparacao_completo'
+    # 1. Marca Amarelo (Divergências)
     if secoes_problema_lista_dicionarios:
         for diff in secoes_problema_lista_dicionarios:
             # Só marca se for 'diferente'
@@ -562,9 +556,11 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 )
                 texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_marcado, 1)
 
+    # 2. Marca Rosa (Ortografia)
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
-            pattern = r'(?<![<>a-zA-Z])(?<!mark>)(?<!;>)\b(' + re.escape(erro) + r')\b(?![<>])'
+            # Regex que ignora marcações HTML (não marca dentro de tags)
+            pattern = r'\b(' + re.escape(erro) + r')\b(?![^<]*?>)'
             texto_trabalho = re.sub(
                 pattern,
                 r"<mark style='background-color: #FFDDC1; padding: 2px;'>\1</mark>",
@@ -572,26 +568,34 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 flags=re.IGNORECASE
             )
             
-    # Corrigido: Regex de data anvisa (mais flexível para 'aprovação')
+    # --- CORREÇÃO MARCAÇÃO AZUL (v26.5) ---
+    # 3. Marca Azul (ANVISA) POR ÚLTIMO, para ter prioridade visual.
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
     
-    if match:
+    # Esta função é chamada pelo re.sub. Ela limpa marcas antigas (amarelo/rosa)
+    # da frase da ANVISA e aplica a marca azul.
+    def remove_marks_da_data(match):
         frase_anvisa = match.group(1)
-        if frase_anvisa in texto_trabalho:
-            texto_trabalho = texto_trabalho.replace(
-                frase_anvisa,
-                f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa}</mark>",
-                1
-            )
+        # Limpa qualquer tag <mark...> ou </mark> de dentro da frase
+        frase_limpa = re.sub(r'<mark.*?>|</mark>', '', frase_anvisa)
+        # Retorna a frase limpa dentro da marcação azul
+        return f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_limpa}</mark>"
 
+    texto_trabalho = re.sub(
+        regex_anvisa,
+        remove_marks_da_data,
+        texto_trabalho,
+        count=1, # Marca só a primeira ocorrência
+        flags=re.IGNORECASE
+    )
+    # --- FIM DA CORREÇÃO ---
+            
     return texto_trabalho
 
 
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
-    # Corrigido: Regex de data anvisa (mais flexível para 'aprovação')
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     
     match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
@@ -603,10 +607,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     texto_ref_safe = texto_ref or ""
     texto_belfar_safe = texto_belfar or ""
 
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
-    # Captura o novo 'relatorio_comparacao_completo'
+    # Captura o 'relatorio_comparacao_completo'
     secoes_faltantes, relatorio_comparacao_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref_safe, texto_belfar_safe, tipo_bula)
-    # --- FIM DA ALTERAÇÃO ---
     
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar_safe, texto_ref_safe, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
@@ -678,7 +680,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         return html_content
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
     # Mostra primeiro as seções faltantes
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula Arquivo MKT ({len(secoes_faltantes)})**:\n" + "\n".join([f"  - {s}" for s in secoes_faltantes]))
@@ -740,7 +741,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
 
         # Seções 'faltantes' já foram tratadas no 'st.error' acima.
-    # --- FIM DA ALTERAÇÃO ---
 
 
     if erros_ortograficos:
@@ -774,11 +774,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
-    # --- ALTERAÇÃO SOLICITADA (v26.4) ---
     # Passa o 'relatorio_comparacao_completo' para a função de marcação
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
-    # --- FIM DA ALTERAÇÃO ---
 
     # Aplica a formatação v26.0
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
@@ -850,7 +848,10 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if not erro_belfar:
                 # Aplica correção de títulos quebrados ANTES de truncar e mapear
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                # --- CORREÇÃO (v26.5) ---
+                # Garante que o truncamento está sendo chamado
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
+                # --- FIM DA CORREÇÃO ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
@@ -862,4 +863,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.4 | Exibição de Todas as Seções")
+st.caption("Sistema de Auditoria de Bulas v26.5 | Correção de Marcação ANVISA")
