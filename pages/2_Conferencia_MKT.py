@@ -1,6 +1,7 @@
 # --- IMPORTS ---
 import streamlit as st
-from style_utils import hide_streamlit_toolbar
+# Removi a importação de style_utils, já que o CSS está embutido
+# from style_utils import hide_streamlit_toolbar
 
 hide_streamlit_UI = """
             <style>
@@ -205,6 +206,8 @@ def obter_secoes_ignorar_comparacao():
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
+    if not isinstance(texto, str): # Defesa extra
+        return ""
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
     texto = ' '.join(texto.split())
@@ -464,6 +467,13 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
+    # --- Adicionado tratamento para None ---
+    if texto_ref is None:
+        texto_ref = ""
+    if texto_belfar is None:
+        texto_belfar = ""
+    # --- Fim da adição ---
+
     def tokenizar(txt):
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
@@ -529,7 +539,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
             conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
             
-            # Garante que o conteúdo a marcar não seja vazio para evitar replace em todo o texto
+            # Garante que o conteúdo a marcar não seja vazio ou None
             if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
                 conteudo_marcado = marcar_diferencas_palavra_por_palavra(
                     conteudo_ref, 
@@ -562,17 +572,24 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 
     return texto_trabalho
 
-# ----------------- RELATÓRIO -----------------
+# ----------------- RELATÓRIO (FUNÇÃO CORRIGIDA) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match_ref = re.search(regex_anvisa, texto_ref.lower())
-    match_belfar = re.search(regex_anvisa, texto_belfar.lower())
+    
+    # Adiciona verificação de tipo para evitar erro se texto_ref ou texto_belfar for None
+    match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
+    match_belfar = re.search(regex_anvisa, texto_belfar.lower()) if texto_belfar else None
+    
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
-    secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
+    # Garante que textos não sejam None antes de verificar
+    texto_ref_safe = texto_ref or ""
+    texto_belfar_safe = texto_belfar or ""
+
+    secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref_safe, texto_belfar_safe, tipo_bula)
+    erros_ortograficos = checar_ortografia_inteligente(texto_belfar_safe, texto_ref_safe, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
     st.subheader("Dashboard de Veredito")
@@ -594,21 +611,27 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     if diferencas_conteudo:
         st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         
-        # --- MODIFICAÇÃO ESTÉTICA 1: Alinhamento do Expander ---
         expander_caixa_style = (
             "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
             "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
-            "font-family: 'Georgia', 'Times New Roman', serif; text-align: left;" # ALTERADO DE 'justify' para 'left'
+            "font-family: 'Georgia', 'Times New Roman', serif; text-align: left;"
         )
 
         for diff in diferencas_conteudo:
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
+                
+                # --- INÍCIO DA CORREÇÃO DO TYPEERROR ---
+                # Garante que os valores nunca sejam 'None' antes de passar para a função
+                conteudo_ref_str = diff.get('conteudo_ref') or ""
+                conteudo_belfar_str = diff.get('conteudo_belfar') or ""
+                # --- FIM DA CORREÇÃO ---
+
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referENCIA=True
+                    conteudo_ref_str, conteudo_belfar_str, eh_referencia=True
                 ).replace('\n', '<br>')
                 
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
+                    conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 ).replace('\n', '<br>')
 
                 c1, c2 = st.columns(2)
@@ -630,12 +653,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("Visualização Lado a Lado com Destaques")
 
-    # --- INÍCIO DA MODIFICAÇÃO ESTÉTICA ---
-    
     # 1. Estilo da Legenda
     legend_style = (
         "font-size: 14px; "
-        "background-color: #f0f2f6; "  # Cor de fundo suave (cinza-azulado do Streamlit)
+        "background-color: #f0f2f6; "
         "padding: 10px 15px; "
         "border-radius: 8px; "
         "margin-bottom: 15px;"
@@ -651,10 +672,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
-    html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
-    html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
+    html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
+    html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
 
-    # 2. Estilo da Caixa de Visualização (COM CORREÇÃO DE CORTE)
+    # 2. Estilo da Caixa de Visualização
     caixa_style = (
         "max-height: 700px; "
         "overflow-y: auto; "
@@ -666,19 +687,19 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "line-height: 1.7; "
         "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "
         "text-align: left; "
-        "overflow-wrap: break-word; "  # <-- CORREÇÃO PRINCIPAL: Evita o corte horizontal
-        "word-break: break-word; "      # <-- CORREÇÃO (Fallback): Garante a quebra
+        "overflow-wrap: break-word; "
+        "word-break: break-word; "
     )
     
-    # 3. Estilo dos Títulos das Colunas (NOVO)
+    # 3. Estilo dos Títulos das Colunas
     title_style = (
-        "font-size: 1.25rem; " # 20px
+        "font-size: 1.25rem; "
         "font-weight: 600; "
         "margin-bottom: 8px; "
-        "color: #31333F;" # Cor de texto padrão do Streamlit
+        "color: #31333F;"
     )
     
-    col1, col2 = st.columns(2, gap="large") # Gap aumentado para "large"
+    col1, col2 = st.columns(2, gap="large")
     with col1:
         st.markdown(f"<div style='{title_style}'>{nome_ref}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
@@ -686,8 +707,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-    # --- FIM DA MODIFICAÇÃO ESTÉTICA ---
-
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
@@ -708,23 +727,26 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
             
-            # Determina dinamicamente o tipo de arquivo da Anvisa
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
-            
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
 
+            # Trunca os textos ANTES de qualquer outra coisa
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_bf}")
+                # Corrigido "erro_bf" para "erro_belfar"
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+            elif not texto_ref or not texto_belfar:
+                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
+                # Passa os textos já truncados para o relatório
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final")
+st.caption("Sistema de Auditoria de Bulas v18.1 | Correção de TypeError")
