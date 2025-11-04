@@ -1,7 +1,6 @@
-# Writing the corrected Streamlit app file (v26.1) to /mnt/data and showing the path for download.
-content = r'''# Auditoria de Bulas - v26.1
-# Versão corrigida: indentação revisada, reconstrutor de títulos para PDFs BELFAR,
-# limiar fuzzy reduzido para 85, mantida interface Streamlit completa.
+# Auditoria de Bulas - v26.2
+# Versão com interface multi-páginas (baseada na imagem)
+# O código da v26.1 foi movido para a página "Conferencia MKT".
 
 # --- IMPORTS ---
 import re
@@ -15,6 +14,10 @@ import docx
 import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
+
+# ----------------- CONFIGURAÇÃO DA PÁGINA (DEVE SER O 1º COMANDO ST) -----------------
+# Movido do final do arquivo para o topo.
+st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 # ----------------- UI HIDE (Streamlit) -----------------
 hide_streamlit_UI = """
@@ -69,8 +72,6 @@ def carregar_modelo_spacy():
     except OSError:
         st.error("Modelo 'pt_core_news_lg' não encontrado. Execute: python -m spacy download pt_core_news_lg")
         return None
-
-nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO (v22.0 - Layout Bonito) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
@@ -137,7 +138,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|es New Roman.*'
                 r'|rpo \d+.*'
                 r'|olL: Times New Roman.*'
-                r'|\d{2}\s\d{4}\s\d{4}.*' 
+                r'|\d{2}\s\d{4}\s\d{4}.*'  
                 r'|cloridrato de ambroxo\s*$'
                 r'|Normal e Negrito\. Co\s*$'
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL' # Ruído do topo
@@ -168,7 +169,7 @@ def truncar_apos_anvisa(texto):
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
-        end_of_line_pos = texto.find('\\n', match.end())
+        end_of_line_pos = texto.find('\n', match.end())
         if end_of_line_pos != -1:
             return texto[:end_of_line_pos]
         else:
@@ -220,13 +221,15 @@ def normalizar_texto(texto):
     if not isinstance(texto, str):
         return ""
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-    texto = re.sub(r'[^\\w\\s]', '', texto)
+    # Corrigido: remover barras invertidas escapadas
+    texto = re.sub(r'[^\w\s]', '', texto) 
     texto = ' '.join(texto.split())
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
     texto_norm = normalizar_texto(texto)
-    texto_norm = re.sub(r'^\\d+\\s*[\\.\\-)]*\\s*', '', texto_norm).strip()
+    # Corrigido: remover barras invertidas escapadas
+    texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
 # ----------------- CORREÇÃO DE TÍTULOS BELFAR -----------------
@@ -266,20 +269,22 @@ def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
     
-    if len(linha) < 4: 
+    if len(linha) < 4:  
         return False
     
     # Aceita títulos numerados (ex: "2. COMO ESTE MEDICAMENTO")
-    if re.match(r'^\\d+\\.\\s+[A-Z]', linha):
+    # Corrigido: remover barras invertidas escapadas
+    if re.match(r'^\d+\.\s+[A-Z]', linha):
         return True
         
-    if len(linha.split()) > 20: 
+    if len(linha.split()) > 20:  
         return False
         
     if linha.endswith('.') or linha.endswith(':'):
         return False
         
-    if re.search(r'\\>\\s*\\<', linha):
+    # Corrigido: remover barras invertidas escapadas
+    if re.search(r'>\s*<', linha):
         return False
         
     if len(linha) > 100:
@@ -290,7 +295,8 @@ def is_titulo_secao(linha):
 def mapear_secoes(texto_completo, secoes_esperadas):
     """Mapeador simplificado (v23) para funcionar com o texto "bonito" (fluído)"""
     mapa = []
-    linhas = texto_completo.split('\\n')
+    # Corrigido: usar split() normal
+    linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
     
     titulos_possiveis = {}
@@ -362,7 +368,8 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
         linha_fim = secao_seguinte_info['linha_inicio']
 
     conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
-    conteudo_final = "\\n".join(conteudo).strip()
+    # Corrigido: usar split() normal
+    conteudo_final = "\n".join(conteudo).strip()
     
     return True, titulo_encontrado, conteudo_final
 
@@ -372,8 +379,9 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
-    linhas_ref = texto_ref.split('\\n')
-    linhas_belfar = texto_belfar.split('\\n')
+    # Corrigido: usar split() normal
+    linhas_ref = texto_ref.split('\n')
+    linhas_belfar = texto_belfar.split('\n')
     mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
     mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
 
@@ -418,7 +426,8 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         texto_filtrado_para_checar = []
 
         mapa_secoes = mapear_secoes(texto_para_checar, secoes_todas)
-        linhas_texto = texto_para_checar.split('\\n')
+        # Corrigido: usar split() normal
+        linhas_texto = texto_para_checar.split('\n')
 
         for secao_nome in secoes_todas:
             if secao_nome.upper() in [s.upper() for s in secoes_ignorar]:
@@ -428,14 +437,16 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             if encontrou and conteudo:
                 texto_filtrado_para_checar.append(conteudo)
 
-        texto_final_para_checar = '\\n'.join(texto_filtrado_para_checar)
+        # Corrigido: usar split() normal
+        texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
         
         if not texto_final_para_checar:
             return []
 
         spell = SpellChecker(language='pt')
         palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
-        vocab_referencia = set(re.findall(r'\\b[a-záéíóúâêôãõçü]+\\b', texto_referencia.lower()))
+        # Corrigido: remover barras invertidas escapadas
+        vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
 
@@ -443,7 +454,8 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             vocab_referencia.union(entidades).union(palavras_a_ignorar)
         )
 
-        palavras = re.findall(r'\\b[a-záéíóúâêôãõçü]+\\b', texto_final_para_checar.lower())
+        # Corrigido: remover barras invertidas escapadas
+        palavras = re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_final_para_checar.lower())
         erros = spell.unknown(palavras)
         return list(sorted(set([e for e in erros if len(e) > 3])))[:20]
 
@@ -459,7 +471,8 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         texto_belfar = ""
 
     def tokenizar(txt):
-        return re.findall(r'\\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\\w\\s]', txt, re.UNICODE)
+        # Corrigido: remover barras invertidas escapadas
+        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
@@ -481,7 +494,8 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     marcado = []
     for idx, tok in enumerate(tokens):
         if idx in indices and tok.strip() != '':
-            marcado.append(f\"<mark style='background-color: #ffff99; padding: 2px;'>{tok}</mark>\")
+            # Corrigido: Escapar f-string
+            marcado.append(f"<mark style='background-color: #ffff99; padding: 2px;'>{tok}</mark>")
         else:
             marcado.append(tok)
 
@@ -494,15 +508,17 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         tok_anterior_raw = re.sub(r'^<mark[^>]*>|</mark>$', '', marcado[i-1])
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
 
-        if not re.match(r'^[.,;:!?)\\]]$', raw_tok) and \
-           raw_tok != '\\n' and \
-           tok_anterior_raw != '\\n' and \
+        # Corrigido: remover barras invertidas escapadas
+        if not re.match(r'^[.,;:!?)\\]$', raw_tok) and \
+           raw_tok != '\n' and \
+           tok_anterior_raw != '\n' and \
            not re.match(r'^[(\\[]$', tok_anterior_raw):
             resultado += " " + tok
         else:
             resultado += tok
             
-    resultado = re.sub(r\"(</mark>)\\s+(<mark[^>]*>)\", \" \", resultado)
+    # Corrigido: Corrigir regex
+    resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
 
@@ -519,23 +535,26 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
             if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
                 conteudo_marcado = marcar_diferencas_palavra_por_palavra(
-                    conteudo_ref, 
-                    conteudo_belfar, 
+                    conteudo_ref,  
+                    conteudo_belfar,  
                     eh_referencia
                 )
                 texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_marcado, 1)
 
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
-            pattern = r'(?<![<>a-zA-Z])(?<!mark>)(?<!;>)\\b(' + re.escape(erro) + r')\\b(?![<>])'
+            # Corrigido: remover barras invertidas escapadas
+            pattern = r'(?<![<>a-zA-Z])(?<!mark>)(?<!;>)\b(' + re.escape(erro) + r')\b(?![<>])'
             texto_trabalho = re.sub(
                 pattern,
-                r\"<mark style='background-color: #FFDDC1; padding: 2px;'>\\1</mark>\",
+                # Corrigido: Escapar f-string
+                r"<mark style='background-color: #FFDDC1; padding: 2px;'>\1</mark>",
                 texto_trabalho,
                 flags=re.IGNORECASE
             )
             
-    regex_anvisa = r\"((?:aprovad[ao]\\s+pela\\s+anvisa\\s+em|data\\s+de\\s+aprova\\xc3\\xa7\\xc3\\xa3o\\s+na\\s+anvisa:)\\s*[\\d]{1,2}/[\\d]{1,2}/[\\d]{2,4})\"
+    # Corrigido: Regex de data anvisa
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
     
     if match:
@@ -543,7 +562,8 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
         if frase_anvisa in texto_trabalho:
             texto_trabalho = texto_trabalho.replace(
                 frase_anvisa,
-                f\"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa}</mark>\",
+                # Corrigido: Escapar f-string
+                f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa}</mark>",
                 1
             )
 
@@ -552,32 +572,34 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
-    st.header(\"Relatório de Auditoria Inteligente\")
-    regex_anvisa = r\"(aprovad[ao]\\s+pela\\s+anvisa\\s+em|data\\s+de\\s+aprova\\xc3\\xa7\\xc3\\xa3o\\s+na\\s+anvisa:)\\s*([\\d]{1,2}/[\\d]{1,2}/[\\d]{2,4})\"
+    st.header("Relatório de Auditoria Inteligente")
+    # Corrigido: Regex de data anvisa
+    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     
     match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
     match_belfar = re.search(regex_anvisa, texto_belfar.lower()) if texto_belfar else None
     
-    data_ref = match_ref.group(2).strip() if match_ref else \"Não encontrada\"
-    data_belfar = match_belfar.group(2).strip() if match_belfar else \"Não encontrada\"
+    data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
+    data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
-    texto_ref_safe = texto_ref or \"\"
-    texto_belfar_safe = texto_belfar or \"\"
+    texto_ref_safe = texto_ref or ""
+    texto_belfar_safe = texto_belfar or ""
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref_safe, texto_belfar_safe, tipo_bula)
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar_safe, texto_ref_safe, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
-    st.subheader(\"Dashboard de Veredito\")
+    st.subheader("Dashboard de Veredito")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric(\"Conformidade de Conteúdo\", f\"{score_similaridade_conteudo:.0f}%\")
-    col2.metric(\"Erros Ortográficos\", len(erros_ortograficos))
-    col3.metric(\"Data ANVISA (Referência)\", data_ref)
-    col4.metric(\"Seções Faltantes\", f\"{len(secoes_faltantes)}\")
+    col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
+    col2.metric("Erros Ortográficos", len(erros_ortograficos))
+    col3.metric("Data ANVISA (Referência)", data_ref)
+    col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
-    st.subheader(\"Detalhes dos Problemas Encontrados\")
-    st.info(f\"ℹ️ **Datas de Aprovação ANVISA:**\\n   - Referência: {data_ref}\\n   - BELFAR: {data_belfar}\")
+    st.subheader("Detalhes dos Problemas Encontrados")
+    # Corrigido: Escapar f-string
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Referência: {data_ref}\n  - BELFAR: {data_belfar}")
     
     # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.0) ---
     def formatar_html_para_leitura(html_content):
@@ -586,45 +608,51 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         Insere quebras de parágrafo ANTES de títulos e listas.
         """
         if html_content is None:
-            return \"\"
+            return ""
         
         # 1. Preserva parágrafos reais (linhas em branco) com um marcador
-        html_content = re.sub(r'\\n{2,}', '[[PARAGRAPH]]', html_content)
+        # Corrigido: remover barras invertidas escapadas
+        html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
         
         # 2. Adiciona quebras ANTES de títulos ALL CAPS (que estão em sua própria linha)
-        # Ex: \\nUSO ORAL\\n ou \\nCOMPOSIÇÃO\\n
+        # Ex: \nUSO ORAL\n ou \nCOMPOSIÇÃO\n
         html_content = re.sub(
-            r'\\n([A-Z\\s]{4,100})\\n',
-            r'[[PARAGRAPH]]\\1[[PARAGRAPH]]',
+            # Corrigido: remover barras invertidas escapadas
+            r'\n([A-Z\s]{4,100})\n',
+            r'[[PARAGRAPH]]\1[[PARAGRAPH]]',
             html_content
         )
         
         # 3. Adiciona quebras ANTES de títulos numerados (ex: "1. PARA...", "9. O QUE...")
-        # Procura por \\n, seguido de "d. " e uma letra maiúscula
+        # Procura por \n, seguido de "d. " e uma letra maiúscula
         html_content = re.sub(
-            r'(\\n)(\\d+\\.\\s+[A-Z])', 
-            r'[[PARAGRAPH]]\\2',     
+            # Corrigido: remover barras invertidas escapadas
+            r'(\n)(\d+\.\s+[A-Z])',  
+            r'[[PARAGRAPH]]\2',     
             html_content
         )
         
         # 4. Adiciona quebras ANTES de Títulos Finais (ex: "DIZERES LEGAIS")
-        titulos_finais = \"|\".join([\"DIZERES LEGAIS\", \"IDENTIFICAÇÃO DO MEDICAMENTO\", \"INFORMAÇÕES AO PACIENTE\"])
+        titulos_finais = "|".join(["DIZERES LEGAIS", "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE"])
         html_content = re.sub(
-            rf'(\\n)({titulos_finais})',
-            r'[[PARAGRAPH]]\\2',
+            # Corrigido: Escapar f-string
+            rf'(\n)({titulos_finais})',
+            r'[[PARAGRAPH]]\2',
             html_content
         )
         
         # 5. Adiciona quebras ANTES de listas
-        # Ex: \\n– Reações... ou \\n- Reações...
+        # Ex: \n– Reações... ou \n- Reações...
         html_content = re.sub(
-            r'(\\n)(\\s*[-–•*])', # \\n seguido de espaço e um marcador
-            r'[[LIST_ITEM]]\\2',
+            # Corrigido: remover barras invertidas escapadas
+            r'(\n)(\s*[-–•*])', # \n seguido de espaço e um marcador
+            r'[[LIST_ITEM]]\2',
             html_content
         )
 
         # 6. Remove todas as outras quebras de linha (que são de "fluidez")
-        html_content = html_content.replace('\\n', ' ')
+        # Corrigido: remover barras invertidas escapadas
+        html_content = html_content.replace('\n', ' ')
 
         # 7. Restaura os marcadores
         html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
@@ -634,28 +662,24 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
     if secoes_faltantes:
-        st.error(f\"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\\n\" + \"\\n\".join([f\"   - {s}\" for s in secoes_faltantes]))
+        # Corrigido: Escapar f-string e \n
+        st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"  - {s}" for s in secoes_faltantes]))
     else:
-        st.success(\"✅ Todas as seções obrigatórias estão presentes\")
+        st.success("✅ Todas as seções obrigatórias estão presentes")
     
     if diferencas_conteudo:
-        st.warning(f\"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**\")
+        # Corrigido: Escapar f-string
+        st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         
         expander_caixa_style = (
-            \"height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; \"
-
-# truncated for brevity in this message; full file continues below...
-'''
-
-# To avoid hitting message size limits, create the full file by appending the remaining content.
-# The rest of the file is the same as the user's v26.0 but with the applied fixes and complete content.
-rest_of_file = r'''
+            "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
             "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
             "font-family: 'Georgia', 'Times New Roman', serif; text-align: left;"
             "overflow-wrap: break-word; word-break: break-word;"
         )
 
         for diff in diferencas_conteudo:
+            # Corrigido: Escapar f-string
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
                 conteudo_ref_str = diff.get('conteudo_ref') or ""
@@ -675,15 +699,18 @@ rest_of_file = r'''
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Referência:**")
+                    # Corrigido: Escapar f-string
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**BELFAR:**")
+                    # Corrigido: Escapar f-string
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
     else:
         st.success("✅ Conteúdo das seções está idêntico")
 
     if erros_ortograficos:
-        st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\\n" + ", ".join(erros_ortograficos))
+        # Corrigido: Escapar f-string
+        st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
 
     if not any([secoes_faltantes, diferencas_conteudo, diferencas_titulos]) and len(erros_ortograficos) < 5:
         st.success("🎉 **Bula aprovada!** Nenhum problema crítico encontrado.")
@@ -701,6 +728,7 @@ rest_of_file = r'''
     )
     
     st.markdown(
+        # Corrigido: Escapar f-string
         f"<div style='{legend_style}'>"
         "<strong>Legenda:</strong> "
         "<mark style='background-color: #ffff99; padding: 2px; margin: 0 2px;'>Amarelo</mark> = Divergências | "
@@ -744,58 +772,86 @@ rest_of_file = r'''
     
     col1, col2 = st.columns(2, gap="large")
     with col1:
+        # Corrigido: Escapar f-string
         st.markdown(f"<div style='{title_style}'>{nome_ref}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
+        # Corrigido: Escapar f-string
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+        
+# ----------------- INICIALIZAÇÃO DO NLP -----------------
+nlp = carregar_modelo_spacy()
+
+# ----------------- INTERFACE MULTI-PÁGINA -----------------
+st.sidebar.title("Navegação")
+page_options = ["APP", "Med. Referencia x BELFAR", "Conferencia MKT", "Grafica x Arte"]
+
+# Define "Conferencia MKT" como a página padrão (index=2)
+default_index = page_options.index("Conferencia MKT")
+page = st.sidebar.radio("Selecione a página:", page_options, index=default_index)
+
+# --- ROTEAMENTO DE PÁGINAS ---
+
+if page == "Conferencia MKT":
+    # Todo o código da UI da v26.1 está aqui
     
-# ----------------- INTERFACE (COM CHAMADA CORRIGIDA) -----------------
-st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
-st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
-st.divider()
+    st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
+    st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
+    st.divider()
 
-st.header("📋 Configuração da Auditoria")
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("📄 Arquivo da Anvisa")
-    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
-with col2:
-    st.subheader("📄 Arquivo Marketing")
-    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
+    st.header("📋 Configuração da AuditorIA")
+    tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📄 Arquivo da Anvisa")
+        pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+    with col2:
+        st.subheader("📄 Arquivo Marketing")
+        pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
-if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
-    if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas..."):
-            
-            tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
-            
-            # Extrai o texto da Anvisa (1 coluna, com sort)
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
-            
-            # Extrai o texto do Marketing (2 colunas, com sort em cada)
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
-if not erro_belfar:
-    texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
-    texto_belfar = truncar_apos_anvisa(texto_belfar)
+    if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+        if pdf_ref and pdf_belfar:
+            with st.spinner("🔄 Processando e analisando as bulas..."):
+                
+                tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
+                
+                # Extrai o texto da Anvisa (1 coluna, com sort)
+                texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
+                
+                # Extrai o texto do Marketing (2 colunas, com sort em cada)
+                texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+                
+                # CORREÇÃO: Havia um bloco duplicado e mal indentado no seu script original.
+                # Este é o bloco correto, dentro do spinner.
+                if not erro_belfar:
+                    # Aplica correção de títulos quebrados ANTES de truncar e mapear
+                    texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                    texto_belfar = truncar_apos_anvisa(texto_belfar)
 
-            if not erro_belfar:
-                # Aplica correção de títulos quebrados ANTES de truncar e mapear
-                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
-                texto_belfar = truncar_apos_anvisa(texto_belfar)
+                if erro_ref or erro_belfar:
+                    st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+                elif not texto_ref or not texto_belfar:
+                    st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
+                else:
+                    gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
+        else:
+            st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
-            if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
-            elif not texto_ref or not texto_belfar:
-                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
-            else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
-    else:
-        st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
+    st.divider()
+    st.caption("Sistema de Auditoria de Bulas v26.1 | Correção de Layout 'Tudo Junto' (Smart Format)")
 
-st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.1 | Correção de Layout 'Tudo Junto' (Smart Format)")
-'''
+elif page == "APP":
+    st.title("Página: APP")
+    st.info("Esta é a página principal 'APP'. O conteúdo ainda não foi definido.")
+    st.image("https://static.streamlit.io/examples/cat.jpg", caption="Placeholder para APP")
 
+elif page == "Med. Referencia x BELFAR":
+    st.title("Página: Med. Referencia x BELFAR")
+    st.info("Esta é a página 'Med. Referencia x BELFAR'. O conteúdo ainda não foi definido.")
+    st.image("https://static.streamlit.io/examples/dog.jpg", caption="Placeholder para Med. Referencia")
+
+elif page == "Grafica x Arte":
+    st.title("Página: Grafica x Arte")
+    st.info("Esta é a página 'Grafica x Arte'. O conteúdo ainda não foi definido.")
+    st.image("https://static.streamlit.io/examples/owl.jpg", caption="Placeholder para Grafica x Arte")
