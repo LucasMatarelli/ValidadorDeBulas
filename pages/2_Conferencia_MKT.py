@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.7 - Mapeamento 'Greedy' Inteligente
+# Sistema: AuditorIA de Bulas v20.8 - Extração Robusta
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.7: Corrige o bug v20.6. O mapeador 'greedy' agora só consome linhas
-#          subsequentes SE elas também parecerem títulos (via 'is_titulo_secao').
-#          Isso impede que ele "coma" o conteúdo da seção (ex: "Xarope...").
-# - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
-# - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
+# - v20.8:
+#   1. Corrige bug de truncamento do texto_ref (Anvisa), que impedia a
+#      visualização lado-a-lado de exibir a data Anvisa e o conteúdo.
+#   2. Melhora drástica no `extrair_texto_pdf_com_ocr`: agora usa
+#      `fitz.TEXTFLAGS_LAYOUT` como primeira tentativa (excelente para colunas),
+#      mantendo a lógica de 'blocks' como fallback 1 e OCR como fallback 2.
+#   3. Adiciona "Cor: Preta..." ao filtro `is_garbage_line`.
+# - Mantenha Tesseract e o modelo SpaCy instalados: tesseract + pt_core_news_lg
+# - Para usar no Streamlit, salve este arquivo e execute streamlit run seu_arquivo.py
 
 import re
 import difflib
@@ -133,7 +137,7 @@ def _create_anchor_id(secao_canonico, prefix):
         norm = "secao-default"
     return f"anchor-{prefix}-{norm}"
 
-# --- INÍCIO DA CORREÇÃO v20.1 (Anti-Lixo) ---
+# --- INÍCIO DA CORREÇÃO v20.8 (Anti-Lixo) ---
 def is_garbage_line(linha_norm):
     """Verifica (de forma normalizada) se a linha é lixo de rodapé/metadados."""
     if not linha_norm:
@@ -142,13 +146,14 @@ def is_garbage_line(linha_norm):
         'medida da bula', 'tipologia da bula', 'bulcloridrato', 'belfarcombr', 'artesbelfarcombr',
         'contato 31 2105', 'bul_cloridrato', 'verso medida', '190 x 300 mm', 'papel ap 56gr',
         '15000 mm', '21000 mm', 'frente', 'verso', # Adicionado v20.5 para robustez
-        'bul 22149v01', 'bula padrao' # Adicionado v20.5
+        'bul 22149v01', 'bula padrao',
+        'cor preta normal e negrito corpo 10' # Adicionado v20.8
     ]
     for key in GARBAGE_KEYWORDS:
         if key in linha_norm:
             return True
     return False
-# --- FIM DA CORREÇÃO v20.1 ---
+# --- FIM DA CORREÇÃO v20.8 ---
 
 
 # --- LÓGICA DE NEGÓCIO (LISTAS DE SEÇÕES) (v20.5) ---
@@ -249,18 +254,34 @@ def obter_secoes_ignorar_verificacao_existencia():
     # --- FIM DA ATUALIZAÇÃO v20.5 ---
 
 
-# ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR (VERSÃO MELHORADA) -----------------
+# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.8) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Extração otimizada para PDFs de 2 colunas.
-    Usa centro do bloco para decidir coluna e ordena por (y, x) dentro de cada coluna.
-    Fallback para OCR com Tesseract quando necessário.
+    Extração em 3 etapas (v20.8):
+    1. Tenta extração com 'layout' (ótimo para colunas).
+    2. Tenta extração com 'blocks' (lógica manual de 2 colunas).
+    3. Tenta OCR (Tesseract) como último recurso.
     """
+    
+    # --- Tentativa 1: Modo Layout (Bom para colunas) ---
+    texto_layout = ""
+    try:
+        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+            for page in doc:
+                # flags=fitz.TEXTFLAGS_LAYOUT tenta preservar o layout, inclusive colunas
+                texto_layout += page.get_text("text", flags=fitz.TEXTFLAGS_LAYOUT) + "\n"
+        
+        if len(texto_layout.strip()) > 200: # Limiar razoável
+            return texto_layout
+    except Exception as e:
+        pass # Falha, tenta o próximo método
+
+    # --- Tentativa 2: Modo "Blocks" (Lógica manual de 2 colunas) ---
     texto_direto = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
             for page in doc:
-                blocks = page.get_text("blocks", sort=False)  # cada block: (x0,y0,x1,y1,"text", ...)
+                blocks = page.get_text("blocks", sort=False)  # (x0,y0,x1,y1,"text", ...)
                 middle_x = page.rect.width / 2.0
 
                 col1_blocks = []
@@ -268,18 +289,15 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
 
                 for b in blocks:
                     x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
-                    # usa centro do bloco para decidir coluna (mais robusto que só x0)
                     center_x = (x0 + x1) / 2.0
                     if center_x <= middle_x:
                         col1_blocks.append((y0, x0, text))
                     else:
                         col2_blocks.append((y0, x0, text))
 
-                # Ordena dentro da coluna por y (top -> down) e depois por x (left -> right)
                 col1_blocks.sort(key=lambda t: (t[0], t[1]))
                 col2_blocks.sort(key=lambda t: (t[0], t[1]))
 
-                # Concatena coluna 1 primeiro, depois coluna 2 (ordem de leitura)
                 for _, _, txt in col1_blocks:
                     texto_direto += txt + "\n"
                 for _, _, txt in col2_blocks:
@@ -288,31 +306,26 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
                 texto_direto += "\n"  # quebra de página
 
         if len(texto_direto.strip()) > 100:
-            # Limpa caracteres estranhos mínimos e retorna
             return texto_direto
     except Exception as e:
-        # Tentativa simples caso blocks falhem
-        try:
-            with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-                texto_alt = ""
-                for page in doc:
-                    texto_alt += page.get_text("text") + "\n"
-                if len(texto_alt.strip()) > 100:
-                    return texto_alt
-        except Exception:
-            pass
+        pass # Falha, tenta o próximo método
 
-    # Fallback OCR
+    # --- Tentativa 3: Fallback OCR ---
     st.info("Arquivo com layout complexo detectado. Iniciando OCR (tesseract)...")
     texto_ocr = ""
-    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for page in doc:
-            pix = page.get_pixmap(dpi=300)
-            img_bytes = pix.tobytes("png")
-            imagem = Image.open(io.BytesIO(img_bytes))
-            texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
+    try:
+        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+            for page in doc:
+                pix = page.get_pixmap(dpi=300)
+                img_bytes = pix.tobytes("png")
+                imagem = Image.open(io.BytesIO(img_bytes))
+                texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
+    except Exception as e_ocr:
+        st.error(f"Falha no OCR: {e_ocr}")
+        return texto_ocr # Retorna o que conseguiu (pode ser vazio)
 
     return texto_ocr
+# --- FIM DA MELHORIA v20.8 ---
 
 # ----------------- EXTRAÇÃO DE DOCX (ADICIONADA) -----------------
 def extrair_texto_docx(arquivo_bytes):
@@ -533,11 +546,11 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 linha = linhas_texto[i]
                 linha_norm = normalizar_texto(linha)
                 
-                # --- INÍCIO DA CORREÇÃO v20.5 (Bug Seção Branca) ---
+                # --- INÍCIO DA CORREÇÃO v20.8 (Bug Seção Branca / Lixo) ---
                 # Para se encontrar lixo (metadata, rodapé)
                 if is_garbage_line(linha_norm):
                     continue # Pula a linha de lixo e continua
-                # --- FIM DA CORREÇÃO v20.5 ---
+                # --- FIM DA CORREÇÃO v20.8 ---
                         
                 # v20.4: Melhoria - para se a linha for um título de outra seção
                 # (proteção adicional contra vazamento de conteúdo)
@@ -655,11 +668,11 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 cand = linhas_texto[j].strip()
                 cand_norm_check = normalizar_texto(cand)
 
-                # --- INÍCIO DA CORREÇÃO v20.5 (Bug Seção Branca) ---
+                # --- INÍCIO DA CORREÇÃO v20.8 (Bug Seção Branca / Lixo) ---
                 # Para se encontrar lixo
                 if is_garbage_line(cand_norm_check):
                     continue # Pula a linha de lixo e continua
-                # --- FIM DA CORREÇÃO v20.5 ---
+                # --- FIM DA CORREÇÃO v20.8 ---
                 
                 # v20.4: Para se encontrar outro título de seção (usando 'is_titulo_secao' melhorado)
                 if is_titulo_secao(cand):
@@ -1140,17 +1153,11 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
 
-            if not erro_ref and texto_ref: # Adicionada checagem se texto_ref não é None
-                # tentar truncar texto_ref até a linha da data ANVISA (correção solicitada)
-                regex_anvisa_trunc = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4}"
-                match = re.search(regex_anvisa_trunc, texto_ref, re.IGNORECASE)
-                if match:
-                    # encontra início da linha onde a data aparece e trunca até essa linha (mantendo a linha)
-                    start = match.start()
-                    # busca o final da linha onde aparece a data
-                    end_of_line_pos = texto_ref.find('\n', start)
-                    if end_of_line_pos != -1:
-                        texto_ref = texto_ref[:end_of_line_pos + 1]  # mantém até o fim da linha
+            # --- INÍCIO DA CORREÇÃO v20.8 ---
+            # REMOVIDA a lógica de truncamento de 'texto_ref'
+            # Isso corrigia o bug que impedia a data ANVISA e o conteúdo
+            # de serem exibidos na visualização lado-a-lado.
+            # --- FIM DA CORREÇÃO v20.8 ---
             
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
@@ -1162,4 +1169,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.7 | Mapeamento 'Greedy' Inteligente")
+st.caption("Sistema de AuditorIA de Bulas v20.8 | Extração Robusta")
