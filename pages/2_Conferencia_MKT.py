@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.5 - Enumeração Customizada e Correção de 'continue'
+# Sistema: AuditorIA de Bulas v20.6 - Mapeamento 'Greedy' de Títulos
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.5: Altera a enumeração canônica para começar em '1. PARA QUE...' (Paciente)
-#          e '1. INDICAÇÕES' (Profissional), conforme solicitado.
-# - v20.5: Corrige bug de seção em branco (muda 'break' para 'continue' em is_garbage_line
-#          dentro de obter_dados_secao), permitindo pular metadados de rodapé.
+# - v20.6: Reescreve 'mapear_secoes' para ser 'greedy' (ganancioso).
+#          Agora, ele tenta combinar até 5 linhas para encontrar títulos
+#          quebrados pelo OCR (ex: "6. COMO \n DEVO \n USAR...").
+# - v20.5: Mantém a enumeração customizada e a correção de 'continue' para
+#          pular metadados de rodapé (essencial para a Seção 5).
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -347,17 +348,18 @@ def extrair_texto(arquivo, tipo_arquivo):
     except Exception as e:
         return None, f"Erro fatal na extração: {str(e)}"
 
-# ----------------- MAPEAR SEÇÕES (AJUSTES v20.5) -----------------
-def mapear_secoes(texto_completo, secoes_esperadas, tipo_bula): # v20.4: Adicionado tipo_bula
+# ----------------- MAPEAR SEÇÕES (AJUSTES v20.6 - 'Greedy' Mapper) -----------------
+def mapear_secoes(texto_completo, secoes_esperadas, tipo_bula):
     """
-    v20.5: Mapeamento melhorado com aliases dinâmicos para nova numeração
+    v20.6: Mapeamento "Greedy" (ganancioso). Tenta combinar até 5 linhas
+    para formar um título, corrigindo falhas de OCR onde o título é
+    quebrado em múltiplas linhas (ex: "6. COMO", "DEVO", "USAR"...).
     """
     mapa = []
     linhas = texto_completo.split('\n')
     
     aliases = obter_aliases_secao()
     # --- INÍCIO DA CORREÇÃO v20.5 (Aliases Dinâmicos) ---
-    # Resolve o conflito de aliases (ex: SUPERDOSE, REAÇÕES ADVERSAS)
     if tipo_bula == "Paciente":
         aliases["REAÇÕES ADVERSAS"] = "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?"
         aliases["SUPERDOSE"] = "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?"
@@ -382,64 +384,59 @@ def mapear_secoes(texto_completo, secoes_esperadas, tipo_bula): # v20.4: Adicion
             idx += 1
             continue
 
-        # Tenta match com 1, 2 e 3 linhas
-        best_match_score_1 = 0
-        best_match_canonico_1 = None
-        for poss, canon in titulos_possiveis.items():
-            score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
-                                         normalizar_titulo_para_comparacao(linha_limpa))
-            if score > best_match_score_1:
-                best_match_score_1 = score
-                best_match_canonico_1 = canon
+        # --- INÍCIO DA LÓGICA 'Greedy' v20.6 ---
+        best_score = 0
+        best_canonico = None
+        best_line_count = 0
+        best_titulo_encontrado = ""
+        
+        current_title_lines = []
+        # Tenta combinar até 5 linhas
+        for i in range(5):
+            if (idx + i) >= len(linhas):
+                break
+                
+            linha_atual = linhas[idx + i].strip()
+            if not linha_atual: # Para se achar linha em branco
+                break
+                
+            # Heurística: se a linha for muito longa, provavelmente não é parte do título
+            if len(linha_atual.split()) > 15:
+                break
+                
+            current_title_lines.append(linha_atual)
+            current_title_full = " ".join(current_title_lines)
+            current_title_norm = normalizar_titulo_para_comparacao(current_title_full)
 
-        # 2-linhas
-        best_match_score_2 = 0
-        best_match_canonico_2 = None
-        titulo_comb_2 = ""
-        if (idx + 1) < len(linhas):
-            next_line = linhas[idx + 1].strip()
-            if len(next_line.split()) < 12:
-                titulo_comb_2 = f"{linha_limpa} {next_line}"
-                for poss, canon in titulos_possiveis.items():
-                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
-                                                 normalizar_titulo_para_comparacao(titulo_comb_2))
-                    if score > best_match_score_2:
-                        best_match_score_2 = score
-                        best_match_canonico_2 = canon
-
-        # 3-linhas
-        best_match_score_3 = 0
-        best_match_canonico_3 = None
-        titulo_comb_3 = ""
-        if (idx + 2) < len(linhas):
-            l2 = linhas[idx + 1].strip()
-            l3 = linhas[idx + 2].strip()
-            if len(l2.split()) < 18 and len(l3.split()) < 14:
-                titulo_comb_3 = f"{linha_limpa} {l2} {l3}"
-                for poss, canon in titulos_possiveis.items():
-                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
-                                                 normalizar_titulo_para_comparacao(titulo_comb_3))
-                    if score > best_match_score_3:
-                        best_match_score_3 = score
-                        best_match_canonico_3 = canon
+            # Compara o título combinado (1, 2, 3... 5 linhas) com os títulos canônicos
+            for poss, canon in titulos_possiveis.items():
+                score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
+                                             current_title_norm)
+                
+                # Se o score for melhor, salva este como o 'melhor'
+                if score > best_score:
+                    best_score = score
+                    best_canonico = canon
+                    best_line_count = i + 1
+                    best_titulo_encontrado = current_title_full
 
         limiar_score = 85 
 
-        # Prioriza 3 > 2 > 1
-        if best_match_score_3 >= limiar_score and best_match_score_3 >= best_match_score_2 and best_match_score_3 >= best_match_score_1:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico_3:
-                mapa.append({'canonico': best_match_canonico_3, 'titulo_encontrado': titulo_comb_3, 'linha_inicio': idx, 'score': best_match_score_3, 'num_linhas_titulo': 3})
-            idx += 3
-        elif best_match_score_2 >= limiar_score and best_match_score_2 >= best_match_score_1:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico_2:
-                mapa.append({'canonico': best_match_canonico_2, 'titulo_encontrado': titulo_comb_2, 'linha_inicio': idx, 'score': best_match_score_2, 'num_linhas_titulo': 2})
-            idx += 2
-        elif best_match_score_1 >= limiar_score:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico_1:
-                mapa.append({'canonico': best_match_canonico_1, 'titulo_encontrado': linha_limpa, 'linha_inicio': idx, 'score': best_match_score_1, 'num_linhas_titulo': 1})
-            idx += 1
+        # Se o melhor score encontrado (em até 5 linhas) for bom o suficiente
+        if best_score >= limiar_score:
+            # Evita adicionar a mesma seção duas vezes
+            if not mapa or mapa[-1]['canonico'] != best_canonico:
+                mapa.append({
+                    'canonico': best_canonico, 
+                    'titulo_encontrado': best_titulo_encontrado, 
+                    'linha_inicio': idx, 
+                    'score': best_score, 
+                    'num_linhas_titulo': best_line_count
+                })
+            idx += best_line_count # Pula o número de linhas que formaram o título
         else:
-            idx += 1
+            idx += 1 # Não achou match, avança 1 linha
+        # --- FIM DA LÓGICA 'Greedy' v20.6 ---
 
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
@@ -549,6 +546,10 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         # Reflow (junta linhas que pertencem ao mesmo parágrafo)
         if not conteudo:
             return True, titulo_encontrado_final, ""
+
+        # v20.6: Se o conteúdo for apenas linhas em branco, retorna vazio
+        if all(not line.strip() for line in conteudo):
+             return True, titulo_encontrado_final, ""
 
         conteudo_refluxo = [conteudo[0]]
         for k in range(1, len(conteudo)):
@@ -666,6 +667,10 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             
             # v20.3: Aplica reflow mesmo no fallback
             if conteudo_final_lista:
+                # v20.6: Se o conteúdo for apenas linhas em branco, retorna vazio
+                if all(not line.strip() for line in conteudo_final_lista):
+                    return True, titulo_encontrado_final, ""
+                    
                 conteudo_refluxo = [conteudo_final_lista[0]]
                 for k in range(1, len(conteudo_final_lista)):
                     prev = conteudo_refluxo[-1]
@@ -705,7 +710,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
 
     linhas_anvisa = texto_anvisa.split('\n')
     linhas_mkt = texto_mkt.split('\n')
-    # v20.4: Passa 'tipo_bula' para o 'mapear_secoes'
+    # v20.6: Passa 'tipo_bula' para o 'mapear_secoes' (que agora é greedy)
     mapa_anvisa = mapear_secoes(texto_anvisa, secoes_esperadas, tipo_bula)
     mapa_mkt = mapear_secoes(texto_mkt, secoes_esperadas, tipo_bula)
 
@@ -759,7 +764,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         secoes_todas = obter_secoes_por_tipo(tipo_bula)
         texto_filtrado_para_checar = []
 
-        mapa_secoes = mapear_secoes(texto_para_checar, secoes_todas, tipo_bula) # v20.4 passa tipo_bula
+        mapa_secoes = mapear_secoes(texto_para_checar, secoes_todas, tipo_bula) # v20.6 passa tipo_bula
         linhas_texto = texto_para_checar.split('\n')
 
         secoes_ignorar_norm = [normalizar_titulo_para_comparacao(s) for s in secoes_ignorar]
@@ -1143,4 +1148,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.5 | Enumeração Customizada e Correção 'continue'")
+st.caption("Sistema de AuditorIA de Bulas v20.6 | Mapeamento 'Greedy' de Títulos")
