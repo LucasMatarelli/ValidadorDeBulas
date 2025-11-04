@@ -1,6 +1,5 @@
-# Auditoria de Bulas - v26.2
-# Versão com interface multi-páginas (baseada na imagem)
-# O código da v26.1 foi movido para a página "Conferencia MKT".
+# pages/2_Conferencia_MKT.py
+# (Seu código v26.1 completo e corrigido)
 
 # --- IMPORTS ---
 import re
@@ -15,54 +14,6 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- CONFIGURAÇÃO DA PÁGINA (DEVE SER O 1º COMANDO ST) -----------------
-# Movido do final do arquivo para o topo.
-st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
-
-# ----------------- UI HIDE (Streamlit) -----------------
-hide_streamlit_UI = """
-            <style>
-            /* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
-            [data-testid="stHeader"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            
-            /* Esconde o menu hamburger (dentro do app) */
-            [data-testid="main-menu-button"] {
-                display: none !important;
-            }
-            
-            /* Esconde o rodapé genérico (garantia extra) */
-            footer {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* --- NOVOS SELETORES (MAIS AGRESSIVOS) PARA O BADGE INFERIOR --- */
-
-            /* Esconde o container principal do badge */
-            [data-testid="stStatusWidget"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* Esconde o 'Created by' */
-            [data-testid="stCreatedBy"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-
-            /* Esconde o 'Hosted with Streamlit' */
-            [data-testid="stHostedBy"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            </style>
-            """
-st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
-
-
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
 def carregar_modelo_spacy():
@@ -72,6 +23,8 @@ def carregar_modelo_spacy():
     except OSError:
         st.error("Modelo 'pt_core_news_lg' não encontrado. Execute: python -m spacy download pt_core_news_lg")
         return None
+
+nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO (v22.0 - Layout Bonito) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
@@ -204,8 +157,8 @@ def obter_aliases_secao():
     return {
         "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
         "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
-        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
+        "POSOLOGIA E MODO DE USar": "COMO DEVO USAR ESTE MEDICAMENTO?",
+        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
         "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
     }
@@ -221,14 +174,12 @@ def normalizar_texto(texto):
     if not isinstance(texto, str):
         return ""
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-    # Corrigido: remover barras invertidas escapadas
-    texto = re.sub(r'[^\w\s]', '', texto) 
+    texto = re.sub(r'[^\w\s]', '', texto)
     texto = ' '.join(texto.split())
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
     texto_norm = normalizar_texto(texto)
-    # Corrigido: remover barras invertidas escapadas
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
@@ -273,7 +224,6 @@ def is_titulo_secao(linha):
         return False
     
     # Aceita títulos numerados (ex: "2. COMO ESTE MEDICAMENTO")
-    # Corrigido: remover barras invertidas escapadas
     if re.match(r'^\d+\.\s+[A-Z]', linha):
         return True
         
@@ -283,7 +233,6 @@ def is_titulo_secao(linha):
     if linha.endswith('.') or linha.endswith(':'):
         return False
         
-    # Corrigido: remover barras invertidas escapadas
     if re.search(r'>\s*<', linha):
         return False
         
@@ -295,7 +244,6 @@ def is_titulo_secao(linha):
 def mapear_secoes(texto_completo, secoes_esperadas):
     """Mapeador simplificado (v23) para funcionar com o texto "bonito" (fluído)"""
     mapa = []
-    # Corrigido: usar split() normal
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
     
@@ -368,7 +316,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
         linha_fim = secao_seguinte_info['linha_inicio']
 
     conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
-    # Corrigido: usar split() normal
     conteudo_final = "\n".join(conteudo).strip()
     
     return True, titulo_encontrado, conteudo_final
@@ -379,7 +326,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
-    # Corrigido: usar split() normal
     linhas_ref = texto_ref.split('\n')
     linhas_belfar = texto_belfar.split('\n')
     mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
@@ -426,7 +372,6 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         texto_filtrado_para_checar = []
 
         mapa_secoes = mapear_secoes(texto_para_checar, secoes_todas)
-        # Corrigido: usar split() normal
         linhas_texto = texto_para_checar.split('\n')
 
         for secao_nome in secoes_todas:
@@ -437,7 +382,6 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             if encontrou and conteudo:
                 texto_filtrado_para_checar.append(conteudo)
 
-        # Corrigido: usar split() normal
         texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
         
         if not texto_final_para_checar:
@@ -445,7 +389,6 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 
         spell = SpellChecker(language='pt')
         palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
-        # Corrigido: remover barras invertidas escapadas
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
@@ -454,7 +397,6 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             vocab_referencia.union(entidades).union(palavras_a_ignorar)
         )
 
-        # Corrigido: remover barras invertidas escapadas
         palavras = re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_final_para_checar.lower())
         erros = spell.unknown(palavras)
         return list(sorted(set([e for e in erros if len(e) > 3])))[:20]
@@ -471,7 +413,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         texto_belfar = ""
 
     def tokenizar(txt):
-        # Corrigido: remover barras invertidas escapadas
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
@@ -494,7 +435,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     marcado = []
     for idx, tok in enumerate(tokens):
         if idx in indices and tok.strip() != '':
-            # Corrigido: Escapar f-string
             marcado.append(f"<mark style='background-color: #ffff99; padding: 2px;'>{tok}</mark>")
         else:
             marcado.append(tok)
@@ -508,7 +448,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         tok_anterior_raw = re.sub(r'^<mark[^>]*>|</mark>$', '', marcado[i-1])
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
 
-        # Corrigido: remover barras invertidas escapadas
         if not re.match(r'^[.,;:!?)\\]$', raw_tok) and \
            raw_tok != '\n' and \
            tok_anterior_raw != '\n' and \
@@ -517,7 +456,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else:
             resultado += tok
             
-    # Corrigido: Corrigir regex
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
@@ -543,17 +481,15 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
-            # Corrigido: remover barras invertidas escapadas
             pattern = r'(?<![<>a-zA-Z])(?<!mark>)(?<!;>)\b(' + re.escape(erro) + r')\b(?![<>])'
             texto_trabalho = re.sub(
                 pattern,
-                # Corrigido: Escapar f-string
                 r"<mark style='background-color: #FFDDC1; padding: 2px;'>\1</mark>",
                 texto_trabalho,
                 flags=re.IGNORECASE
             )
             
-    # Corrigido: Regex de data anvisa
+    # Corrigido: Regex de data anvisa (mais flexível para 'aprovação')
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
     
@@ -562,7 +498,6 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
         if frase_anvisa in texto_trabalho:
             texto_trabalho = texto_trabalho.replace(
                 frase_anvisa,
-                # Corrigido: Escapar f-string
                 f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa}</mark>",
                 1
             )
@@ -573,7 +508,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
-    # Corrigido: Regex de data anvisa
+    # Corrigido: Regex de data anvisa (mais flexível para 'aprovação')
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     
     match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
@@ -598,7 +533,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    # Corrigido: Escapar f-string
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Referência: {data_ref}\n  - BELFAR: {data_belfar}")
     
     # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.0) ---
@@ -611,13 +545,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             return ""
         
         # 1. Preserva parágrafos reais (linhas em branco) com um marcador
-        # Corrigido: remover barras invertidas escapadas
         html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
         
         # 2. Adiciona quebras ANTES de títulos ALL CAPS (que estão em sua própria linha)
         # Ex: \nUSO ORAL\n ou \nCOMPOSIÇÃO\n
         html_content = re.sub(
-            # Corrigido: remover barras invertidas escapadas
             r'\n([A-Z\s]{4,100})\n',
             r'[[PARAGRAPH]]\1[[PARAGRAPH]]',
             html_content
@@ -626,7 +558,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # 3. Adiciona quebras ANTES de títulos numerados (ex: "1. PARA...", "9. O QUE...")
         # Procura por \n, seguido de "d. " e uma letra maiúscula
         html_content = re.sub(
-            # Corrigido: remover barras invertidas escapadas
             r'(\n)(\d+\.\s+[A-Z])',  
             r'[[PARAGRAPH]]\2',     
             html_content
@@ -635,7 +566,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # 4. Adiciona quebras ANTES de Títulos Finais (ex: "DIZERES LEGAIS")
         titulos_finais = "|".join(["DIZERES LEGAIS", "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE"])
         html_content = re.sub(
-            # Corrigido: Escapar f-string
             rf'(\n)({titulos_finais})',
             r'[[PARAGRAPH]]\2',
             html_content
@@ -644,14 +574,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # 5. Adiciona quebras ANTES de listas
         # Ex: \n– Reações... ou \n- Reações...
         html_content = re.sub(
-            # Corrigido: remover barras invertidas escapadas
             r'(\n)(\s*[-–•*])', # \n seguido de espaço e um marcador
             r'[[LIST_ITEM]]\2',
             html_content
         )
 
         # 6. Remove todas as outras quebras de linha (que são de "fluidez")
-        # Corrigido: remover barras invertidas escapadas
         html_content = html_content.replace('\n', ' ')
 
         # 7. Restaura os marcadores
@@ -662,13 +590,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
     if secoes_faltantes:
-        # Corrigido: Escapar f-string e \n
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"  - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
     
     if diferencas_conteudo:
-        # Corrigido: Escapar f-string
         st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         
         expander_caixa_style = (
@@ -679,7 +605,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         )
 
         for diff in diferencas_conteudo:
-            # Corrigido: Escapar f-string
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 
                 conteudo_ref_str = diff.get('conteudo_ref') or ""
@@ -699,17 +624,14 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Referência:**")
-                    # Corrigido: Escapar f-string
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**BELFAR:**")
-                    # Corrigido: Escapar f-string
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
     else:
         st.success("✅ Conteúdo das seções está idêntico")
 
     if erros_ortograficos:
-        # Corrigido: Escapar f-string
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
 
     if not any([secoes_faltantes, diferencas_conteudo, diferencas_titulos]) and len(erros_ortograficos) < 5:
@@ -728,7 +650,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     )
     
     st.markdown(
-        # Corrigido: Escapar f-string
         f"<div style='{legend_style}'>"
         "<strong>Legenda:</strong> "
         "<mark style='background-color: #ffff99; padding: 2px; margin: 0 2px;'>Amarelo</mark> = Divergências | "
@@ -772,86 +693,57 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     
     col1, col2 = st.columns(2, gap="large")
     with col1:
-        # Corrigido: Escapar f-string
         st.markdown(f"<div style='{title_style}'>{nome_ref}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
-        # Corrigido: Escapar f-string
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
-        
-# ----------------- INICIALIZAÇÃO DO NLP -----------------
-nlp = carregar_modelo_spacy()
-
-# ----------------- INTERFACE MULTI-PÁGINA -----------------
-st.sidebar.title("Navegação")
-page_options = ["APP", "Med. Referencia x BELFAR", "Conferencia MKT", "Grafica x Arte"]
-
-# Define "Conferencia MKT" como a página padrão (index=2)
-default_index = page_options.index("Conferencia MKT")
-page = st.sidebar.radio("Selecione a página:", page_options, index=default_index)
-
-# --- ROTEAMENTO DE PÁGINAS ---
-
-if page == "Conferencia MKT":
-    # Todo o código da UI da v26.1 está aqui
     
-    st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
-    st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
-    st.divider()
 
-    st.header("📋 Configuração da AuditorIA")
-    tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("📄 Arquivo da Anvisa")
-        pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
-    with col2:
-        st.subheader("📄 Arquivo Marketing")
-        pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
+# ----------------- INTERFACE (COM CHAMADA CORRIGIDA) -----------------
+# O st.set_page_config() foi movido para o app.py
 
-    if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
-        if pdf_ref and pdf_belfar:
-            with st.spinner("🔄 Processando e analisando as bulas..."):
-                
-                tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
-                
-                # Extrai o texto da Anvisa (1 coluna, com sort)
-                texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
-                
-                # Extrai o texto do Marketing (2 colunas, com sort em cada)
-                texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
-                
-                # CORREÇÃO: Havia um bloco duplicado e mal indentado no seu script original.
-                # Este é o bloco correto, dentro do spinner.
-                if not erro_belfar:
-                    # Aplica correção de títulos quebrados ANTES de truncar e mapear
-                    texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
-                    texto_belfar = truncar_apos_anvisa(texto_belfar)
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
+st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
+st.divider()
 
-                if erro_ref or erro_belfar:
-                    st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
-                elif not texto_ref or not texto_belfar:
-                    st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
-                else:
-                    gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
-        else:
-            st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
+st.header("📋 Configuração da Auditoria")
+tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("📄 Arquivo da Anvisa")
+    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+with col2:
+    st.subheader("📄 Arquivo Marketing")
+    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
-    st.divider()
-    st.caption("Sistema de Auditoria de Bulas v26.1 | Correção de Layout 'Tudo Junto' (Smart Format)")
+if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+    if pdf_ref and pdf_belfar:
+        with st.spinner("🔄 Processando e analisando as bulas..."):
+            
+            tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
+            
+            # Extrai o texto da Anvisa (1 coluna, com sort)
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
+            
+            # Extrai o texto do Marketing (2 colunas, com sort em cada)
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+            
+            # CORREÇÃO DE INDENTAÇÃO: Este bloco estava fora do `with st.spinner` no seu original
+            if not erro_belfar:
+                # Aplica correção de títulos quebrados ANTES de truncar e mapear
+                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                texto_belfar = truncar_apos_anvisa(texto_belfar)
 
-elif page == "APP":
-    st.title("Página: APP")
-    st.info("Esta é a página principal 'APP'. O conteúdo ainda não foi definido.")
-    st.image("https://static.streamlit.io/examples/cat.jpg", caption="Placeholder para APP")
+            # Este bloco também estava mal indentado
+            if erro_ref or erro_belfar:
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+            elif not texto_ref or not texto_belfar:
+                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
+            else:
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
+    else:
+        st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
-elif page == "Med. Referencia x BELFAR":
-    st.title("Página: Med. Referencia x BELFAR")
-    st.info("Esta é a página 'Med. Referencia x BELFAR'. O conteúdo ainda não foi definido.")
-    st.image("https://static.streamlit.io/examples/dog.jpg", caption="Placeholder para Med. Referencia")
-
-elif page == "Grafica x Arte":
-    st.title("Página: Grafica x Arte")
-    st.info("Esta é a página 'Grafica x Arte'. O conteúdo ainda não foi definido.")
-    st.image("https://static.streamlit.io/examples/owl.jpg", caption="Placeholder para Grafica x Arte")
+st.divider()
+st.caption("Sistema de Auditoria de Bulas v26.1 | Correção de Layout 'Tudo Junto' (Smart Format)")
