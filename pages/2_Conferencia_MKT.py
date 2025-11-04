@@ -246,6 +246,7 @@ def is_titulo_secao(linha):
         return False
         
     return True
+            
 def mapear_secoes(texto_completo, secoes_esperadas):
     """Mapeador simplificado (v23) para funcionar com o texto "bonito" (fluído)"""
     mapa = []
