@@ -247,6 +247,29 @@ def is_titulo_secao(linha):
         
     return True
             
+def corrigir_quebras_em_titulos(texto):
+    linhas = texto.split("\n")
+    linhas_corrigidas = []
+    buffer = ""
+    for linha in linhas:
+        linha_strip = linha.strip()
+        if not linha_strip:
+            continue
+        # Junta linhas consecutivas em maiúsculas curtas (títulos quebrados)
+        if linha_strip.isupper() and len(linha_strip) < 60:
+            if buffer:
+                buffer += " " + linha_strip
+            else:
+                buffer = linha_strip
+        else:
+            if buffer:
+                linhas_corrigidas.append(buffer)
+                buffer = ""
+            linhas_corrigidas.append(linha_strip)
+    if buffer:
+        linhas_corrigidas.append(buffer)
+    return "\n".join(linhas_corrigidas)
+
 def mapear_secoes(texto_completo, secoes_esperadas):
     """Mapeador simplificado (v23) para funcionar com o texto "bonito" (fluído)"""
     mapa = []
@@ -262,7 +285,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
 
-    limiar_score = 95 
+    limiar_score = 90 
 
     for idx, linha_limpa in enumerate(linhas):
         linha_limpa = linha_limpa.strip() # Garante que está limpa
@@ -727,6 +750,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+if not erro_belfar:
+    texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+    texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
