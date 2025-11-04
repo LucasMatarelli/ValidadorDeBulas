@@ -64,12 +64,12 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA) -----------------
-def extrair_texto(arquivo, tipo_arquivo):
+# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA V18.7) -----------------
+def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
-    Extrai texto de arquivos.
-    A lógica de 2 colunas foi REMOVIDA, pois page.get_text("text", sort=True)
-    já é inteligente o suficiente para lidar com colunas.
+    Extrai texto de arquivos, com lógica condicional para PDFs de 1 ou 2 colunas.
+    
+    :param is_marketing_pdf: True se for o PDF do MKT (2 colunas), False caso contrário.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -80,11 +80,26 @@ def extrair_texto(arquivo, tipo_arquivo):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                # --- INÍCIO DA CORREÇÃO ---
-                # Lógica simplificada. O sort=True é capaz de lidar
-                # com colunas de forma automática.
-                for page in doc:
-                    full_text_list.append(page.get_text("text", sort=True))
+                # --- INÍCIO DA CORREÇÃO (BAGUNÇA) ---
+                if is_marketing_pdf:
+                    # Lógica de 2 colunas SÓ para o PDF do Marketing
+                    # Esta lógica lê a coluna da esquerda INTEIRA, depois a da direita.
+                    # Crucialmente, NÃO usamos sort=True aqui.
+                    for page in doc:
+                        rect = page.rect
+                        clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
+                        clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
+                        
+                        texto_esquerda = page.get_text("text", clip=clip_esquerda) # Sem sort
+                        texto_direita = page.get_text("text", clip=clip_direita)  # Sem sort
+                        
+                        full_text_list.append(texto_esquerda)
+                        full_text_list.append(texto_direita)
+                else:
+                    # Lógica de 1 coluna (padrão) para o PDF da Anvisa
+                    # Aqui o sort=True é seguro e correto.
+                    for page in doc:
+                        full_text_list.append(page.get_text("text", sort=True))
                 # --- FIM DA CORREÇÃO ---
             
             texto = "\n\n".join(full_text_list)
@@ -207,7 +222,6 @@ def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
     
-    # Aumentado o limite de 12 para 15 palavras
     if len(linha) < 4 or len(linha.split()) > 15: 
         return False
         
@@ -670,10 +684,12 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- INÍCIO DA CHAMADA CORRIGIDA ---
-            # Extrai ambos os textos usando a nova lógica universal
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
+            # --- INÍCIO DA CHAMADA CORRIGIDA v18.7 ---
+            # Extrai o texto da Anvisa (1 coluna)
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
+            
+            # Extrai o texto do Marketing (2 colunas)
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             # --- FIM DA CHAMADA CORRIGIDA ---
 
             if not erro_ref:
@@ -691,4 +707,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.6 | Correção de Extração de PDF (colunas)")
+st.caption("Sistema de Auditoria de Bulas v18.7 | Correção de Extração (Coluna Dupla)")
