@@ -64,7 +64,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA) -----------------
+# ----------------- EXTRAÇÃO -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos, com lógica condicional para PDFs de 1 ou 2 colunas.
@@ -80,7 +80,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                # --- INÍCIO DA CORREÇÃO (CONTEÚDO FALTANDO) ---
                 if is_marketing_pdf:
                     # Lógica de 2 colunas SÓ para o PDF do Marketing
                     for page in doc:
@@ -95,7 +94,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     # Lógica de 1 coluna (padrão) para o PDF da Anvisa
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
-                # --- FIM DA CORREÇÃO ---
             
             texto = "\n\n".join(full_text_list)
         
@@ -294,67 +292,50 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
-    TITULOS_OFICIAIS = {
-        "Paciente": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
-            "COMO ESTE MEDICAMENTO FUNCIONA?", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-            "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "COMO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
-            "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-            "DIZERES LEGAIS"
-        ],
-        "Profissional": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
-            "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
-            "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
-            "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
-            "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
-        ]
-    }
-
-    titulos_lista = TITULOS_OFICIAIS.get(tipo_bula, [])
-    titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
-
+# --- INÍCIO DA CORREÇÃO (VAZAMENTO DE SEÇÃO) ---
+# A função foi simplificada para usar APENAS o mapa.
+def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
+    """
+    Extrai o conteúdo de uma seção com base no mapa pré-processado.
+    Isso evita "vazamento" de seções, pois usa o mapa para definir
+    o início e o fim.
+    """
+    
+    # 1. Encontra o índice da nossa seção no mapa
+    idx_secao_atual = -1
     for i, secao_mapa in enumerate(mapa_secoes):
-        if secao_mapa['canonico'] != secao_canonico:
-            continue
+        if secao_mapa['canonico'] == secao_canonico:
+            idx_secao_atual = i
+            break
+    
+    # Se a seção não foi encontrada no mapa, retorna
+    if idx_secao_atual == -1:
+        return False, None, ""
 
-        titulo_encontrado = secao_mapa['titulo_encontrado']
-        linha_inicio = secao_mapa['linha_inicio']
-        num_linhas_titulo = secao_mapa.get('num_linhas_titulo', 1)
-        
-        linha_inicio_conteudo = linha_inicio + num_linhas_titulo
+    # 2. Pega as informações da seção atual
+    secao_atual_info = mapa_secoes[idx_secao_atual]
+    titulo_encontrado = secao_atual_info['titulo_encontrado']
+    linha_inicio = secao_atual_info['linha_inicio']
+    num_linhas_titulo = secao_atual_info.get('num_linhas_titulo', 1)
+    
+    # O conteúdo começa DEPOIS do título
+    linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
-        prox_idx = None
-        for j in range(linha_inicio_conteudo, len(linhas_texto)):
-            linha_atual = linhas_texto[j].strip()
-            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
+    # 3. Encontra a linha de início da *próxima* seção para definir o fim
+    linha_fim = len(linhas_texto) # Padrão: vai até o fim do documento
+    
+    if (idx_secao_atual + 1) < len(mapa_secoes):
+        # Encontrou uma seção seguinte no mapa
+        secao_seguinte_info = mapa_secoes[idx_secao_atual + 1]
+        linha_fim = secao_seguinte_info['linha_inicio']
 
-            if linha_atual_norm in titulos_norm_set:
-                prox_idx = j
-                break
+    # 4. Extrai o conteúdo entre o início desta seção e o início da próxima
+    conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
+    conteudo_final = "\n".join(conteudo).strip()
+    
+    return True, titulo_encontrado, conteudo_final
+# --- FIM DA CORREÇÃO ---
 
-            if (j + 1) < len(linhas_texto):
-                linha_seguinte = linhas_texto[j + 1].strip()
-                titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
-                titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
-
-                if titulo_duas_linhas_norm in titulos_norm_set:
-                    prox_idx = j
-                    break
-
-        linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
-
-        conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
-        conteudo_final = "\n".join(conteudo).strip()
-        
-        return True, titulo_encontrado, conteudo_final
-
-    return False, None, ""
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
@@ -368,8 +349,9 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
 
     for secao in secoes_esperadas:
-        encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref, tipo_bula)
-        encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
+        # --- CORREÇÃO (parâmetro tipo_bula removido) ---
+        encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref)
+        encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar)
 
         if not encontrou_belfar:
             secoes_faltantes.append(secao)
@@ -414,7 +396,8 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             if secao_nome.upper() in [s.upper() for s in secoes_ignorar]:
                 continue
             
-            encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto, tipo_bula)
+            # --- CORREÇÃO (parâmetro tipo_bula removido) ---
+            encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto)
             if encontrou and conteudo:
                 texto_filtrado_para_checar.append(conteudo)
 
@@ -537,7 +520,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 
     return texto_trabalho
 
-# ----------------- RELATÓRIO (FUNÇÃO CORRIGIDA) -----------------
+# ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -559,21 +542,18 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (Referência)", data_ref) # Mudado para data_ref para ser mais útil
+    col3.metric("Data ANVISA (Referência)", data_ref)
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: {data_ref}\n   - BELFAR: {data_belfar}")
     
-    # --- INÍCIO DA CORREÇÃO DE LAYOUT (BAGUNÇADO) ---
     def formatar_html_para_leitura(html_content):
-        """Reverte para a lógica de <br> para preservar o layout original."""
+        """Preserva o layout original com <br>."""
         if html_content is None:
             return ""
-        # Preserva todas as quebras de linha como <br>
         return html_content.replace('\n', '<br>')
-    # --- FIM DA CORREÇÃO DE LAYOUT ---
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
@@ -603,7 +583,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
 
-                # Aplica a formatação <br>
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
@@ -648,7 +627,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # Aplica a formatação <br>
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
 
@@ -685,7 +663,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-# ----------------- INTERFACE (COM CHAMADA CORRIGIDA) -----------------
+# ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
@@ -707,13 +685,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- INÍCIO DA CHAMADA CORRIGIDA ---
             # Extrai o texto da Anvisa (1 coluna)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
             # Extrai o texto do Marketing (2 colunas)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
-            # --- FIM DA CHAMADA CORRIGIDA ---
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -730,4 +706,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.3 | Extração (1-col) e Layout (br) Corrigidos")
+st.caption("Sistema de Auditoria de Bulas v18.4 | Correção de Vazamento de Seção")
