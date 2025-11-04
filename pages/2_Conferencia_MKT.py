@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.12 - Limpeza Final de SyntaxError (U+00A0)
+# Sistema: AuditorIA de Bulas v20.7 - Mapeamento 'Greedy' Inteligente
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.12: (CORREÇÃO DE SYNTAXERROR) Script inteiro limpo programaticamente
-#           de 'non-breaking spaces' (U+00A0) que estavam nos comentários.
-# - v20.8: (Mantido) Filtro de Bbox no extrator de PDF para ignorar 12% do topo/rodapé.
-# - v20.8: (Mantido) Regex da data ANVISA corrigida para aceitar quebras de linha.
+# - v20.7: Corrige o bug v20.6. O mapeador 'greedy' agora só consome linhas
+#          subsequentes SE elas também parecerem títulos (via 'is_titulo_secao').
+#          Isso impede que ele "coma" o conteúdo da seção (ex: "Xarope...").
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -29,17 +28,16 @@ import streamlit as st
 # Deve ser a primeira chamada do Streamlit
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
-# v20.12: Bloco 100% limpo de caracteres invisíveis e sem indentação interna
 hide_streamlit_UI = """
-<style>
-[data-testid="stHeader"] { display: none !important; visibility: hidden !important; }
-[data-testid="main-menu-button"] { display: none !important; }
-footer { display: none !important; visibility: hidden !important; }
-[data-testid="stStatusWidget"] { display: none !important; visibility: hidden !important; }
-[data-testid="stCreatedBy"] { display: none !important; visibility: hidden !important; }
-[data-testid="stHostedBy"] { display: none !important; visibility: hidden !important; }
-</style>
-"""
+            <style>
+            [data-testid="stHeader"] { display: none !important; visibility: hidden !important; }
+            [data-testid="main-menu-button"] { display: none !important; }
+            footer { display: none !important; visibility: hidden !important; }
+            [data-testid="stStatusWidget"] { display: none !important; visibility: hidden !important; }
+            [data-testid="stCreatedBy"] { display: none !important; visibility: hidden !important; }
+            [data-testid="stHostedBy"] { display: none !important; visibility: hidden !important; }
+            </style>
+            """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
 
 # ----------------- MODELO NLP -----------------
@@ -137,11 +135,7 @@ def _create_anchor_id(secao_canonico, prefix):
 
 # --- INÍCIO DA CORREÇÃO v20.1 (Anti-Lixo) ---
 def is_garbage_line(linha_norm):
-    """
-    Verifica (de forma normalizada) se a linha é lixo de rodapé/metadados.
-    v20.8: Esta função agora é um *fallback*. O filtro de Bbox
-    em 'extrair_texto_pdf_com_ocr' é a defesa primária.
-    """
+    """Verifica (de forma normalizada) se a linha é lixo de rodapé/metadados."""
     if not linha_norm:
         return False
     GARBAGE_KEYWORDS = [
@@ -255,13 +249,12 @@ def obter_secoes_ignorar_verificacao_existencia():
     # --- FIM DA ATUALIZAÇÃO v20.5 ---
 
 
-# ----------------- EXTRAÇÃO DE PDF ATUALIZADA (v20.8 - FILTRO DE CONTEÚDO) -----------------
+# ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR (VERSÃO MELHORADA) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Extração otimizada para PDFs de 2 colunas (v20.8).
-    v20.8: Adiciona filtro de Bbox (bounding box) para ignorar
-    cabeçalhos (top 12%) e rodapés (bottom 12%) da página,
-    removendo "lixo" (metadados, etc.) antes do processamento.
+    Extração otimizada para PDFs de 2 colunas.
+    Usa centro do bloco para decidir coluna e ordena por (y, x) dentro de cada coluna.
+    Fallback para OCR com Tesseract quando necessário.
     """
     texto_direto = ""
     try:
@@ -269,29 +262,12 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
             for page in doc:
                 blocks = page.get_text("blocks", sort=False)  # cada block: (x0,y0,x1,y1,"text", ...)
                 middle_x = page.rect.width / 2.0
-                page_height = page.rect.height
-
-                # --- INÍCIO DA CORREÇÃO v20.8 (Filtro de Bbox) ---
-                # Define a "área de conteúdo" para ignorar cabeçalhos e rodapés
-                # Aumentado para 12% para ser mais agressivo com os rodapés
-                margin_percent_top = 0.12
-                margin_percent_bottom = 0.12 
-                content_y0 = page_height * margin_percent_top
-                content_y1 = page_height * (1.0 - margin_percent_bottom)
-                # --- FIM DA CORREÇÃO v20.8 ---
 
                 col1_blocks = []
                 col2_blocks = []
 
                 for b in blocks:
                     x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
-                    
-                    # --- INÍCIO DA CORREÇÃO v20.8 (Filtro de Bbox) ---
-                    # Ignora blocos que estão fora da área de conteúdo
-                    if y0 < content_y0 or y1 > content_y1:
-                        continue
-                    # --- FIM DA CORREÇÃO v20.8 ---
-
                     # usa centro do bloco para decidir coluna (mais robusto que só x0)
                     center_x = (x0 + x1) / 2.0
                     if center_x <= middle_x:
@@ -330,22 +306,11 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
     st.info("Arquivo com layout complexo detectado. Iniciando OCR (tesseract)...")
     texto_ocr = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for page_num, page in enumerate(doc):
+        for page in doc:
             pix = page.get_pixmap(dpi=300)
             img_bytes = pix.tobytes("png")
             imagem = Image.open(io.BytesIO(img_bytes))
-
-            # --- INÍCIO DA CORREÇÃO v20.8 (Filtro de Bbox no OCR) ---
-            # Recorta a imagem para ignorar cabeçalhos e rodapés
-            w, h = imagem.size
-            margin_percent_top = 0.12
-            margin_percent_bottom = 0.12
-            crop_y0 = h * margin_percent_top
-            crop_y1 = h * (1.0 - margin_percent_bottom)
-            imagem_cortada = imagem.crop((0, crop_y0, w, crop_y1))
-            # --- FIM DA CORREÇÃO v20.8 ---
-
-            texto_ocr += pytesseract.image_to_string(imagem_cortada, lang='por') + "\n"
+            texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
 
     return texto_ocr
 
@@ -385,9 +350,9 @@ def extrair_texto(arquivo, tipo_arquivo):
 def mapear_secoes(texto_completo, secoes_esperadas, tipo_bula):
     """
     v20.7: Mapeamento "Greedy" (ganancioso) INTELIGENTE.
-    Só combina linhas se a linha SEGUINTE também parecer um título
-    (via 'is_titulo_secao'). Impede que o mapeador "coma" o conteúdo.
-    v20.8: Agora recebe texto limpo do extrator, deve funcionar.
+    Corrige bug v20.6. Só combina linhas se a linha SEGUINTE
+    também parecer um título (via 'is_titulo_secao').
+    Impede que o mapeador "coma" o conteúdo da seção.
     """
     mapa = []
     linhas = texto_completo.split('\n')
@@ -569,8 +534,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 linha_norm = normalizar_texto(linha)
                 
                 # --- INÍCIO DA CORREÇÃO v20.5 (Bug Seção Branca) ---
-                # v20.8: A defesa primária agora é o filtro de Bbox,
-                # 'is_garbage_line' é um fallback.
+                # Para se encontrar lixo (metadata, rodapé)
                 if is_garbage_line(linha_norm):
                     continue # Pula a linha de lixo e continua
                 # --- FIM DA CORREÇÃO v20.5 ---
@@ -692,6 +656,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 cand_norm_check = normalizar_texto(cand)
 
                 # --- INÍCIO DA CORREÇÃO v20.5 (Bug Seção Branca) ---
+                # Para se encontrar lixo
                 if is_garbage_line(cand_norm_check):
                     continue # Pula a linha de lixo e continua
                 # --- FIM DA CORREÇÃO v20.5 ---
@@ -908,7 +873,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", r"\1 \2", resultado)
     return resultado
 
-# ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES (v20.8 - Correção Data ANVISA) -----------------
+# ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
     if secoes_problema:
@@ -942,18 +907,12 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
                 flags=re.IGNORECASE
             )
 
-    # --- INÍCIO DA CORREÇÃO v20.8 (Data ANVISA Regex) ---
     # destacar frase de aprovação ANVISA (se existir)
-    # A regex agora aceita quebras de linha ([\s\n]+) entre as palavras
-    regex_anvisa = r"((?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprovação[\s\n]+na[\s\n]+anvisa:)[\s\n]*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
     if match:
-        frase_anvisa_raw = match.group(1)
-        # Recria a frase sem as quebras de linha, mas com o <mark>
-        frase_anvisa_clean_html = f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa_raw.replace('\n', ' ')}</mark>"
-        # Substitui a frase original (com quebras de linha) pela versão HTML
-        texto_trabalho = texto_trabalho.replace(frase_anvisa_raw, frase_anvisa_clean_html, 1)
-    # --- FIM DA CORREÇÃO v20.8 ---
+        frase_anvisa = match.group(1)
+        texto_trabalho = texto_trabalho.replace(frase_anvisa, f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa}</mark>", 1)
 
     return texto_trabalho
 
@@ -993,10 +952,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.markdown(js_scroll_script, unsafe_allow_html=True)
 
     st.header("Relatório de AuditorIA Inteligente")
-    
-    # --- INÍCIO DA CORREÇÃO v20.8 (Data ANVISA Regex) ---
-    regex_anvisa = r"(?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprovação[\s\n]+na[\s\n]+anvisa:)[\s\n]*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    # --- FIM DA CORREÇÃO v20.8 ---
+    regex_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
 
     match_ref = re.search(regex_anvisa, texto_ref, re.IGNORECASE)
     match_belfar = re.search(regex_anvisa, texto_belfar, re.IGNORECASE)
@@ -1186,8 +1142,7 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
 
             if not erro_ref and texto_ref: # Adicionada checagem se texto_ref não é None
                 # tentar truncar texto_ref até a linha da data ANVISA (correção solicitada)
-                # v20.8: Regex atualizada para aceitar quebras de linha
-                regex_anvisa_trunc = r"(?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprovação[\s\n]+na[\s\n]+anvisa:)[\s\n]*[\d]{1,2}/[\d]{1,2}/[\d]{2,4}"
+                regex_anvisa_trunc = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4}"
                 match = re.search(regex_anvisa_trunc, texto_ref, re.IGNORECASE)
                 if match:
                     # encontra início da linha onde a data aparece e trunca até essa linha (mantendo a linha)
@@ -1207,4 +1162,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.12 | Limpeza Final de SyntaxError")
+st.caption("Sistema de AuditorIA de Bulas v20.7 | Mapeamento 'Greedy' Inteligente")
