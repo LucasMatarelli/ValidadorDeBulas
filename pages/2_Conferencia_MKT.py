@@ -802,13 +802,3 @@ st.divider()
 st.caption("Sistema de Auditoria de Bulas v26.1 | Correção de Layout 'Tudo Junto' (Smart Format)")
 '''
 
-full_content = content + rest_of_file
-
-file_path = "/mnt/data/auditoria_bulas_v26_1.py"
-with open(file_path, "w", encoding="utf-8") as f:
-    f.write(full_content)
-
-# Output result for user
-print(f"Arquivo gerado em: {file_path}")
-print("Use o link abaixo para baixar o arquivo:")
-print(f"[Download o arquivo gerado](/mnt/data/auditoria_bulas_v26_1.py)")
