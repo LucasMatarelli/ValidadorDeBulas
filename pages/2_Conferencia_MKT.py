@@ -64,7 +64,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA V18.8) -----------------
+# ----------------- EXTRAÇÃO -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos, com lógica condicional para PDFs de 1 ou 2 colunas.
@@ -80,16 +80,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                # --- INÍCIO DA CORREÇÃO (LINHAS QUEBRADAS) ---
                 if is_marketing_pdf:
                     # Lógica de 2 colunas SÓ para o PDF do Marketing
-                    # Adicionamos 'sort=True' para fazer o texto fluir
                     for page in doc:
                         rect = page.rect
                         clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
                         clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
                         
-                        # Adicionado sort=True para "re-fluir" o texto
                         texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True) 
                         texto_direita = page.get_text("text", clip=clip_direita, sort=True)  
                         
@@ -99,7 +96,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     # Lógica de 1 coluna (padrão) para o PDF da Anvisa
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
-                # --- FIM DA CORREÇÃO ---
             
             texto = "\n\n".join(full_text_list)
         
@@ -113,8 +109,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
-            # Removido o de-hifenizador que pode juntar palavras
-            # texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
+            # texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE) # Removido
             
             linhas = texto.split('\n')
             
@@ -127,16 +122,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
                 r'|^\s*\d+\s*mm\s*$'
-                # Removido filtro de "Normal e Negrito" que estava na sua amostra
-                # r'|^\s*-\s*Normal e Negrito\. Corpo \d+\s*$'
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
-                # Adicionado filtro para os novos ruídos
                 r'|BUL_CLORIDRATO_DE_A.*'
                 r'|AMBROXOL_BUL\d+V\d+.*'
                 r'|es New Roman.*'
                 r'|rpo \d+.*'
                 r'|olL: Times New Roman.*'
-                r'|\d{2}\s\d{4}\s\d{4}.*' # Filtro para o telefone 31 2105 1100
+                r'|\d{2}\s\d{4}\s\d{4}.*' 
             , re.IGNORECASE)
             
             linhas_filtradas = []
@@ -239,12 +231,13 @@ def is_titulo_secao(linha):
     if re.search(r'\>\s*\<', linha):
         return False
         
-    if len(linha) > 80:
+    # Aumentado para 90 para títulos longos que refluíram
+    if len(linha) > 90:
         return False
         
     return True
 
-
+# --- INÍCIO DA CORREÇÃO (v18.9) ---
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     linhas = texto_completo.split('\n')
@@ -267,8 +260,17 @@ def mapear_secoes(texto_completo, secoes_esperadas):
 
         best_match_score_1_linha = 0
         best_match_canonico_1_linha = None
+        
+        # Normaliza a linha limpa *uma vez*
+        norm_linha_limpa = normalizar_titulo_para_comparacao(linha_limpa)
+        
         for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-            score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(linha_limpa))
+            norm_titulo_possivel = normalizar_titulo_para_comparacao(titulo_possivel)
+            
+            # MUDANÇA: Troca 'token_set_ratio' por 'ratio'
+            # 'ratio' é mais estrito e não dá 100% para subconjuntos.
+            score = fuzz.ratio(norm_titulo_possivel, norm_linha_limpa)
+            
             if score > best_match_score_1_linha:
                 best_match_score_1_linha = score
                 best_match_canonico_1_linha = titulo_canonico
@@ -280,13 +282,20 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             linha_seguinte = linhas[idx + 1].strip()
             if len(linha_seguinte.split()) < 7:
                 titulo_combinado = f"{linha_limpa} {linha_seguinte}"
+                norm_titulo_combinado = normalizar_titulo_para_comparacao(titulo_combinado)
+                
                 for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(titulo_combinado))
+                    norm_titulo_possivel = normalizar_titulo_para_comparacao(titulo_possivel)
+                    
+                    # MUDANÇA: Troca 'token_set_ratio' por 'ratio'
+                    score = fuzz.ratio(norm_titulo_possivel, norm_titulo_combinado)
+                    
                     if score > best_match_score_2_linhas:
                         best_match_score_2_linhas = score
                         best_match_canonico_2_linhas = titulo_canonico
         
-        limiar_score = 95
+        # Limiar mais baixo para 'fuzz.ratio'
+        limiar_score = 90 
         
         if best_match_score_2_linhas > best_match_score_1_linha and best_match_score_2_linhas >= limiar_score:
             if not mapa or mapa[-1]['canonico'] != best_match_canonico_2_linhas:
@@ -313,6 +322,8 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
+# --- FIM DA CORREÇÃO ---
+
 
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
     """
@@ -368,6 +379,11 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         if encontrou_ref and encontrou_belfar:
             if secao.upper() in secoes_ignorar_upper:
                 continue
+            
+            # DEBUG:
+            # if secao == "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?":
+            #     st.error(f"REF: {conteudo_ref}")
+            #     st.error(f"BELFAR: {conteudo_belfar}")
 
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
                 diferencas_conteudo.append({'secao': secao, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
@@ -560,8 +576,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         """Preserva o layout original com <br>."""
         if html_content is None:
             return ""
-        # Substitui DUAS quebras por <br><br> (parágrafo)
-        # e UMA quebra por <br> (linha)
         html_content = html_content.replace('\n\n', '<br><br>')
         html_content = html_content.replace('\n', '<br>')
         return html_content
@@ -696,13 +710,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- INÍCIO DA CHAMADA CORRIGIDA v18.8 ---
             # Extrai o texto da Anvisa (1 coluna, com sort)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
             # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
-            # --- FIM DA CHAMADA CORRIGIDA ---
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -719,4 +731,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.8 | Correção de Fluxo de Texto (sort=True)")
+st.caption("Sistema de Auditoria de Bulas v18.9 | Correção de Mapeamento (fuzz.ratio)")
