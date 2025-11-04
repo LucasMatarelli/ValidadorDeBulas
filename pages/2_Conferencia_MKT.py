@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.10 - Extração em 4 Etapas
+# Sistema: AuditorIA de Bulas v20.11 - Detector de Corrupção
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.10:
-#   1. Expande `extrair_texto_pdf_com_ocr` para 4 tentativas para
-#      lidar com camadas de texto corrompidas (ex: Bula_Mkt.pdf).
-#   2. Ordem de prioridade: Simples ("text"), Blocks (2-col manual),
-#      Layout (auto), e OCR (Tesseract) como último recurso.
-#   3. Adiciona um "sanity check" (contagem de '\n') para evitar que
-#      métodos falhos (que retornam texto em uma linha só) sejam
-#      aceitos, forçando o OCR quando necessário.
+# - v20.11:
+#   1. Adiciona "detector de corrupção" em `extrair_texto_pdf_com_ocr`.
+#   2. As 3 primeiras tentativas (Simples, Blocks, Layout) agora
+#      verificam se o texto extraído contém strings corrompidas
+#      conhecidas (ex: "daulodencaudas", "võmitos") do Bula_Mkt.pdf.
+#   3. Se essas strings forem encontradas, o resultado é descartado
+#      e a próxima tentativa é executada.
+#   4. Isso FORÇA o script a pular para o OCR (Tentativa 4) em
+#      arquivos com camada de texto corrompida.
 #
 # - Mantenha Tesseract e o modelo SpaCy instalados: tesseract + pt_core_news_lg
 # - Para usar no Streamlit, salve este arquivo e execute streamlit run seu_arquivo.py
@@ -151,7 +152,7 @@ def is_garbage_line(linha_norm):
         'bul 22149v01', 'bula padrao',
         'cor preta normal e negrito corpo 10' # Adicionado v20.8
     ]
-    for key in GARBAGE_KEYWORDS:
+    for key in GARBage_KEYWORDS:
         if key in linha_norm:
             return True
     return False
@@ -185,7 +186,7 @@ def obter_secoes_por_tipo(tipo_bula):
         "2. RESULTADOS DE EFICÁCIA",
         "3. CARACTERÍSTICAS FARMACOLÓGICAS",
         "4. CONTRAINDICAÇÕES",
-        "5. ADVERTÊNCIAS E PRECAUções",
+        "5. ADVERTÊNCIAS E PRECAUÇÕES",
         "6. INTERAÇÕES MEDICAMENTOSAS",
         "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
         "8. POSOLOGIA E MODO DE USAR",
@@ -256,16 +257,21 @@ def obter_secoes_ignorar_verificacao_existencia():
     # --- FIM DA ATUALIZAÇÃO v20.5 ---
 
 
-# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.10) -----------------
+# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.11) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Extração em 4 etapas (v20.10 - Foco em robustez):
+    Extração em 4 etapas (v20.11 - Detector de Corrupção):
     1. Tenta extração "Simples" (rápido, bom para texto limpo).
     2. Tenta extração com 'blocks' (lógica manual de 2 colunas).
     3. Tenta extração com 'layout' (ótimo para colunas complexas).
     4. Tenta OCR (Tesseract) como último recurso.
-    Adicionado "sanity check" de quebras de linha.
+    Adicionado "detector de corrupção" (ex: 'daulodencaudas', 'võmitos')
+    para forçar o OCR em arquivos com camada de texto corrompida.
     """
+    
+    # Palavras-chave que indicam a camada de texto corrompida
+    # (encontradas no Bula_Mkt.pdf)
+    CORRUPTION_KEYWORDS = ["daulodencaudas", "võmitos", "imitação"]
     
     num_paginas = 0
     try:
@@ -281,11 +287,13 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
             for page in doc:
                 texto_simples += page.get_text("text") + "\n"
         
-        if len(texto_simples.strip()) > 200:
-            # Sanity check: O modo simples às vezes junta tudo sem quebras de linha.
-            # Se tiver poucas quebras de linha, é suspeito.
-            if texto_simples.count('\n') > (num_paginas * 2): # Pelo menos 2 quebras por página
-                return texto_simples
+        texto_simples_lower = texto_simples.lower()
+        # v20.11: Detector de Corrupção
+        if any(key in texto_simples_lower for key in CORRUPTION_KEYWORDS):
+            pass # É lixo, deixa falhar e ir para a próxima tentativa
+        elif len(texto_simples.strip()) > 200 and texto_simples.count('\n') > (num_paginas * 2):
+            return texto_simples # Texto parece bom
+            
     except Exception as e:
         pass # Falha, tenta o próximo método
     
@@ -317,11 +325,14 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
                     texto_direto += txt + "\n"
 
                 texto_direto += "\n"  # quebra de página
+        
+        texto_direto_lower = texto_direto.lower()
+        # v20.11: Detector de Corrupção
+        if any(key in texto_direto_lower for key in CORRUPTION_KEYWORDS):
+            pass # É lixo, deixa falhar
+        elif len(texto_direto.strip()) > 100 and texto_direto.count('\n') > (num_paginas * 2):
+             return texto_direto # Texto parece bom
 
-        if len(texto_direto.strip()) > 100:
-             # Sanity check 2: Modo blocks pode retornar lixo
-            if texto_direto.count('\n') > (num_paginas * 2):
-                return texto_direto
     except Exception as e:
         pass # Falha, tenta o próximo método
 
@@ -333,10 +344,13 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
                 # flags=fitz.TEXTFLAGS_LAYOUT tenta preservar o layout, inclusive colunas
                 texto_layout += page.get_text("text", flags=fitz.TEXTFLAGS_LAYOUT) + "\n"
         
-        if len(texto_layout.strip()) > 200: # Limiar razoável
-            # Sanity check 3: Modo layout também pode falhar
-            if texto_layout.count('\n') > (num_paginas * 2):
-                return texto_layout
+        texto_layout_lower = texto_layout.lower()
+        # v20.11: Detector de Corrupção
+        if any(key in texto_layout_lower for key in CORRUPTION_KEYWORDS):
+            pass # É lixo, deixa falhar
+        elif len(texto_layout.strip()) > 200 and texto_layout.count('\n') > (num_paginas * 2):
+            return texto_layout # Texto parece bom
+            
     except Exception as e:
         pass # Falha, tenta o próximo método
 
@@ -355,7 +369,7 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
         return texto_ocr # Retorna o que conseguiu (pode ser vazio)
 
     return texto_ocr
-# --- FIM DA MELHORIA v20.10 ---
+# --- FIM DA MELHORIA v20.11 ---
 
 # ----------------- EXTRAÇÃO DE DOCX (ADICIONADA) -----------------
 def extrair_texto_docx(arquivo_bytes):
@@ -920,7 +934,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
     if secoes_problema:
-        for diff in secoes_problema:
+        for diff in diferencas_conteudo:
             conteudo_ref = diff.get('conteudo_anvisa', '') or ''
             conteudo_belfar = diff.get('conteudo_mkt', '') or ''
             conteudo_a_substituir = conteudo_ref if eh_referencia else conteudo_belfar
@@ -1199,4 +1213,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.10 | Extração em 4 Etapas")
+st.caption("Sistema de AuditorIA de Bulas v20.11 | Detector de Corrupção")
