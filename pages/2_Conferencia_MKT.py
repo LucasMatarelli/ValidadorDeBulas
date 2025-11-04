@@ -229,23 +229,19 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = re.sub(r'^\\d+\\s*[\\.\\-)]*\\s*', '', texto_norm).strip()
     return texto_norm
 
-# ----------------- CORREÇÃO DE TÍTULOS QUEBRADOS -----------------
+# ----------------- CORREÇÃO DE TÍTULOS BELFAR -----------------
 def corrigir_quebras_em_titulos(texto):
     """
     Une linhas maiúsculas consecutivas (títulos quebrados em várias linhas)
     para corrigir erros de reconhecimento no PDF da BELFAR.
     """
-    linhas = texto.split("\\n")
+    linhas = texto.split("\n")
     linhas_corrigidas = []
     buffer = ""
 
     for linha in linhas:
         linha_strip = linha.strip()
         if not linha_strip:
-            # Linha vazia: encerra buffer (se houver)
-            if buffer:
-                linhas_corrigidas.append(buffer)
-                buffer = ""
             continue
 
         # Junta linhas curtas e em maiúsculas (possível título dividido)
@@ -263,7 +259,7 @@ def corrigir_quebras_em_titulos(texto):
     if buffer:
         linhas_corrigidas.append(buffer)
 
-    return "\\n".join(linhas_corrigidas)
+    return "\n".join(linhas_corrigidas)
 
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (v23.0) -----------------
 def is_titulo_secao(linha):
@@ -781,9 +777,10 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+if not erro_belfar:
+    texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+    texto_belfar = truncar_apos_anvisa(texto_belfar)
 
-            if not erro_ref:
-                texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
                 # Aplica correção de títulos quebrados ANTES de truncar e mapear
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
