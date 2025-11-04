@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.9 - Prioridade de Extração
+# Sistema: AuditorIA de Bulas v20.10 - Extração em 4 Etapas
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.9:
-#   1. Re-prioriza os métodos de extração em `extrair_texto_pdf_com_ocr`.
-#   2. Tenta "Modo Blocks" (manual 2 colunas) PRIMEIRO, pois é mais robusto
-#      para layouts simples de 2 colunas.
-#   3. O "Modo Layout" (automático) vira a Tentativa 2 (Plano B).
-#   4. OCR (Tesseract) continua como Tentativa 3 (Plano C).
-#   5. Isso corrige PDFs com camadas de texto corrompidas que enganavam o "Modo Layout".
+# - v20.10:
+#   1. Expande `extrair_texto_pdf_com_ocr` para 4 tentativas para
+#      lidar com camadas de texto corrompidas (ex: Bula_Mkt.pdf).
+#   2. Ordem de prioridade: Simples ("text"), Blocks (2-col manual),
+#      Layout (auto), e OCR (Tesseract) como último recurso.
+#   3. Adiciona um "sanity check" (contagem de '\n') para evitar que
+#      métodos falhos (que retornam texto em uma linha só) sejam
+#      aceitos, forçando o OCR quando necessário.
 #
 # - Mantenha Tesseract e o modelo SpaCy instalados: tesseract + pt_core_news_lg
 # - Para usar no Streamlit, salve este arquivo e execute streamlit run seu_arquivo.py
@@ -184,7 +185,7 @@ def obter_secoes_por_tipo(tipo_bula):
         "2. RESULTADOS DE EFICÁCIA",
         "3. CARACTERÍSTICAS FARMACOLÓGICAS",
         "4. CONTRAINDICAÇÕES",
-        "5. ADVERTÊNCIAS E PRECAUÇÕES",
+        "5. ADVERTÊNCIAS E PRECAUções",
         "6. INTERAÇÕES MEDICAMENTOSAS",
         "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
         "8. POSOLOGIA E MODO DE USAR",
@@ -255,16 +256,40 @@ def obter_secoes_ignorar_verificacao_existencia():
     # --- FIM DA ATUALIZAÇÃO v20.5 ---
 
 
-# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.9) -----------------
+# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.10) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Extração em 3 etapas (v20.9 - Prioridade Corrigida):
-    1. Tenta extração com 'blocks' (lógica manual de 2 colunas).
-    2. Tenta extração com 'layout' (ótimo para colunas complexas).
-    3. Tenta OCR (Tesseract) como último recurso.
+    Extração em 4 etapas (v20.10 - Foco em robustez):
+    1. Tenta extração "Simples" (rápido, bom para texto limpo).
+    2. Tenta extração com 'blocks' (lógica manual de 2 colunas).
+    3. Tenta extração com 'layout' (ótimo para colunas complexas).
+    4. Tenta OCR (Tesseract) como último recurso.
+    Adicionado "sanity check" de quebras de linha.
     """
     
-    # --- Tentativa 1: Modo "Blocks" (Lógica manual de 2 colunas) ---
+    num_paginas = 0
+    try:
+        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+            num_paginas = len(doc)
+    except Exception:
+        pass # Falha ao abrir, OCR vai tentar
+
+    # --- Tentativa 1: Modo "Simples" (page.get_text("text")) ---
+    texto_simples = ""
+    try:
+        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+            for page in doc:
+                texto_simples += page.get_text("text") + "\n"
+        
+        if len(texto_simples.strip()) > 200:
+            # Sanity check: O modo simples às vezes junta tudo sem quebras de linha.
+            # Se tiver poucas quebras de linha, é suspeito.
+            if texto_simples.count('\n') > (num_paginas * 2): # Pelo menos 2 quebras por página
+                return texto_simples
+    except Exception as e:
+        pass # Falha, tenta o próximo método
+    
+    # --- Tentativa 2: Modo "Blocks" (Lógica manual de 2 colunas) ---
     texto_direto = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -294,11 +319,13 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
                 texto_direto += "\n"  # quebra de página
 
         if len(texto_direto.strip()) > 100:
-            return texto_direto
+             # Sanity check 2: Modo blocks pode retornar lixo
+            if texto_direto.count('\n') > (num_paginas * 2):
+                return texto_direto
     except Exception as e:
         pass # Falha, tenta o próximo método
 
-    # --- Tentativa 2: Modo Layout (Bom para colunas complexas) ---
+    # --- Tentativa 3: Modo Layout (Bom para colunas complexas) ---
     texto_layout = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -307,11 +334,13 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
                 texto_layout += page.get_text("text", flags=fitz.TEXTFLAGS_LAYOUT) + "\n"
         
         if len(texto_layout.strip()) > 200: # Limiar razoável
-            return texto_layout
+            # Sanity check 3: Modo layout também pode falhar
+            if texto_layout.count('\n') > (num_paginas * 2):
+                return texto_layout
     except Exception as e:
         pass # Falha, tenta o próximo método
 
-    # --- Tentativa 3: Fallback OCR ---
+    # --- Tentativa 4: Fallback OCR ---
     st.info("Arquivo com layout complexo ou camada de texto corrompida. Iniciando OCR (tesseract)...")
     texto_ocr = ""
     try:
@@ -326,7 +355,7 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
         return texto_ocr # Retorna o que conseguiu (pode ser vazio)
 
     return texto_ocr
-# --- FIM DA MELHORIA v20.9 ---
+# --- FIM DA MELHORIA v20.10 ---
 
 # ----------------- EXTRAÇÃO DE DOCX (ADICIONADA) -----------------
 def extrair_texto_docx(arquivo_bytes):
@@ -1170,4 +1199,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.9 | Prioridade de Extração")
+st.caption("Sistema de AuditorIA de Bulas v20.10 | Extração em 4 Etapas")
