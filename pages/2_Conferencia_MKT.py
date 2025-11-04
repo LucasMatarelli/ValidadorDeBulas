@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 # (Seu código v26.1 completo e corrigido)
-# Versão v26.6:
-# 1. CORRIGIDO: Regex da data ANVISA para aceitar espaços (ex: "05 / 02 / 2024")
-# 2. CORRIGIDO: Isso conserta o truncamento (corte) do texto e a marcação azul.
+# Versão v26.7:
+# 1. CORRIGIDO: Função 'truncar_apos_anvisa' agora remove texto NA MESMA LINHA após a data.
+# 2. Mantém a marcação azul com prioridade.
 # 3. Mantém a exibição de TODAS as seções (idênticas e divergentes).
 # 4. Mantém a lista de seções exata (numeração híbrida).
 
@@ -120,27 +120,43 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-        
+
+# --- CORREÇÃO (v26.7) ---
+# Função 'truncar_apos_anvisa' reescrita para cortar o lixo na mesma linha.
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
     
-    # --- CORREÇÃO (v26.6) ---
     # Regex que aceita espaços na data (ex: 05 / 02 / 2024)
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
-    # --- FIM DA CORREÇÃO ---
+    # Grupo 1: A frase e a data.
+    # Grupo 2: Apenas a data.
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
-    if match:
-        # Encontra a próxima quebra de linha DEPOIS do fim da data
-        end_of_line_pos = texto.find('\n', match.end()) 
-        if end_of_line_pos != -1:
-            # Retorna o texto ATÉ (e incluindo) a linha da data
-            return texto[:end_of_line_pos] 
-        else:
-            # Se não houver \n (data é a última coisa), retorna tudo até o fim do match
-            return texto[:match.end()]
-    return texto
+    
+    # Se não encontrar o padrão da data, retorna o texto original
+    if not match:
+        return texto
+
+    # Pega a posição FINAL do match (grupo 1)
+    # Ex: "...pela Anvisa em 05 / 02 / 2024" <-- Posição é aqui
+    cut_off_position = match.end(1) 
+    
+    # Agora, verifica se há um ponto final logo após
+    # Procura por um ponto opcional com espaço após a data (ex: " . ")
+    # Usa a posição final (cut_off_position) como ponto de partida
+    pos_match = re.search(r'^\s*\.', texto[cut_off_position:], re.IGNORECASE)
+    
+    if pos_match: 
+        # Se encontrar um ponto (ex: " . "), atualiza a posição de corte
+        # para DEPOIS do ponto, incluindo-o.
+        cut_off_position += pos_match.end()
+
+    # Retorna o texto desde o início ATÉ essa posição de corte final.
+    # Ex: "...pela Anvisa em 05 / 02 / 2024 ."
+    # Todo o lixo (ex: "4 FR ML 60...") é removido.
+    return texto[:cut_off_position]
+# --- FIM DA CORREÇÃO ---
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
@@ -568,7 +584,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 flags=re.IGNORECASE
             )
             
-    # --- CORREÇÃO MARCAÇÃO AZUL (v26.6) ---
+    # --- CORREÇÃO MARCAÇÃO AZUL (v26.7) ---
     # 3. Marca Azul (ANVISA) POR ÚLTIMO, para ter prioridade visual.
     #    Regex que aceita espaços na data (ex: 05 / 02 / 2024)
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
@@ -598,7 +614,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     
-    # --- CORREÇÃO (v26.6) ---
+    # --- CORREÇÃO (v26.7) ---
     # Regex que aceita espaços na data (ex: 05 / 02 / 2024)
     # Captura 1: frase inteira, Captura 2: só a data
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
@@ -855,7 +871,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if not erro_belfar:
                 # Aplica correção de títulos quebrados ANTES de truncar e mapear
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
-                # Garante que o truncamento está sendo chamado
+                # Garante que o truncamento (v26.7) está sendo chamado
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
@@ -868,4 +884,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.6 | Correção de Regex ANVISA (Truncar e Marcar)")
+st.caption("Sistema de Auditoria de Bulas v26.7 | Correção de Truncamento ANVISA")
