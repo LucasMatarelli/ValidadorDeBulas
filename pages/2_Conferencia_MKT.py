@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.11 - Limpeza Final de SyntaxError
+# Sistema: AuditorIA de Bulas v20.12 - Limpeza Final de SyntaxError
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.11: (CORREÇÃO DE SYNTAXERROR) Recriado para garantir
+# - v20.12: (CORREÇÃO DE SYNTAXERROR) Recriado para garantir
 #           NENHUM 'non-breaking space' (U+00A0). Bloco 'hide_streamlit_UI'
 #           foi reescrito manualmente para ser 100% limpo.
 # - v20.8: (Mantido) Filtro de Bbox no extrator de PDF para ignorar 12% do topo/rodapé.
@@ -30,7 +30,7 @@ import streamlit as st
 # Deve ser a primeira chamada do Streamlit
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
-# v20.11: Bloco 100% limpo de caracteres invisíveis e sem indentação interna
+# v20.12: Bloco 100% limpo de caracteres invisíveis e sem indentação interna
 hide_streamlit_UI = """
 <style>
 [data-testid="stHeader"] { display: none !important; visibility: hidden !important; }
@@ -1208,4 +1208,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.11 | Limpeza Final de SyntaxError")
+st.caption("Sistema de AuditorIA de Bulas v20.12 | Limpeza Final de SyntaxError")
