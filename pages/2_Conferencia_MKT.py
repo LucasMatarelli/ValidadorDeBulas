@@ -1,6 +1,6 @@
 # pages/2_Conferencia_MKT.py
 # (Seu código v26.1 completo e corrigido)
-# Versão v26.2: Numeração de seções e renomeação de labels (ANVISA/MKT)
+# Versão v26.3: Mostra a comparação de TODAS as seções (não ignora mais nenhuma)
 
 # --- IMPORTS ---
 import re
@@ -133,7 +133,6 @@ def truncar_apos_anvisa(texto):
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
     
-    # --- ALTERAÇÃO SOLICITADA ---
     # Numeração completa das seções
     secoes = {
         "Paciente": [
@@ -166,7 +165,6 @@ def obter_secoes_por_tipo(tipo_bula):
             "13. DIZERES LEGAIS"
         ]
     }
-    # --- FIM DA ALTERAÇÃO ---
     
     return secoes.get(tipo_bula, [])
 
@@ -193,12 +191,14 @@ def obter_aliases_secao():
     }
 
 def obter_secoes_ignorar_ortografia():
-    # Ignora pela numeração
+    # Mantém ignorando ortografia em seções com nomes técnicos/endereços
     return ["2. COMPOSIÇÃO", "12. DIZERES LEGAIS", "13. DIZERES LEGAIS"]
 
 def obter_secoes_ignorar_comparacao():
-    # Ignora pela numeração
-    return ["1. APRESENTAÇÕES", "2. COMPOSIÇÃO", "12. DIZERES LEGAIS", "13. DIZERES LEGAIS", "7. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO"]
+    # --- ALTERAÇÃO SOLICITADA ---
+    # Retorna uma lista vazia para forçar a comparação de TODAS as seções.
+    return []
+    # --- FIM DA ALTERAÇÃO ---
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
@@ -378,8 +378,11 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             continue
 
         if encontrou_ref and encontrou_belfar:
-            if secao.upper() in secoes_ignorar_upper:
+            # --- ALTERAÇÃO SOLICITADA ---
+            # O 'if' abaixo agora sempre será falso, forçando a comparação de todas as seções
+            if secao.upper() in secoes_ignorar_upper: 
                 continue
+            # --- FIM DA ALTERAÇÃO ---
 
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
                 diferencas_conteudo.append({'secao': secao, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
@@ -567,18 +570,14 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
     
-    # --- ALTERAÇÃO SOLICITADA ---
     col3.metric("Data ANVISA (Arquivo ANVISA)", data_ref)
-    # --- FIM DA ALTERAÇÃO ---
     
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
     
-    # --- ALTERAÇÃO SOLICITADA ---
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
-    # --- FIM DA ALTERAÇÃO ---
     
     
     # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.0) ---
@@ -636,9 +635,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
     if secoes_faltantes:
-        # --- ALTERAÇÃO SOLICITADA ---
         st.error(f"🚨 **Seções faltantes na bula Arquivo MKT ({len(secoes_faltantes)})**:\n" + "\n".join([f"  - {s}" for s in secoes_faltantes]))
-        # --- FIM DA ALTERAÇÃO ---
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
     
@@ -671,17 +668,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    # --- ALTERAÇÃO SOLICITADA ---
                     st.markdown("**Arquivo ANVISA:**")
-                    # --- FIM DA ALTERAÇÃO ---
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
                 with c2:
-                    # --- ALTERAÇÃO SOLICITADA ---
                     st.markdown("**Arquivo MKT:**")
-                    # --- FIM DA ALTERAÇÃO ---
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
     else:
-        st.success("✅ Conteúdo das seções está idêntico")
+        # Só mostra sucesso se não houver diferenças *e* não houver seções faltantes
+        if not secoes_faltantes:
+            st.success("✅ Conteúdo de todas as seções está idêntico")
 
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
@@ -763,14 +758,10 @@ st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
-    # --- ALTERAÇÃO SOLICITADA ---
     st.subheader("📄 Arquivo ANVISA")
-    # --- FIM DA ALTERAÇÃO ---
     pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
 with col2:
-    # --- ALTERAÇÃO SOLICITADA ---
     st.subheader("📄 Arquivo MKT")
-    # --- FIM DA ALTERAÇÃO ---
     pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
@@ -795,11 +786,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             elif not texto_ref or not texto_belfar:
                  st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
-                # --- ALTERAÇÃO SOLICITADA ---
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
-                # --- FIM DA ALTERAÇÃO ---
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.2 | Numeração de Seções e Labels (ANVISA/MKT)")
+st.caption("Sistema de Auditoria de Bulas v26.3 | Comparação de Todas as Seções")
