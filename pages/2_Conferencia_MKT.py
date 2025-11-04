@@ -64,7 +64,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA V20.0) -----------------
+# ----------------- EXTRAÇÃO -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
@@ -81,7 +81,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                # --- INÍCIO DA CORREÇÃO (v20.0) ---
                 if is_marketing_pdf:
                     # Lógica de 2 colunas SÓ para o PDF do Marketing
                     # NÃO usamos sort=True, para que o mapeador de 3 linhas funcione
@@ -99,7 +98,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     # Lógica de 1 coluna (padrão) para o PDF da Anvisa
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
-                # --- FIM DA CORREÇÃO ---
             
             texto = "\n\n".join(full_text_list)
         
@@ -568,29 +566,21 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.subheader("Detalhes dos Problemas Encontrados")
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: {data_ref}\n   - BELFAR: {data_belfar}")
     
-    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v20.0) ---
-    def formatar_html_para_leitura(html_content, is_ref_pdf=False):
-        """Re-flui o texto para layout 'bonitinho', mas preserva o layout do PDF da Anvisa."""
+    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v21.0) ---
+    def formatar_html_para_leitura(html_content):
+        """
+        Corrige o bug "tudo junto" (v20.0)
+        Agora, simplesmente preserva TODAS as quebras de linha
+        originais do documento, para AMBOS os arquivos.
+        """
         if html_content is None:
             return ""
         
-        if is_ref_pdf:
-            # Para o PDF da Anvisa, preservamos as quebras
-            html_content = html_content.replace('\n\n', '<br><br>')
-            html_content = html_content.replace('\n', '<br>')
-            return html_content
-        else:
-            # Para o PDF do Marketing, re-fluímos o texto
-            
-            # 1. Preserva marcações de parágrafos (2+ newlines)
-            html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
-            
-            # 2. Substitui quebras de linha únicas (de layout) por um espaço
-            html_content = html_content.replace('\n', ' ')
-            
-            # 3. Restaura as quebras de parágrafo
-            html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
-            return html_content
+        # Preserva parágrafos
+        html_content = html_content.replace('\n\n', '<br><br>')
+        # Preserva quebras de linha únicas (layout do PDF)
+        html_content = html_content.replace('\n', '<br>')
+        return html_content
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
     if secoes_faltantes:
@@ -621,9 +611,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
 
-                # Aplica a formatação condicional
-                expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, is_ref_pdf=True) # Assumindo Anvisa=Ref
-                expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, is_ref_pdf=False)
+                # Aplica a formatação v21.0 (preserva quebras)
+                expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
+                expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -666,9 +656,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # Aplica a formatação condicional
-    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, is_ref_pdf=True) # Assumindo Anvisa=Ref
-    html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, is_ref_pdf=False)
+    # Aplica a formatação v21.0 (preserva quebras)
+    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
+    html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
 
 
     # 2. Estilo da Caixa de Visualização
@@ -725,13 +715,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- INÍCIO DA CHAMADA CORRIGIDA v20.0 ---
             # Extrai o texto da Anvisa (1 coluna, com sort)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
             # Extrai o texto do Marketing (2 colunas, SEM sort)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
-            # --- FIM DA CHAMADA CORRIGIDA ---
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -748,4 +736,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v20.0 | Correção Híbrida (Lógica 'sort=False', Visual 're-flow')")
+st.caption("Sistema de Auditoria de Bulas v21.0 | Correção de Layout ('Tudo Junto')")
