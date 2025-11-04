@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.8 - Extração Robusta
+# Sistema: AuditorIA de Bulas v20.9 - Prioridade de Extração
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.8:
-#   1. Corrige bug de truncamento do texto_ref (Anvisa), que impedia a
-#      visualização lado-a-lado de exibir a data Anvisa e o conteúdo.
-#   2. Melhora drástica no `extrair_texto_pdf_com_ocr`: agora usa
-#      `fitz.TEXTFLAGS_LAYOUT` como primeira tentativa (excelente para colunas),
-#      mantendo a lógica de 'blocks' como fallback 1 e OCR como fallback 2.
-#   3. Adiciona "Cor: Preta..." ao filtro `is_garbage_line`.
+# - v20.9:
+#   1. Re-prioriza os métodos de extração em `extrair_texto_pdf_com_ocr`.
+#   2. Tenta "Modo Blocks" (manual 2 colunas) PRIMEIRO, pois é mais robusto
+#      para layouts simples de 2 colunas.
+#   3. O "Modo Layout" (automático) vira a Tentativa 2 (Plano B).
+#   4. OCR (Tesseract) continua como Tentativa 3 (Plano C).
+#   5. Isso corrige PDFs com camadas de texto corrompidas que enganavam o "Modo Layout".
+#
 # - Mantenha Tesseract e o modelo SpaCy instalados: tesseract + pt_core_news_lg
 # - Para usar no Streamlit, salve este arquivo e execute streamlit run seu_arquivo.py
 
@@ -254,29 +255,16 @@ def obter_secoes_ignorar_verificacao_existencia():
     # --- FIM DA ATUALIZAÇÃO v20.5 ---
 
 
-# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.8) -----------------
+# ----------------- EXTRAÇÃO DE PDF (MELHORIA v20.9) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Extração em 3 etapas (v20.8):
-    1. Tenta extração com 'layout' (ótimo para colunas).
-    2. Tenta extração com 'blocks' (lógica manual de 2 colunas).
+    Extração em 3 etapas (v20.9 - Prioridade Corrigida):
+    1. Tenta extração com 'blocks' (lógica manual de 2 colunas).
+    2. Tenta extração com 'layout' (ótimo para colunas complexas).
     3. Tenta OCR (Tesseract) como último recurso.
     """
     
-    # --- Tentativa 1: Modo Layout (Bom para colunas) ---
-    texto_layout = ""
-    try:
-        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-            for page in doc:
-                # flags=fitz.TEXTFLAGS_LAYOUT tenta preservar o layout, inclusive colunas
-                texto_layout += page.get_text("text", flags=fitz.TEXTFLAGS_LAYOUT) + "\n"
-        
-        if len(texto_layout.strip()) > 200: # Limiar razoável
-            return texto_layout
-    except Exception as e:
-        pass # Falha, tenta o próximo método
-
-    # --- Tentativa 2: Modo "Blocks" (Lógica manual de 2 colunas) ---
+    # --- Tentativa 1: Modo "Blocks" (Lógica manual de 2 colunas) ---
     texto_direto = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -310,8 +298,21 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
     except Exception as e:
         pass # Falha, tenta o próximo método
 
+    # --- Tentativa 2: Modo Layout (Bom para colunas complexas) ---
+    texto_layout = ""
+    try:
+        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+            for page in doc:
+                # flags=fitz.TEXTFLAGS_LAYOUT tenta preservar o layout, inclusive colunas
+                texto_layout += page.get_text("text", flags=fitz.TEXTFLAGS_LAYOUT) + "\n"
+        
+        if len(texto_layout.strip()) > 200: # Limiar razoável
+            return texto_layout
+    except Exception as e:
+        pass # Falha, tenta o próximo método
+
     # --- Tentativa 3: Fallback OCR ---
-    st.info("Arquivo com layout complexo detectado. Iniciando OCR (tesseract)...")
+    st.info("Arquivo com layout complexo ou camada de texto corrompida. Iniciando OCR (tesseract)...")
     texto_ocr = ""
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -325,7 +326,7 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
         return texto_ocr # Retorna o que conseguiu (pode ser vazio)
 
     return texto_ocr
-# --- FIM DA MELHORIA v20.8 ---
+# --- FIM DA MELHORIA v20.9 ---
 
 # ----------------- EXTRAÇÃO DE DOCX (ADICIONADA) -----------------
 def extrair_texto_docx(arquivo_bytes):
@@ -1169,4 +1170,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.8 | Extração Robusta")
+st.caption("Sistema de AuditorIA de Bulas v20.9 | Prioridade de Extração")
