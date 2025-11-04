@@ -248,14 +248,20 @@ def is_titulo_secao(linha):
     return True
             
 def corrigir_quebras_em_titulos(texto):
+    """
+    Une linhas maiúsculas consecutivas (títulos quebrados em várias linhas)
+    para corrigir erros de reconhecimento no PDF da BELFAR.
+    """
     linhas = texto.split("\n")
     linhas_corrigidas = []
     buffer = ""
+
     for linha in linhas:
         linha_strip = linha.strip()
         if not linha_strip:
             continue
-        # Junta linhas consecutivas em maiúsculas curtas (títulos quebrados)
+
+        # Junta linhas curtas e em maiúsculas (possível título dividido)
         if linha_strip.isupper() and len(linha_strip) < 60:
             if buffer:
                 buffer += " " + linha_strip
@@ -266,8 +272,10 @@ def corrigir_quebras_em_titulos(texto):
                 linhas_corrigidas.append(buffer)
                 buffer = ""
             linhas_corrigidas.append(linha_strip)
+
     if buffer:
         linhas_corrigidas.append(buffer)
+
     return "\n".join(linhas_corrigidas)
 
 def mapear_secoes(texto_completo, secoes_esperadas):
@@ -753,6 +761,8 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
 if not erro_belfar:
     texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
     texto_belfar = truncar_apos_anvisa(texto_belfar)
+
+
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
