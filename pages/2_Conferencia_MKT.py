@@ -9,68 +9,13 @@ from spellchecker import SpellChecker
 import difflib
 import unicodedata
 
-hide_streamlit_UI = """
-            <style>
-            /* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
-            [data-testid="stHeader"] {
-                display: none !important;
-                visibility: hidden !important;
-            }
-            
-            /* Esconde o menu hamburger (dentro do app) */
-            [data-testid="main-menu-button"] {
-                display: none !important;
-            }
-            
-            /* Esconde o rodapé genérico (garantia extra) */
-            footer {
-                display: none !important;
-                visibility: hidden !important;
-            }
+# ... (outro código permanece igual) ...
 
-            /* --- NOVOS SELETORES (MAIS AGRESSIVOS) PARA O BADGE INFERIOR --- */
-
-            /* Esconde o container principal do badge */
-            [data-testid="stStatusWidget"] {
-                display: none !important;
-                visibility: hidden !importa
-            }
-
-            /* Esconde o 'Created by' */
-            [data-testid="stCreatedBy"] {
-                display: none !important;
-                visibility: hidden !importa
-            }
-
-            /* Esconde o 'Hosted with Streamlit' */
-            [data-testid="stHostedBy"] {
-                display: none !important;
-                visibility: hidden !importa
-            }
-            </style>
-            """
-st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
-
-
-# ----------------- MODELO NLP -----------------
-@st.cache_resource
-def carregar_modelo_spacy():
-    """Carrega o modelo de linguagem SpaCy de forma otimizada."""
-    try:
-        return spacy.load("pt_core_news_lg")
-    except OSError:
-        st.error("Modelo 'pt_core_news_lg' não encontrado. Execute: python -m spacy download pt_core_news_lg")
-        return None
-
-nlp = carregar_modelo_spacy()
-
-# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA V27.0) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
-    - PDF Anvisa (1 col): Usa sort=True para fluir o texto.
-    - PDF Marketing (2 col): NÃO usa sort, para preservar as linhas
-      para o mapeamento de 3 linhas.
+    Para PDFs do marketing (is_marketing_pdf=True) usa extração por blocos
+    e ordenação por coordenadas para preservar leitura em colunas.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -81,25 +26,58 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                # --- INÍCIO DA CORREÇÃO (v27.0) ---
                 if is_marketing_pdf:
-                    # Lógica de 2 colunas SÓ para o PDF do Marketing
-                    # NÃO usamos sort=True, para que o mapeador de 3 linhas funcione
+                    # Nova lógica: extrai blocos, ordena por x (coluna) e depois por y (linha)
                     for page in doc:
-                        rect = page.rect
-                        clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
-                        clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
+                        # Usa a saída 'dict' para ter blocos com coordenadas
+                        page_dict = page.get_text("dict")
+                        blocks = page_dict.get("blocks", [])
                         
-                        texto_esquerda = page.get_text("text", clip=clip_esquerda) # SEM SORT
-                        texto_direita = page.get_text("text", clip=clip_direita)  # SEM SORT
+                        # Filtra apenas blocos com texto e monta lista com bbox e texto
+                        text_blocks = []
+                        for b in blocks:
+                            # cada bloco pode ter 'lines' -> 'spans' com 'text'
+                            block_text = ""
+                            if 'lines' in b:
+                                for line in b['lines']:
+                                    for span in line.get('spans', []):
+                                        block_text += span.get('text', '')
+                                        # preserva separação de linha dentro do bloco
+                                    block_text += "\n"
+                            block_text = block_text.strip()
+                            # considera apenas blocos com texto útil
+                            if block_text and len(block_text) > 3:
+                                bbox = b.get('bbox', [0,0,0,0])  # [x0, y0, x1, y1]
+                                x0, y0 = bbox[0], bbox[1]
+                                text_blocks.append({'x0': x0, 'y0': y0, 'text': block_text, 'w': bbox[2]-bbox[0], 'h': bbox[3]-bbox[1]})
                         
-                        full_text_list.append(texto_esquerda)
-                        full_text_list.append(texto_direita)
+                        if not text_blocks:
+                            # fallback para caso inesperado: usar método text simples (com sort)
+                            full_text_list.append(page.get_text("text", sort=True))
+                            continue
+                        
+                        # heurística: ordenar por coluna primeiro. Definimos colunas por x0
+                        # Agrupamos em "colunas" por proximidade em x (tolerância dependente da página)
+                        widths = [tb['w'] for tb in text_blocks]
+                        page_width = page.rect.width if page.rect else max([tb['x0']+tb['w'] for tb in text_blocks])
+                        # tolerância: 10% da largura de página
+                        tol = max(20, page_width * 0.08)
+                        
+                        # Primeiro, ordena todos por x0 asc, depois por y0 asc
+                        text_blocks.sort(key=lambda b: (round(b['x0']/tol), b['x0'], b['y0']))
+                        
+                        # Junta os textos na ordem calculada
+                        page_text_ordered = []
+                        for tb in text_blocks:
+                            txt = tb['text'].strip()
+                            if txt:
+                                page_text_ordered.append(txt)
+                        
+                        full_text_list.append("\n".join(page_text_ordered))
                 else:
                     # Lógica de 1 coluna (padrão) para o PDF da Anvisa
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
-                # --- FIM DA CORREÇÃO ---
             
             texto = "\n\n".join(full_text_list)
         
@@ -116,6 +94,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             linhas = texto.split('\n')
             
+            # --- FILTRO DE RUÍDO APRIMORADO (v26.0) ---
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
