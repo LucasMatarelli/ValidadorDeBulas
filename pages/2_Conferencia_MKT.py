@@ -382,7 +382,17 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
 # ----------------- ORTOGRAFIA -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula):
+    # garante que a variável nlp exista e esteja carregada
+    global nlp
+    try:
+        if 'nlp' not in globals() or nlp is None:
+            nlp = carregar_modelo_spacy()
+    except Exception:
+        nlp = None
+
     if not nlp or not texto_para_checar:
+        # Se o modelo não estiver disponível ou não há texto para checar,
+        # retornamos lista vazia (sem quebrar a aplicação).
         return []
 
     try:
@@ -396,19 +406,20 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         for secao_nome in secoes_todas:
             if secao_nome.upper() in [s.upper() for s in secoes_ignorar]:
                 continue
-            
+
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto)
             if encontrou and conteudo:
                 texto_filtrado_para_checar.append(conteudo)
 
         texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
-        
+
         if not texto_final_para_checar:
             return []
 
         spell = SpellChecker(language='pt')
         palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
+        # usa o nlp carregado
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
 
@@ -421,6 +432,8 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         return list(sorted(set([e for e in erros if len(e) > 3])))[:20]
 
     except Exception as e:
+        # opcional: log do erro (usar st.error só em desenvolvimento)
+        # st.error(f"Erro na checagem ortográfica: {e}")
         return []
 
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
