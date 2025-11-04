@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.11 - Detector de Corrupção
+# Sistema: AuditorIA de Bulas v20.12 - Correção de Typo
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.11:
-#   1. Adiciona "detector de corrupção" em `extrair_texto_pdf_com_ocr`.
-#   2. As 3 primeiras tentativas (Simples, Blocks, Layout) agora
-#      verificam se o texto extraído contém strings corrompidas
-#      conhecidas (ex: "daulodencaudas", "võmitos") do Bula_Mkt.pdf.
-#   3. Se essas strings forem encontradas, o resultado é descartado
-#      e a próxima tentativa é executada.
-#   4. Isso FORÇA o script a pular para o OCR (Tentativa 4) em
-#      arquivos com camada de texto corrompida.
+# - v20.12:
+#   1. Corrige um `NameError` na função `is_garbage_line`.
+#   2. O loop estava chamando `GARBage_KEYWORDS` (com typo) em vez
+#      de `GARBAGE_KEYWORDS`.
 #
 # - Mantenha Tesseract e o modelo SpaCy instalados: tesseract + pt_core_news_lg
 # - Para usar no Streamlit, salve este arquivo e execute streamlit run seu_arquivo.py
@@ -140,7 +135,7 @@ def _create_anchor_id(secao_canonico, prefix):
         norm = "secao-default"
     return f"anchor-{prefix}-{norm}"
 
-# --- INÍCIO DA CORREÇÃO v20.8 (Anti-Lixo) ---
+# --- INÍCIO DA CORREÇÃO v20.12 (Correção de Typo) ---
 def is_garbage_line(linha_norm):
     """Verifica (de forma normalizada) se a linha é lixo de rodapé/metadados."""
     if not linha_norm:
@@ -152,11 +147,12 @@ def is_garbage_line(linha_norm):
         'bul 22149v01', 'bula padrao',
         'cor preta normal e negrito corpo 10' # Adicionado v20.8
     ]
-    for key in GARBage_KEYWORDS:
+    # CORREÇÃO v20.12: O nome da variável estava com typo (GARBage_KEYWORDS)
+    for key in GARBAGE_KEYWORDS: 
         if key in linha_norm:
             return True
     return False
-# --- FIM DA CORREÇÃO v20.8 ---
+# --- FIM DA CORREÇÃO v20.12 ---
 
 
 # --- LÓGICA DE NEGÓCIO (LISTAS DE SEÇÕES) (v20.5) ---
@@ -789,7 +785,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
     
         checar_existencia = normalizar_titulo_para_comparacao(secao) not in secoes_ignorar_existencia_upper
     
-        encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
+        encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bo_bula)
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
         # Se 'obter_dados_secao' falhou, é porque a seção não foi encontrada.
@@ -934,7 +930,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
     if secoes_problema:
-        for diff in diferencas_conteudo:
+        for diff in secoes_problema:
             conteudo_ref = diff.get('conteudo_anvisa', '') or ''
             conteudo_belfar = diff.get('conteudo_mkt', '') or ''
             conteudo_a_substituir = conteudo_ref if eh_referencia else conteudo_belfar
@@ -1213,4 +1209,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.11 | Detector de Corrupção")
+st.caption("Sistema de AuditorIA de Bulas v20.12 | Correção de Typo")
