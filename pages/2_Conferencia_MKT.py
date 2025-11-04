@@ -226,7 +226,14 @@ def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
     
-    if len(linha) < 4 or len(linha.split()) > 20: 
+    if len(linha) < 4: 
+        return False
+    
+    # Aceita títulos numerados (ex: "2. COMO ESTE MEDICAMENTO")
+    if re.match(r'^\d+\.\s+[A-Z]', linha):
+        return True
+        
+    if len(linha.split()) > 20: 
         return False
         
     if linha.endswith('.') or linha.endswith(':'):
@@ -239,7 +246,6 @@ def is_titulo_secao(linha):
         return False
         
     return True
-
 def mapear_secoes(texto_completo, secoes_esperadas):
     """Mapeador simplificado (v23) para funcionar com o texto "bonito" (fluído)"""
     mapa = []
