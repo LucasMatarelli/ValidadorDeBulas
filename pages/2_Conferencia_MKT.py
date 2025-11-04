@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.5 - Enumeração Customizada e Correção de 'continue'
+# Sistema: AuditorIA de Bulas v20.8 - Filtro de Conteúdo e Correção de Data
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.5: Altera a enumeração canônica para começar em '1. PARA QUE...' (Paciente)
-#          e '1. INDICAÇÕES' (Profissional), conforme solicitado.
-# - v20.5: Corrige bug de seção em branco (muda 'break' para 'continue' em is_garbage_line
-#          dentro de obter_dados_secao), permitindo pular metadados de rodapé.
+# - v20.8: (CORREÇÃO CRÍTICA) Modifica 'extrair_texto_pdf_com_ocr' para
+#          ignorar blocos de texto nos 12% superiores (cabeçalho) e 12%
+#          inferiores (rodapé) da página. Isso remove o "lixo" (metadata,
+#          cores, etc.) ANTES do mapeamento, corrigindo o bug das seções em branco.
+# - v20.8: Modifica 'marcar_divergencias_html' para que a regex da
+#          data ANVISA aceite quebras de linha ([\s\n]+), corrigindo
+#          o bug de não-destaque.
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -136,7 +139,11 @@ def _create_anchor_id(secao_canonico, prefix):
 
 # --- INÍCIO DA CORREÇÃO v20.1 (Anti-Lixo) ---
 def is_garbage_line(linha_norm):
-    """Verifica (de forma normalizada) se a linha é lixo de rodapé/metadados."""
+    """
+    Verifica (de forma normalizada) se a linha é lixo de rodapé/metadados.
+    v20.8: Esta função agora é um *fallback*. O filtro de Bbox
+    em 'extrair_texto_pdf_com_ocr' é a defesa primária.
+    """
     if not linha_norm:
         return False
     GARBAGE_KEYWORDS = [
@@ -250,12 +257,13 @@ def obter_secoes_ignorar_verificacao_existencia():
     # --- FIM DA ATUALIZAÇÃO v20.5 ---
 
 
-# ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR (VERSÃO MELHORADA) -----------------
+# ----------------- EXTRAÇÃO DE PDF ATUALIZADA (v20.8 - FILTRO DE CONTEÚDO) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Extração otimizada para PDFs de 2 colunas.
-    Usa centro do bloco para decidir coluna e ordena por (y, x) dentro de cada coluna.
-    Fallback para OCR com Tesseract quando necessário.
+    Extração otimizada para PDFs de 2 colunas (v20.8).
+    v20.8: Adiciona filtro de Bbox (bounding box) para ignorar
+    cabeçalhos (top 12%) e rodapés (bottom 12%) da página,
+    removendo "lixo" (metadados, etc.) antes do processamento.
     """
     texto_direto = ""
     try:
@@ -263,12 +271,29 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
             for page in doc:
                 blocks = page.get_text("blocks", sort=False)  # cada block: (x0,y0,x1,y1,"text", ...)
                 middle_x = page.rect.width / 2.0
+                page_height = page.rect.height
+
+                # --- INÍCIO DA CORREÇÃO v20.8 (Filtro de Bbox) ---
+                # Define a "área de conteúdo" para ignorar cabeçalhos e rodapés
+                # Aumentado para 12% para ser mais agressivo com os rodapés
+                margin_percent_top = 0.12
+                margin_percent_bottom = 0.12 
+                content_y0 = page_height * margin_percent_top
+                content_y1 = page_height * (1.0 - margin_percent_bottom)
+                # --- FIM DA CORREÇÃO v20.8 ---
 
                 col1_blocks = []
                 col2_blocks = []
 
                 for b in blocks:
                     x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
+                    
+                    # --- INÍCIO DA CORREÇÃO v20.8 (Filtro de Bbox) ---
+                    # Ignora blocos que estão fora da área de conteúdo
+                    if y0 < content_y0 or y1 > content_y1:
+                        continue
+                    # --- FIM DA CORREÇÃO v20.8 ---
+
                     # usa centro do bloco para decidir coluna (mais robusto que só x0)
                     center_x = (x0 + x1) / 2.0
                     if center_x <= middle_x:
@@ -307,11 +332,22 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
     st.info("Arquivo com layout complexo detectado. Iniciando OCR (tesseract)...")
     texto_ocr = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for page in doc:
+        for page_num, page in enumerate(doc):
             pix = page.get_pixmap(dpi=300)
             img_bytes = pix.tobytes("png")
             imagem = Image.open(io.BytesIO(img_bytes))
-            texto_ocr += pytesseract.image_to_string(imagem, lang='por') + "\n"
+
+            # --- INÍCIO DA CORREÇÃO v20.8 (Filtro de Bbox no OCR) ---
+            # Recorta a imagem para ignorar cabeçalhos e rodapés
+            w, h = imagem.size
+            margin_percent_top = 0.12
+            margin_percent_bottom = 0.12
+            crop_y0 = h * margin_percent_top
+            crop_y1 = h * (1.0 - margin_percent_bottom)
+            imagem_cortada = imagem.crop((0, crop_y0, w, crop_y1))
+            # --- FIM DA CORREÇÃO v20.8 ---
+
+            texto_ocr += pytesseract.image_to_string(imagem_cortada, lang='por') + "\n"
 
     return texto_ocr
 
@@ -347,17 +383,19 @@ def extrair_texto(arquivo, tipo_arquivo):
     except Exception as e:
         return None, f"Erro fatal na extração: {str(e)}"
 
-# ----------------- MAPEAR SEÇÕES (AJUSTES v20.5) -----------------
-def mapear_secoes(texto_completo, secoes_esperadas, tipo_bula): # v20.4: Adicionado tipo_bula
+# ----------------- MAPEAR SEÇÕES (AJUSTES v20.7 - 'Greedy' Inteligente) -----------------
+def mapear_secoes(texto_completo, secoes_esperadas, tipo_bula):
     """
-    v20.5: Mapeamento melhorado com aliases dinâmicos para nova numeração
+    v20.7: Mapeamento "Greedy" (ganancioso) INTELIGENTE.
+    Só combina linhas se a linha SEGUINTE também parecer um título
+    (via 'is_titulo_secao'). Impede que o mapeador "coma" o conteúdo.
+    v20.8: Agora recebe texto limpo do extrator, deve funcionar.
     """
     mapa = []
     linhas = texto_completo.split('\n')
     
     aliases = obter_aliases_secao()
     # --- INÍCIO DA CORREÇÃO v20.5 (Aliases Dinâmicos) ---
-    # Resolve o conflito de aliases (ex: SUPERDOSE, REAÇÕES ADVERSAS)
     if tipo_bula == "Paciente":
         aliases["REAÇÕES ADVERSAS"] = "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?"
         aliases["SUPERDOSE"] = "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?"
@@ -382,64 +420,74 @@ def mapear_secoes(texto_completo, secoes_esperadas, tipo_bula): # v20.4: Adicion
             idx += 1
             continue
 
-        # Tenta match com 1, 2 e 3 linhas
-        best_match_score_1 = 0
-        best_match_canonico_1 = None
+        # --- INÍCIO DA LÓGICA 'Greedy' v20.7 ---
+        
+        current_title_lines = [linha_limpa]
+        current_title_full = linha_limpa
+        current_title_norm = normalizar_titulo_para_comparacao(current_title_full)
+        
+        best_score = 0
+        best_canonico = None
+        
+        # Checa o score da primeira linha
         for poss, canon in titulos_possiveis.items():
             score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
-                                         normalizar_titulo_para_comparacao(linha_limpa))
-            if score > best_match_score_1:
-                best_match_score_1 = score
-                best_match_canonico_1 = canon
+                                         current_title_norm)
+            if score > best_score:
+                best_score = score
+                best_canonico = canon
 
-        # 2-linhas
-        best_match_score_2 = 0
-        best_match_canonico_2 = None
-        titulo_comb_2 = ""
-        if (idx + 1) < len(linhas):
-            next_line = linhas[idx + 1].strip()
-            if len(next_line.split()) < 12:
-                titulo_comb_2 = f"{linha_limpa} {next_line}"
-                for poss, canon in titulos_possiveis.items():
-                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
-                                                 normalizar_titulo_para_comparacao(titulo_comb_2))
-                    if score > best_match_score_2:
-                        best_match_score_2 = score
-                        best_match_canonico_2 = canon
+        best_titulo_encontrado = current_title_full
+        best_line_count = 1
 
-        # 3-linhas
-        best_match_score_3 = 0
-        best_match_canonico_3 = None
-        titulo_comb_3 = ""
-        if (idx + 2) < len(linhas):
-            l2 = linhas[idx + 1].strip()
-            l3 = linhas[idx + 2].strip()
-            if len(l2.split()) < 18 and len(l3.split()) < 14:
-                titulo_comb_3 = f"{linha_limpa} {l2} {l3}"
-                for poss, canon in titulos_possiveis.items():
-                    score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
-                                                 normalizar_titulo_para_comparacao(titulo_comb_3))
-                    if score > best_match_score_3:
-                        best_match_score_3 = score
-                        best_match_canonico_3 = canon
+        # Loop 'Greedy': Tenta adicionar mais linhas (até 4 adicionais)
+        for i in range(1, 5): # Começa de 1 (próxima linha)
+            next_line_idx = idx + i
+            if next_line_idx >= len(linhas):
+                break
+                
+            linha_seguinte = linhas[next_line_idx].strip()
+
+            # --- CORREÇÃO v20.7 ---
+            # Se a próxima linha NÃO parecer um título, PARE.
+            if not is_titulo_secao(linha_seguinte):
+                break
+            # --- FIM DA CORREÇÃO v20.7 ---
+
+            # Se passou, é um fragmento de título. Adicione-o.
+            current_title_lines.append(linha_seguinte)
+            current_title_full = " ".join(current_title_lines)
+            current_title_norm = normalizar_titulo_para_comparacao(current_title_full)
+
+            # Compara o título combinado (2, 3... 5 linhas)
+            for poss, canon in titulos_possiveis.items():
+                score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(poss),
+                                             current_title_norm)
+                
+                # Se o score for melhor, salva este como o 'melhor'
+                if score > best_score:
+                    best_score = score
+                    best_canonico = canon
+                    best_titulo_encontrado = current_title_full
+                    best_line_count = i + 1
 
         limiar_score = 85 
 
-        # Prioriza 3 > 2 > 1
-        if best_match_score_3 >= limiar_score and best_match_score_3 >= best_match_score_2 and best_match_score_3 >= best_match_score_1:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico_3:
-                mapa.append({'canonico': best_match_canonico_3, 'titulo_encontrado': titulo_comb_3, 'linha_inicio': idx, 'score': best_match_score_3, 'num_linhas_titulo': 3})
-            idx += 3
-        elif best_match_score_2 >= limiar_score and best_match_score_2 >= best_match_score_1:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico_2:
-                mapa.append({'canonico': best_match_canonico_2, 'titulo_encontrado': titulo_comb_2, 'linha_inicio': idx, 'score': best_match_score_2, 'num_linhas_titulo': 2})
-            idx += 2
-        elif best_match_score_1 >= limiar_score:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico_1:
-                mapa.append({'canonico': best_match_canonico_1, 'titulo_encontrado': linha_limpa, 'linha_inicio': idx, 'score': best_match_score_1, 'num_linhas_titulo': 1})
-            idx += 1
+        # Se o melhor score encontrado (em até 5 linhas) for bom o suficiente
+        if best_score >= limiar_score:
+            # Evita adicionar a mesma seção duas vezes
+            if not mapa or mapa[-1]['canonico'] != best_canonico:
+                mapa.append({
+                    'canonico': best_canonico, 
+                    'titulo_encontrado': best_titulo_encontrado, 
+                    'linha_inicio': idx, 
+                    'score': best_score, 
+                    'num_linhas_titulo': best_line_count
+                })
+            idx += best_line_count # Pula o número de linhas que formaram o título
         else:
-            idx += 1
+            idx += 1 # Não achou match, avança 1 linha
+        # --- FIM DA LÓGICA 'Greedy' v20.7 ---
 
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
@@ -523,7 +571,8 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 linha_norm = normalizar_texto(linha)
                 
                 # --- INÍCIO DA CORREÇÃO v20.5 (Bug Seção Branca) ---
-                # Para se encontrar lixo (metadata, rodapé)
+                # v20.8: A defesa primária agora é o filtro de Bbox,
+                # 'is_garbage_line' é um fallback.
                 if is_garbage_line(linha_norm):
                     continue # Pula a linha de lixo e continua
                 # --- FIM DA CORREÇÃO v20.5 ---
@@ -549,6 +598,10 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         # Reflow (junta linhas que pertencem ao mesmo parágrafo)
         if not conteudo:
             return True, titulo_encontrado_final, ""
+
+        # v20.6: Se o conteúdo for apenas linhas em branco, retorna vazio
+        if all(not line.strip() for line in conteudo):
+             return True, titulo_encontrado_final, ""
 
         conteudo_refluxo = [conteudo[0]]
         for k in range(1, len(conteudo)):
@@ -641,7 +694,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 cand_norm_check = normalizar_texto(cand)
 
                 # --- INÍCIO DA CORREÇÃO v20.5 (Bug Seção Branca) ---
-                # Para se encontrar lixo
                 if is_garbage_line(cand_norm_check):
                     continue # Pula a linha de lixo e continua
                 # --- FIM DA CORREÇÃO v20.5 ---
@@ -666,6 +718,10 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             
             # v20.3: Aplica reflow mesmo no fallback
             if conteudo_final_lista:
+                # v20.6: Se o conteúdo for apenas linhas em branco, retorna vazio
+                if all(not line.strip() for line in conteudo_final_lista):
+                    return True, titulo_encontrado_final, ""
+                    
                 conteudo_refluxo = [conteudo_final_lista[0]]
                 for k in range(1, len(conteudo_final_lista)):
                     prev = conteudo_refluxo[-1]
@@ -705,7 +761,7 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
 
     linhas_anvisa = texto_anvisa.split('\n')
     linhas_mkt = texto_mkt.split('\n')
-    # v20.4: Passa 'tipo_bula' para o 'mapear_secoes'
+    # v20.7: Passa 'tipo_bula' para o 'mapear_secoes' (que agora é greedy inteligente)
     mapa_anvisa = mapear_secoes(texto_anvisa, secoes_esperadas, tipo_bula)
     mapa_mkt = mapear_secoes(texto_mkt, secoes_esperadas, tipo_bula)
 
@@ -759,7 +815,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         secoes_todas = obter_secoes_por_tipo(tipo_bula)
         texto_filtrado_para_checar = []
 
-        mapa_secoes = mapear_secoes(texto_para_checar, secoes_todas, tipo_bula) # v20.4 passa tipo_bula
+        mapa_secoes = mapear_secoes(texto_para_checar, secoes_todas, tipo_bula) # v20.7 passa tipo_bula
         linhas_texto = texto_para_checar.split('\n')
 
         secoes_ignorar_norm = [normalizar_titulo_para_comparacao(s) for s in secoes_ignorar]
@@ -854,7 +910,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", r"\1 \2", resultado)
     return resultado
 
-# ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
+# ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES (v20.8 - Correção Data ANVISA) -----------------
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
     if secoes_problema:
@@ -888,12 +944,18 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
                 flags=re.IGNORECASE
             )
 
+    # --- INÍCIO DA CORREÇÃO v20.8 (Data ANVISA Regex) ---
     # destacar frase de aprovação ANVISA (se existir)
-    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    # A regex agora aceita quebras de linha ([\s\n]+) entre as palavras
+    regex_anvisa = r"((?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprovação[\s\n]+na[\s\n]+anvisa:)[\s\n]*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
     if match:
-        frase_anvisa = match.group(1)
-        texto_trabalho = texto_trabalho.replace(frase_anvisa, f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa}</mark>", 1)
+        frase_anvisa_raw = match.group(1)
+        # Recria a frase sem as quebras de linha, mas com o <mark>
+        frase_anvisa_clean_html = f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_anvisa_raw.replace('\n', ' ')}</mark>"
+        # Substitui a frase original (com quebras de linha) pela versão HTML
+        texto_trabalho = texto_trabalho.replace(frase_anvisa_raw, frase_anvisa_clean_html, 1)
+    # --- FIM DA CORREÇÃO v20.8 ---
 
     return texto_trabalho
 
@@ -933,7 +995,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.markdown(js_scroll_script, unsafe_allow_html=True)
 
     st.header("Relatório de AuditorIA Inteligente")
-    regex_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    
+    # --- INÍCIO DA CORREÇÃO v20.8 (Data ANVISA Regex) ---
+    regex_anvisa = r"(?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprovação[\s\n]+na[\s\n]+anvisa:)[\s\n]*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    # --- FIM DA CORREÇÃO v20.8 ---
 
     match_ref = re.search(regex_anvisa, texto_ref, re.IGNORECASE)
     match_belfar = re.search(regex_anvisa, texto_belfar, re.IGNORECASE)
@@ -1123,7 +1188,7 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
 
             if not erro_ref and texto_ref: # Adicionada checagem se texto_ref não é None
                 # tentar truncar texto_ref até a linha da data ANVISA (correção solicitada)
-                regex_anvisa_trunc = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4}"
+                regex_anvisa_trunc = r"(?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprovação[\s\n]+na[\s\n]+anvisa:)[\s\n]*[\d]{1,2}/[\d]{1,2}/[\d]{2,4}"
                 match = re.search(regex_anvisa_trunc, texto_ref, re.IGNORECASE)
                 if match:
                     # encontra início da linha onde a data aparece e trunca até essa linha (mantendo a linha)
@@ -1143,4 +1208,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.5 | Enumeração Customizada e Correção 'continue'")
+st.caption("Sistema de AuditorIA de Bulas v20.8 | Filtro de Conteúdo de Rodapé")
