@@ -64,7 +64,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA V22.0) -----------------
+# ----------------- EXTRAÇÃO (v22.0 - Layout Bonito) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
@@ -81,7 +81,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                # --- INÍCIO DA CORREÇÃO (v22.0) ---
                 if is_marketing_pdf:
                     # Lógica de 2 colunas SÓ para o PDF do Marketing
                     # Usamos 'sort=True' DENTRO de cada clipe
@@ -99,7 +98,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     # Lógica de 1 coluna (padrão) para o PDF da Anvisa
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
-                # --- FIM DA CORREÇÃO ---
             
             texto = "\n\n".join(full_text_list)
         
@@ -113,11 +111,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
-            # texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO APRIMORADO (v22.0) ---
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
@@ -134,8 +130,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|rpo \d+.*'
                 r'|olL: Times New Roman.*'
                 r'|\d{2}\s\d{4}\s\d{4}.*' 
-                r'|cloridrato de ambroxo\s*$' # Linha solta com erro
-                r'|Normal e Negrito\. Co\s*$' # Linha solta de ruído
+                r'|cloridrato de ambroxo\s*$'
+                r'|Normal e Negrito\. Co\s*$'
             , re.IGNORECASE)
             
             linhas_filtradas = []
@@ -224,7 +220,7 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
-# ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (VERSÃO FINAL) -----------------
+# ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (v23.0) -----------------
 def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
@@ -243,8 +239,9 @@ def is_titulo_secao(linha):
         
     return True
 
+# --- INÍCIO DA CORREÇÃO (v23.0) ---
+# Mapeador simplificado para funcionar com o texto "bonito" (fluído)
 def mapear_secoes(texto_completo, secoes_esperadas):
-    """Mapeador v19.0: Procura títulos em 1, 2 ou 3 linhas."""
     mapa = []
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
@@ -258,75 +255,37 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
 
-    idx = 0
-    while idx < len(linhas):
-        linha_limpa = linhas[idx].strip()
+    limiar_score = 95 # token_set_ratio é bom com 95
 
+    for idx, linha_limpa in enumerate(linhas):
+        
+        # Como o texto é fluído, o título estará em 1 linha
         if not is_titulo_secao(linha_limpa):
-            idx += 1
             continue
         
+        norm_linha_1 = normalizar_titulo_para_comparacao(linha_limpa)
         best_score = 0
         best_canonico = None
-        best_num_linhas = 0
-        best_titulo_encontrado = ""
 
-        # Teste 1: Título em 1 linha
-        norm_linha_1 = normalizar_titulo_para_comparacao(linha_limpa)
         for titulo_norm, canonico in titulos_norm_lookup.items():
             score = fuzz.token_set_ratio(titulo_norm, norm_linha_1)
             if score > best_score:
                 best_score = score
                 best_canonico = canonico
-                best_num_linhas = 1
-                best_titulo_encontrado = linha_limpa
-        
-        # Teste 2: Título em 2 linhas
-        if (idx + 1) < len(linhas):
-            linha_2 = linhas[idx + 1].strip()
-            titulo_combinado_2 = f"{linha_limpa} {linha_2}"
-            if is_titulo_secao(titulo_combinado_2):
-                norm_linha_2 = normalizar_titulo_para_comparacao(titulo_combinado_2)
-                for titulo_norm, canonico in titulos_norm_lookup.items():
-                    score = fuzz.token_set_ratio(titulo_norm, norm_linha_2)
-                    if score > best_score:
-                        best_score = score
-                        best_canonico = canonico
-                        best_num_linhas = 2
-                        best_titulo_encontrado = titulo_combinado_2
-        
-        # Teste 3: Título em 3 linhas
-        if (idx + 2) < len(linhas):
-            linha_2 = linhas[idx + 1].strip()
-            linha_3 = linhas[idx + 2].strip()
-            titulo_combinado_3 = f"{linha_limpa} {linha_2} {linha_3}"
-            if is_titulo_secao(titulo_combinado_3):
-                norm_linha_3 = normalizar_titulo_para_comparacao(titulo_combinado_3)
-                for titulo_norm, canonico in titulos_norm_lookup.items():
-                    score = fuzz.token_set_ratio(titulo_norm, norm_linha_3)
-                    if score > best_score:
-                        best_score = score
-                        best_canonico = canonico
-                        best_num_linhas = 3
-                        best_titulo_encontrado = titulo_combinado_3
-        
-        limiar_score = 95
         
         if best_score >= limiar_score:
             if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
                     'canonico': best_canonico,
-                    'titulo_encontrado': best_titulo_encontrado,
+                    'titulo_encontrado': linha_limpa,
                     'linha_inicio': idx,
                     'score': best_score,
-                    'num_linhas_titulo': best_num_linhas
+                    'num_linhas_titulo': 1 # Sempre 1 linha no texto fluído
                 })
-            idx += best_num_linhas
-        else:
-            idx += 1
             
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
+# --- FIM DA CORREÇÃO ---
 
 
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
@@ -571,7 +530,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.subheader("Detalhes dos Problemas Encontrados")
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: {data_ref}\n   - BELFAR: {data_belfar}")
     
-    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v22.0) ---
+    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v23.0) ---
     def formatar_html_para_leitura(html_content):
         """
         O texto já vem "fluído" da extração (sort=True).
@@ -617,7 +576,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
 
-                # Aplica a formatação v22.0
+                # Aplica a formatação v23.0
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
@@ -662,7 +621,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # Aplica a formatação v22.0
+    # Aplica a formatação v23.0
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
 
@@ -721,13 +680,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- INÍCIO DA CHAMADA CORRIGIDA v22.0 ---
             # Extrai o texto da Anvisa (1 coluna, com sort)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
             # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
-            # --- FIM DA CHAMADA CORRIGIDA ---
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -744,4 +701,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v22.0 | Correção de Layout (sort=True) e Filtro de Ruído")
+st.caption("Sistema de Auditoria de Bulas v23.0 | Layout 'Bonito' (sort=True) + Mapeador Simplificado")
