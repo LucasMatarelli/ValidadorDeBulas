@@ -1,21 +1,18 @@
-# --- IMPORTS ---
+# Substitua a função extrair_texto atual por esta versão.
+# Coloque este conteúdo no mesmo módulo (ou substitua diretamente a função existente).
+
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
 import re
-import spacy
-from thefuzz import fuzz
-from spellchecker import SpellChecker
-import difflib
-import unicodedata
 
-# ... (outro código permanece igual) ...
-
-def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
+def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False, debug_marketing=False):
     """
     Extrai texto de arquivos.
-    Para PDFs do marketing (is_marketing_pdf=True) usa extração por blocos
-    e ordenação por coordenadas para preservar leitura em colunas.
+    - Para PDFs do marketing (is_marketing_pdf=True) usa extração por blocos
+      com ordenação e mesclagem de blocos próximos para preservar títulos+conteúdo.
+    - debug_marketing: se True, faz st.write() dos blocos para inspeção.
+    Retorna: (texto, erro_str_or_None)
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -26,57 +23,125 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                if is_marketing_pdf:
-                    # Nova lógica: extrai blocos, ordena por x (coluna) e depois por y (linha)
-                    for page in doc:
-                        # Usa a saída 'dict' para ter blocos com coordenadas
+                for page_num, page in enumerate(doc, start=1):
+                    if is_marketing_pdf:
                         page_dict = page.get_text("dict")
                         blocks = page_dict.get("blocks", [])
                         
-                        # Filtra apenas blocos com texto e monta lista com bbox e texto
+                        # Extrai texto e bbox de cada bloco textual
                         text_blocks = []
                         for b in blocks:
-                            # cada bloco pode ter 'lines' -> 'spans' com 'text'
                             block_text = ""
                             if 'lines' in b:
                                 for line in b['lines']:
                                     for span in line.get('spans', []):
                                         block_text += span.get('text', '')
-                                        # preserva separação de linha dentro do bloco
                                     block_text += "\n"
-                            block_text = block_text.strip()
-                            # considera apenas blocos com texto útil
-                            if block_text and len(block_text) > 3:
-                                bbox = b.get('bbox', [0,0,0,0])  # [x0, y0, x1, y1]
-                                x0, y0 = bbox[0], bbox[1]
-                                text_blocks.append({'x0': x0, 'y0': y0, 'text': block_text, 'w': bbox[2]-bbox[0], 'h': bbox[3]-bbox[1]})
+                                block_text = block_text.strip()
+                            if block_text and len(block_text) > 2:
+                                bbox = b.get('bbox', [0,0,0,0])
+                                x0, y0, x1, y1 = bbox
+                                w = x1 - x0
+                                h = y1 - y0
+                                text_blocks.append({
+                                    'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
+                                    'w': w, 'h': h, 'text': block_text
+                                })
+                        
+                        if debug_marketing:
+                            st.write(f"--- Página {page_num} : {len(text_blocks)} blocos ---")
+                            for i, tb in enumerate(text_blocks):
+                                preview = tb['text'][:200].replace('\n', ' ')
+                                st.write(i, f"x0={tb['x0']:.1f}", f"y0={tb['y0']:.1f}", f"w={tb['w']:.1f}", f"h={tb['h']:.1f}", preview)
                         
                         if not text_blocks:
-                            # fallback para caso inesperado: usar método text simples (com sort)
+                            # fallback: extração simples por página
                             full_text_list.append(page.get_text("text", sort=True))
                             continue
                         
-                        # heurística: ordenar por coluna primeiro. Definimos colunas por x0
-                        # Agrupamos em "colunas" por proximidade em x (tolerância dependente da página)
-                        widths = [tb['w'] for tb in text_blocks]
-                        page_width = page.rect.width if page.rect else max([tb['x0']+tb['w'] for tb in text_blocks])
-                        # tolerância: 10% da largura de página
-                        tol = max(20, page_width * 0.08)
+                        # Heurística de agrupamento/mesclagem:
+                        # 1) Ordena por x0 (coluna), depois por y0
+                        text_blocks.sort(key=lambda b: (b['x0'], b['y0']))
                         
-                        # Primeiro, ordena todos por x0 asc, depois por y0 asc
-                        text_blocks.sort(key=lambda b: (round(b['x0']/tol), b['x0'], b['y0']))
+                        # 2) Detecta colunas aproximadas: agrupa por faixa de x0 usando tolerância
+                        page_width = page.rect.width if page.rect else max([tb['x1'] for tb in text_blocks])
+                        tol_x = max(20, page_width * 0.08)  # 8% da largura
                         
-                        # Junta os textos na ordem calculada
-                        page_text_ordered = []
+                        # Agrupamento em colunas (cada coluna = lista de blocos)
+                        columns = []
                         for tb in text_blocks:
-                            txt = tb['text'].strip()
-                            if txt:
-                                page_text_ordered.append(txt)
+                            placed = False
+                            for col in columns:
+                                # compara com x0 médio da coluna
+                                col_x0 = col['x_mean']
+                                if abs(tb['x0'] - col_x0) <= tol_x:
+                                    col['blocks'].append(tb)
+                                    # recalc x_mean
+                                    col['x_mean'] = sum(b['x0'] for b in col['blocks']) / len(col['blocks'])
+                                    placed = True
+                                    break
+                            if not placed:
+                                columns.append({'x_mean': tb['x0'], 'blocks': [tb]})
                         
-                        full_text_list.append("\n".join(page_text_ordered))
-                else:
-                    # Lógica de 1 coluna (padrão) para o PDF da Anvisa
-                    for page in doc:
+                        # Ordena colunas por x_mean (esquerda -> direita)
+                        columns.sort(key=lambda c: c['x_mean'])
+                        
+                        # 3) Em cada coluna, ordena por y0 e mescla blocos muito próximos verticalmente
+                        page_col_texts = []
+                        for col in columns:
+                            col_blocks = sorted(col['blocks'], key=lambda b: b['y0'])
+                            merged = []
+                            for b in col_blocks:
+                                if not merged:
+                                    merged.append(b.copy())
+                                else:
+                                    last = merged[-1]
+                                    # distância vertical entre last e b
+                                    gap = b['y0'] - last['y1']
+                                    # se o b estiver praticamente colado (gap pequeno) ou overlap, mescla
+                                    vertical_tol = max(8, last['h'] * 0.2, b['h'] * 0.2)
+                                    horizontal_overlap = min(last['x1'], b['x1']) - max(last['x0'], b['x0'])
+                                    if gap <= vertical_tol or horizontal_overlap > -1:
+                                        # mesclar: concatena texto, atualiza bbox
+                                        new_text = (last['text'] + "\n" + b['text']).strip()
+                                        new_bbox = {
+                                            'x0': min(last['x0'], b['x0']),
+                                            'y0': min(last['y0'], b['y0']),
+                                            'x1': max(last['x1'], b['x1']),
+                                            'y1': max(last['y1'], b['y1']),
+                                        }
+                                        last.update({
+                                            'text': new_text,
+                                            'x0': new_bbox['x0'],
+                                            'y0': new_bbox['y0'],
+                                            'x1': new_bbox['x1'],
+                                            'y1': new_bbox['y1'],
+                                            'w': new_bbox['x1'] - new_bbox['x0'],
+                                            'h': new_bbox['y1'] - new_bbox['y0'],
+                                        })
+                                    else:
+                                        merged.append(b.copy())
+                            # agora cada merged item é um bloco "limpo" por coluna
+                            for m in merged:
+                                # normaliza espaços
+                                page_col_texts.append((col['x_mean'], m['y0'], m['text'].strip()))
+                        
+                        # 4) Ordena por coluna (x_mean) depois por y0 e junta textos
+                        page_col_texts.sort(key=lambda t: (t[0], t[1]))
+                        ordered_texts = [t[2] for t in page_col_texts]
+                        
+                        # 5) Fallback adicional: se parecia que houve inversão (muitos títulos ALL CAPS isolados),
+                        # tentamos recombinar blocos próximos por y mesmo que estejam em colunas distintas.
+                        # Identifica se há muitos blocos curtos em CAPS (provável título)
+                        caps_blocks = [t for t in ordered_texts if len(t) < 200 and t.strip().upper() == t.strip() and re.search(r'[A-ZÁÉÍÓÚÃÕÇ]', t)]
+                        if caps_blocks and len(caps_blocks) / max(1, len(ordered_texts)) > 0.08:
+                            # tenta reordenar por y (colapsando colunas)
+                            ordered_texts = [t for _, _, t in sorted(page_col_texts, key=lambda x: x[1])]
+                        
+                        page_text_final = "\n\n".join(ordered_texts)
+                        full_text_list.append(page_text_final)
+                    else:
+                        # Página padrão (referência) — extração direta
                         full_text_list.append(page.get_text("text", sort=True))
             
             texto = "\n\n".join(full_text_list)
@@ -86,6 +151,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = "\n".join([p.text for p in doc.paragraphs])
         
         if texto:
+            # limpeza dos invisíveis e normalização de quebras
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
@@ -94,7 +160,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO APRIMORADO (v26.0) ---
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
@@ -113,7 +178,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|\d{2}\s\d{4}\s\d{4}.*' 
                 r'|cloridrato de ambroxo\s*$'
                 r'|Normal e Negrito\. Co\s*$'
-                r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL' # Ruído do topo
+                r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL'
             , re.IGNORECASE)
             
             linhas_filtradas = []
@@ -126,8 +191,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         linhas_filtradas.append(linha_strip)
             
             texto = "\n".join(linhas_filtradas)
-            
-            texto = re.sub(r'\n{3,}', '\n\n', texto)  
+            texto = re.sub(r'\n{3,}', '\n\n', texto)
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
