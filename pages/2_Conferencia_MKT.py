@@ -64,12 +64,12 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO -----------------
-def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
+# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA) -----------------
+def extrair_texto(arquivo, tipo_arquivo):
     """
-    Extrai texto de arquivos, com lógica condicional para PDFs de 1 ou 2 colunas.
-    
-    :param is_marketing_pdf: True se for o PDF do MKT (2 colunas), False caso contrário.
+    Extrai texto de arquivos.
+    A lógica de 2 colunas foi REMOVIDA, pois page.get_text("text", sort=True)
+    já é inteligente o suficiente para lidar com colunas.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -80,20 +80,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                if is_marketing_pdf:
-                    # Lógica de 2 colunas SÓ para o PDF do Marketing
-                    for page in doc:
-                        rect = page.rect
-                        clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
-                        clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
-                        texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
-                        texto_direita = page.get_text("text", clip=clip_direita, sort=True)
-                        full_text_list.append(texto_esquerda)
-                        full_text_list.append(texto_direita)
-                else:
-                    # Lógica de 1 coluna (padrão) para o PDF da Anvisa
-                    for page in doc:
-                        full_text_list.append(page.get_text("text", sort=True))
+                # --- INÍCIO DA CORREÇÃO ---
+                # Lógica simplificada. O sort=True é capaz de lidar
+                # com colunas de forma automática.
+                for page in doc:
+                    full_text_list.append(page.get_text("text", sort=True))
+                # --- FIM DA CORREÇÃO ---
             
             texto = "\n\n".join(full_text_list)
         
@@ -211,8 +203,6 @@ def normalizar_titulo_para_comparacao(texto):
     return texto_norm
 
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (VERSÃO FINAL) -----------------
-
-# --- INÍCIO DA CORREÇÃO (LIMITE DE PALAVRAS) ---
 def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
@@ -221,20 +211,16 @@ def is_titulo_secao(linha):
     if len(linha) < 4 or len(linha.split()) > 15: 
         return False
         
-    # Se terminar com ponto ou dois-pontos, é conteúdo, não título.
     if linha.endswith('.') or linha.endswith(':'):
         return False
         
-    # Se tiver tags HTML (lixo de extração), não é título
     if re.search(r'\>\s*\<', linha):
         return False
         
-    # Limite de comprimento (títulos muito longos são conteúdo)
     if len(linha) > 80:
         return False
         
     return True
-# --- FIM DA CORREÇÃO ---
 
 
 def mapear_secoes(texto_completo, secoes_esperadas):
@@ -311,7 +297,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
     Extrai o conteúdo de uma seção com base no mapa pré-processado.
     """
     
-    # 1. Encontra o índice da nossa seção no mapa
     idx_secao_atual = -1
     for i, secao_mapa in enumerate(mapa_secoes):
         if secao_mapa['canonico'] == secao_canonico:
@@ -321,7 +306,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
     if idx_secao_atual == -1:
         return False, None, ""
 
-    # 2. Pega as informações da seção atual
     secao_atual_info = mapa_secoes[idx_secao_atual]
     titulo_encontrado = secao_atual_info['titulo_encontrado']
     linha_inicio = secao_atual_info['linha_inicio']
@@ -329,14 +313,12 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
     
     linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
-    # 3. Encontra a linha de início da *próxima* seção para definir o fim
     linha_fim = len(linhas_texto) 
     
     if (idx_secao_atual + 1) < len(mapa_secoes):
         secao_seguinte_info = mapa_secoes[idx_secao_atual + 1]
         linha_fim = secao_seguinte_info['linha_inicio']
 
-    # 4. Extrai o conteúdo
     conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
     conteudo_final = "\n".join(conteudo).strip()
     
@@ -666,7 +648,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
-# ----------------- INTERFACE -----------------
+# ----------------- INTERFACE (COM CHAMADA CORRIGIDA) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
@@ -688,9 +670,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
-            
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+            # --- INÍCIO DA CHAMADA CORRIGIDA ---
+            # Extrai ambos os textos usando a nova lógica universal
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
+            # --- FIM DA CHAMADA CORRIGIDA ---
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -700,11 +684,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             elif not texto_ref or not texto_belfar:
-                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente (verifique o arquivo da Anvisa).")
+                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.5 | Correção de Limite de Palavras do Título")
+st.caption("Sistema de Auditoria de Bulas v18.6 | Correção de Extração de PDF (colunas)")
