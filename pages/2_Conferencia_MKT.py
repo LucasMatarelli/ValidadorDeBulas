@@ -315,6 +315,9 @@ def extrair_texto(arquivo, tipo_arquivo):
 
 # ----------------- MAPEAR SEÇÕES (AJUSTES) -----------------
 def mapear_secoes(texto_completo, secoes_esperadas):
+    """
+    v20.3: Mapeamento melhorado com melhor detecção de limites e validação
+    """
     mapa = []
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
@@ -330,12 +333,11 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     while idx < len(linhas):
         linha_limpa = linhas[idx].strip()
         
-        # AQUI É ONDE A CORREÇÃO v19.5 ATUA:
         if not is_titulo_secao(linha_limpa):
             idx += 1
             continue
 
-        # 1-linha
+        # Tenta match com 1, 2 e 3 linhas
         best_match_score_1 = 0
         best_match_canonico_1 = None
         for poss, canon in titulos_possiveis.items():
@@ -351,7 +353,6 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         titulo_comb_2 = ""
         if (idx + 1) < len(linhas):
             next_line = linhas[idx + 1].strip()
-            # heurística: segunda linha pode ser mais longa agora (até 12 palavras)
             if len(next_line.split()) < 12:
                 titulo_comb_2 = f"{linha_limpa} {next_line}"
                 for poss, canon in titulos_possiveis.items():
@@ -361,14 +362,13 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                         best_match_score_2 = score
                         best_match_canonico_2 = canon
 
-        # 3-linhas (aumentado limites)
+        # 3-linhas
         best_match_score_3 = 0
         best_match_canonico_3 = None
         titulo_comb_3 = ""
         if (idx + 2) < len(linhas):
             l2 = linhas[idx + 1].strip()
             l3 = linhas[idx + 2].strip()
-            # mais tolerância para linhas de título em 2ª/3ª linhas
             if len(l2.split()) < 18 and len(l3.split()) < 14:
                 titulo_comb_3 = f"{linha_limpa} {l2} {l3}"
                 for poss, canon in titulos_possiveis.items():
@@ -378,12 +378,11 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                         best_match_score_3 = score
                         best_match_canonico_3 = canon
 
-        limiar_score = 90  # mais tolerante
+        limiar_score = 85  # v20.3: Reduzido para capturar mais variações
 
         # Prioriza 3 > 2 > 1
         if best_match_score_3 >= limiar_score and best_match_score_3 >= best_match_score_2 and best_match_score_3 >= best_match_score_1:
             if not mapa or mapa[-1]['canonico'] != best_match_canonico_3:
-                # Salva o 'titulo_encontrado' como a combinação que deu match
                 mapa.append({'canonico': best_match_canonico_3, 'titulo_encontrado': titulo_comb_3, 'linha_inicio': idx, 'score': best_match_score_3, 'num_linhas_titulo': 3})
             idx += 3
         elif best_match_score_2 >= limiar_score and best_match_score_2 >= best_match_score_1:
@@ -392,12 +391,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             idx += 2
         elif best_match_score_1 >= limiar_score:
             if not mapa or mapa[-1]['canonico'] != best_match_canonico_1:
-                # Salva o 'titulo_encontrado' como a linha inteira que deu match
                 mapa.append({'canonico': best_match_canonico_1, 'titulo_encontrado': linha_limpa, 'linha_inicio': idx, 'score': best_match_score_1, 'num_linhas_titulo': 1})
             idx += 1
         else:
-            # Se 'is_titulo_secao' for True (mas não der match)
-            # ele cai aqui e avança, não adicionando ao mapa.
             idx += 1
 
     mapa.sort(key=lambda x: x['linha_inicio'])
