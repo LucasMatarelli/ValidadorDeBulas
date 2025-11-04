@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.2 - Correção de Limiar (Fallback 98)
+# Sistema: AuditorIA de Bulas v20.4 - Enumeração e Correção de Falsos-Títulos
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.2: Aumenta limiar do fallback para 98. Isso previne 'roubo' de conteúdo
-#          (scores ~94) mas permite matches corretos com variações (score 100).
+# - v20.4: Adiciona numeração canônica (1., 2.) às seções.
+# - v20.4: Melhora 'is_titulo_secao' para ignorar frases de aviso quebradas em múltiplas linhas,
+#          corrigindo o bug de extração de conteúdo vazio.
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
 # - Para usar no Streamlit, salve este arquivo e execute `streamlit run seu_arquivo.py`
 
@@ -71,31 +72,39 @@ def normalizar_titulo_para_comparacao(titulo):
     """Normalização mais agressiva para títulos."""
     return normalizar_texto(titulo)
 
-# ***** FUNÇÃO CORRIGIDA (v19.5) *****
+# ***** FUNÇÃO CORRIGIDA (v20.4) *****
 def is_titulo_secao(linha):
     """
     Heurística simples para identificar um provável título de seção.
+    v20.4: Melhoria na detecção de "Não-Títulos" (frases de aviso)
     """
     if not linha:
         return False
         
-    # --- INÍCIO DA CORREÇÃO v19.5 ---
+    # --- INÍCIO DA CORREÇÃO v20.4 ---
     # Lista de frases em CAIXA ALTA que NÃO são títulos
     FRASES_A_IGNORAR = {
-        "TODO MEDICAMENTO DEVE SER MANTIDO FORA DO ALCANCE DAS CRIANCAS", # Normalizado
-        "SIGA CORRETAMENTE O MODO DE USAR",
-        "NAO DESAPARECENDO OS SINTOMAS PROCURE ORIENTACAO MEDICA" # Normalizado
+        "todo medicamento deve ser mantido fora do alcance das criancas", # Normalizado
+        "siga corretamente o modo de usar",
+        "nao desaparecendo os sintomas procure orientacao medica", # Normalizado
+        "em caso de duvidas procure orientacao do farmaceutico" # Adicionado
     }
     
     # Normaliza a linha para checagem (remove acentos, pontuação, etc.)
     linha_norm_check = normalizar_texto(linha) 
+    if not linha_norm_check:
+        return False
     
     for frase in FRASES_A_IGNORAR:
-        # Usa token_set_ratio para pegar "linhas parciais"
-        # 95 é um limiar alto para garantir que é parte desta frase
+        # v20.4: Checa se a linha normalizada é um *subconjunto* da frase a ignorar
+        # Isso captura linhas quebradas como "TODO MEDICAMENTO DEVE SER MANTIDO"
+        if linha_norm_check in frase:
+            return False
+        # Mantém a checagem de similaridade para casos onde a linha é
+        # um pouco diferente mas muito parecida (ex: com 'o' extra)
         if fuzz.token_set_ratio(linha_norm_check, frase) > 95:
             return False
-    # --- FIM DA CORREÇÃO v19.5 ---
+    # --- FIM DA CORREÇÃO v20.4 ---
 
     # Se for tudo maiúsculo e curto (menos de 15 palavras)
     if linha.isupper() and len(linha.split()) < 15:
@@ -103,16 +112,22 @@ def is_titulo_secao(linha):
     # Se for Título Capitalizado e curto
     if linha.istitle() and len(linha.split()) < 15:
         return True
-    # Se tiver um padrão "1. NOME DA SEÇÃO"
-    if re.match(r'^\d+\.\s+[A-Z]', linha):
+    
+    # --- INÍCIO DA CORREÇÃO v20.4 (Regex) ---
+    # Se tiver um padrão "1. NOME DA SEÇÃO" (agora aceita maiúscula/minúscula)
+    if re.match(r'^\d+\.\s+[A-Za-z]', linha):
          return True
+    # --- FIM DA CORREÇÃO v20.4 ---
+    
     return False
 
 def _create_anchor_id(secao_canonico, prefix):
     """Cria um ID HTML seguro para âncoras."""
     if not secao_canonico:
         secao_canonico = "secao-desconhecida"
-    norm = normalizar_texto(secao_canonico).replace(' ', '-')
+    # v20.4: Remove o número inicial (ex: "1. ") para o ID
+    secao_limpa = re.sub(r'^\d+\.\s*', '', secao_canonico)
+    norm = normalizar_texto(secao_limpa).replace(' ', '-')
     # Garante que não está vazio
     if not norm:
         norm = "secao-default"
@@ -134,41 +149,41 @@ def is_garbage_line(linha_norm):
 # --- FIM DA CORREÇÃO v20.1 ---
 
 
-# --- LÓGICA DE NEGÓCIO (LISTAS DE SEÇÕES) ---
-# !!! IMPORTANTE: Ajuste estas listas conforme sua necessidade !!!
+# --- LÓGICA de NEGÓCIO (LISTAS DE SEÇÕES) (v20.4) ---
+# !!! IMPORTANTE: Listas atualizadas com numeração !!!
 
 def obter_secoes_por_tipo(tipo_bula):
-    """Retorna a lista de seções canônicas esperadas."""
+    """Retorna a lista de seções canônicas esperadas (agora numeradas)."""
     secoes_paciente = [
-        "IDENTIFICAÇÃO DO MEDICAMENTO",
-        "APRESENTAÇÕES",
-        "COMPOSIÇÃO",
-        "PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "COMO ESTE MEDICAMENTO FUNCIONA?",
-        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-        "COMO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "DIZERES LEGAIS"
+        "1. IDENTIFICAÇÃO DO MEDICAMENTO",
+        "2. APRESENTAÇÕES",
+        "3. COMPOSIÇÃO",
+        "4. PARA QUE ESTE MEDICAMENTO É INDICADO?",
+        "5. COMO ESTE MEDICAMENTO FUNCIONA?",
+        "6. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "7. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+        "8. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+        "9. COMO DEVO USAR ESTE MEDICAMENTO?",
+        "10. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+        "11. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        "12. O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "13. DIZERES LEGAIS"
     ]
     secoes_profissional = [
-        "IDENTIFICAÇÃO DO MEDICAMENTO",
-        "APRESENTAÇÕES",
-        "COMPOSIÇÃO",
-        "INDICAÇÕES",
-        "RESULTADOS DE EFICÁCIA",
-        "CARACTERÍSTICAS FARMACOLÓGICAS",
-        "CONTRAINDICAÇÕES",
-        "ADVERTÊNCIAS E PRECAUÇÕES",
-        "INTERAÇÕES MEDICAMENTOSAS",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
-        "POSOLOGIA E MODO DE USAR",
-        "REAÇÕES ADVERSAS",
-        "SUPERDOSE",
-        "DIZERES LEGAIS"
+        "1. IDENTIFICAÇÃO DO MEDICAMENTO",
+        "2. APRESENTAÇÕES",
+        "3. COMPOSIÇÃO",
+        "4. INDICAÇÕES",
+        "5. RESULTADOS DE EFICÁCIA",
+        "6. CARACTERÍSTICAS FARMACOLÓGICAS",
+        "7. CONTRAINDICAÇÕES",
+        "8. ADVERTÊNCIAS E PRECAUÇÕES",
+        "9. INTERAÇÕES MEDICAMENTOSAS",
+        "10. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
+        "11. POSOLOGIA E MODO DE USAR",
+        "12. REAÇÕES ADVERSAS",
+        "13. SUPERDOSE",
+        "14. DIZERES LEGAIS"
     ]
     if tipo_bula == "Paciente":
         return secoes_paciente
@@ -176,44 +191,52 @@ def obter_secoes_por_tipo(tipo_bula):
         return secoes_profissional
 
 def obter_aliases_secao():
-    """Mapeia títulos alternativos para os canônicos."""
+    """
+    Mapeia títulos alternativos para os canônicos (agora numerados).
+    v20.4: Mapeamentos conflitantes (SUPERDOSE, REAÇÕES ADVERSAS)
+    são tratados dinamicamente em 'mapear_secoes' e 'obter_dados_secao'
+    """
     return {
-        "PARA QUÊ ESTE MEDICAMENTO É INDICADO?": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "O QUE DEVO SABER ANTES DE USAR ESSE MEDICAMENTO?": "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "SUPERDOSE": "O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?"
-        # Adicione mais aliases conforme necessário
+        # --- Aliases Paciente ---
+        "PARA QUÊ ESTE MEDICAMENTO É INDICADO?": "4. PARA QUE ESTE MEDICAMENTO É INDICADO?",
+        "O QUE DEVO SABER ANTES DE USAR ESSE MEDICAMENTO?": "7. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR": "11. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        
+        # --- Aliases Profissional ---
+        "INDICAÇÕES": "4. INDICAÇÕES", # Conflita com 'PARA QUE...' mas OK
+        "ADVERTÊNCIAS": "8. ADVERTÊNCIAS E PRECAUÇÕES",
+        "POSOLOGIA": "11. POSOLOGIA E MODO DE USAR",
+        
+        # Aliases conflitantes (ex: SUPERDOSE) serão tratados dinamicamente
     }
 
 def obter_secoes_ignorar_comparacao():
-    """Seções que não devem ter seu conteúdo comparado."""
+    """Seções que não devem ter seu conteúdo comparado (v20.4 numerado)."""
     return [
-        "IDENTIFICAÇÃO DO MEDICAMENTO",
-        "APRESENTAÇÕES",
-        "DIZERES LEGAIS"
+        "1. IDENTIFICAÇÃO DO MEDICAMENTO",
+        "2. APRESENTAÇÕES",
+        "13. DIZERES LEGAIS", # Paciente
+        "14. DIZERES LEGAIS" # Profissional
     ]
 
 def obter_secoes_ignorar_ortografia():
-    """Seções que não devem ser checadas por ortografia (ex: nomes, endereços)."""
+    """Seções que não devem ser checadas por ortografia (v20.4 numerado)."""
     return [
-        "IDENTIFICAÇÃO DO MEDICAMENTO",
-        "COMPOSIÇÃO",
-        "DIZERES LEGAIS"
+        "1. IDENTIFICAÇÃO DO MEDICAMENTO",
+        "3. COMPOSIÇÃO",
+        "13. DIZERES LEGAIS", # Paciente
+        "14. DIZERES LEGAIS" # Profissional
     ]
 
-# --- INÍCIO DA CORREÇÃO v19.4 ---
 def obter_secoes_ignorar_verificacao_existencia():
     """
-    Seções que são complexas (ex: cabeçalhos) e não devem ser reportadas como 'faltantes'
-    se o 'mapper' falhar em encontrá-las.
+    Seções complexas que não devem ser reportadas como 'faltantes' (v20.4 numerado).
     """
     return [
-        "IDENTIFICAÇÃO DO MEDICAMENTO",
-        "APRESENTAÇÕES",
-        "COMPOSIÇÃO"
+        "1. IDENTIFICAÇÃO DO MEDICAMENTO",
+        "2. APRESENTAÇÕES",
+        "3. COMPOSIÇÃO"
     ]
-# --- FIM DA CORREÇÃO v19.4 ---
 
 
 # ----------------- EXTRAÇÃO DE PDF ATUALIZADA COM OCR (VERSÃO MELHORADA) -----------------
@@ -313,14 +336,24 @@ def extrair_texto(arquivo, tipo_arquivo):
     except Exception as e:
         return None, f"Erro fatal na extração: {str(e)}"
 
-# ----------------- MAPEAR SEÇÕES (AJUSTES) -----------------
-def mapear_secoes(texto_completo, secoes_esperadas):
+# ----------------- MAPEAR SEÇÕES (AJUSTES v20.4) -----------------
+def mapear_secoes(texto_completo, secoes_esperadas, tipo_bula): # v20.4: Adicionado tipo_bula
     """
-    v20.3: Mapeamento melhorado com melhor detecção de limites e validação
+    v20.4: Mapeamento melhorado com aliases dinâmicos
     """
     mapa = []
     linhas = texto_completo.split('\n')
+    
     aliases = obter_aliases_secao()
+    # --- INÍCIO DA CORREÇÃO v20.4 (Aliases Dinâmicos) ---
+    # Resolve o conflito de aliases (ex: SUPERDOSE, REAÇÕES ADVERSAS)
+    if tipo_bula == "Paciente":
+        aliases["REAÇÕES ADVERSAS"] = "11. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?"
+        aliases["SUPERDOSE"] = "12. O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?"
+    else: # Profissional
+        aliases["REAÇÕES ADVERSAS"] = "12. REAÇÕES ADVERSAS"
+        aliases["SUPERDOSE"] = "13. SUPERDOSE"
+    # --- FIM DA CORREÇÃO v20.4 ---
 
     titulos_possiveis = {}
     for secao in secoes_esperadas:
@@ -333,6 +366,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     while idx < len(linhas):
         linha_limpa = linhas[idx].strip()
         
+        # v20.4: 'is_titulo_secao' agora está mais inteligente
         if not is_titulo_secao(linha_limpa):
             idx += 1
             continue
@@ -378,7 +412,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                         best_match_score_3 = score
                         best_match_canonico_3 = canon
 
-        limiar_score = 85  # v20.3: Reduzido para capturar mais variações
+        limiar_score = 85 
 
         # Prioriza 3 > 2 > 1
         if best_match_score_3 >= limiar_score and best_match_score_3 >= best_match_score_2 and best_match_score_3 >= best_match_score_1:
@@ -400,17 +434,27 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 # ----------------- OBTER DADOS DA SESSÃO (USANDO MAPA_SECOES QUANDO POSSÍVEL) -----------------
-# ***** FUNÇÃO CORRIGIDA (v20.3) *****
+# ***** FUNÇÃO CORRIGIDA (v20.4) *****
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai conteúdo de uma seção usando preferencialmente as posições no mapa_secoes.
     Se mapa_secoes não contiver a seção, tenta heurística de busca (fallback).
     
-    v20.3: Melhorias na extração de conteúdo e detecção de limites de seção
+    v20.4: Melhorias na extração de conteúdo e detecção de limites de seção
     """
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
+    
     aliases = obter_aliases_secao()
+    # --- INÍCIO DA CORREÇÃO v20.4 (Aliases Dinâmicos) ---
+    if tipo_bula == "Paciente":
+        aliases["REAÇÕES ADVERSAS"] = "11. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?"
+        aliases["SUPERDOSE"] = "12. O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?"
+    else: # Profissional
+        aliases["REAÇÕES ADVERSAS"] = "12. REAÇÕES ADVERSAS"
+        aliases["SUPERDOSE"] = "13. SUPERDOSE"
+    # --- FIM DA CORREÇÃO v20.4 ---
+
     # Lista de todos os textos possíveis para este título (canônico + aliases)
     titulos_reais_possiveis = [secao_canonico] + [alias for alias, canon in aliases.items() if canon == secao_canonico]
 
@@ -427,7 +471,10 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         
         # 2. Encontra o melhor (mais longo) alias/título canônico dentro do texto detectado
         best_real_title_match = None
-        for title_text in sorted(titulos_reais_possiveis, key=len, reverse=True):
+        # v20.4: Adiciona o título canônico (numerado) à lista de busca
+        titulos_reais_possiveis_com_canonico = sorted(list(set(titulos_reais_possiveis + [secao_canonico])), key=len, reverse=True)
+        
+        for title_text in titulos_reais_possiveis_com_canonico:
             index = titulo_raw_completo_detectado.upper().find(title_text.upper())
             if index != -1:
                 best_real_title_match = titulo_raw_completo_detectado[index : index + len(title_text)]
@@ -467,13 +514,15 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 # Para se encontrar lixo
                 if is_garbage_line(linha_norm):
                     break
-                    
-                # v20.3: Melhoria - para se a linha for um título de outra seção
+                        
+                # v20.4: Melhoria - para se a linha for um título de outra seção
                 # (proteção adicional contra vazamento de conteúdo)
+                # 'is_titulo_secao' agora é mais inteligente e ignora frases de aviso
                 if is_titulo_secao(linha.strip()):
                     # Verifica se realmente é um título conhecido
                     eh_titulo_conhecido = False
                     for t_norm in titulos_norm_set:
+                        # Compara a linha com os títulos normalizados
                         if fuzz.token_set_ratio(normalizar_titulo_para_comparacao(linha.strip()), t_norm) > 85:
                             eh_titulo_conhecido = True
                             break
@@ -549,12 +598,14 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         limiar_medio = 90
         
         match_encontrado = (score_token >= limiar_alto) or (score_ratio >= limiar_alto) or \
-                          (score_token >= limiar_medio and score_ratio >= limiar_medio)
+                           (score_token >= limiar_medio and score_ratio >= limiar_medio)
         
         if match_encontrado:
             # Encontrou! Agora divide a linha
             best_real_title_match = None
-            for title_text in sorted(titulos_reais_possiveis, key=len, reverse=True):
+            # v20.4: Adiciona o canônico na busca do fallback
+            titulos_reais_possiveis_com_canonico = sorted(list(set(titulos_reais_possiveis + [secao_canonico])), key=len, reverse=True)
+            for title_text in titulos_reais_possiveis_com_canonico:
                 index = linha_raw.upper().find(title_text.upper())
                 if index != -1:
                     best_real_title_match = linha_raw[index : index + len(title_text)]
@@ -581,7 +632,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                     fim = j
                     break
                 
-                # v20.3: Para se encontrar outro título de seção
+                # v20.4: Para se encontrar outro título de seção (usando 'is_titulo_secao' melhorado)
                 if is_titulo_secao(cand):
                     cand_norm = normalizar_titulo_para_comparacao(cand)
                     # Verifica com todos os títulos conhecidos
@@ -630,33 +681,32 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     return False, None, ""
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
-# ***** FUNÇÃO CORRIGIDA (v19.6) *****
+# ***** FUNÇÃO ATUALIZADA (v20.4) *****
 def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
-    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
-    secoes_ignorar_existencia_upper = [s.upper() for s in obter_secoes_ignorar_verificacao_existencia()]
+    # v20.4: Atualiza listas de ignorar para usar as novas funções (numeradas)
+    secoes_ignorar_upper = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
+    secoes_ignorar_existencia_upper = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_verificacao_existencia()]
 
     linhas_anvisa = texto_anvisa.split('\n')
     linhas_mkt = texto_mkt.split('\n')
-    mapa_anvisa = mapear_secoes(texto_anvisa, secoes_esperadas)
-    mapa_mkt = mapear_secoes(texto_mkt, secoes_esperadas)
+    # v20.4: Passa 'tipo_bula' para o 'mapear_secoes'
+    mapa_anvisa = mapear_secoes(texto_anvisa, secoes_esperadas, tipo_bula)
+    mapa_mkt = mapear_secoes(texto_mkt, secoes_esperadas, tipo_bula)
 
     for secao in secoes_esperadas:
     
-        checar_existencia = secao.upper() not in secoes_ignorar_existencia_upper
+        checar_existencia = normalizar_titulo_para_comparacao(secao) not in secoes_ignorar_existencia_upper
     
         encontrou_anvisa, _, conteudo_anvisa = obter_dados_secao(secao, mapa_anvisa, linhas_anvisa, tipo_bula)
-        # A função 'obter_dados_secao' (AGORA CORRIGIDA NA v20.2) tentará encontrar a seção
         encontrou_mkt, titulo_mkt, conteudo_mkt = obter_dados_secao(secao, mapa_mkt, linhas_mkt, tipo_bula)
 
-        # --- INÍCIO DA CORREÇÃO v19.6 ---
         # Se 'obter_dados_secao' falhou, é porque a seção não foi encontrada.
         if not encontrou_mkt:
             if checar_existencia: 
                 secoes_faltantes.append(secao)
             continue # Pula para a próxima seção
-        # --- FIM DA CORREÇÃO v19.6 ---
 
         # Se chegou aqui, 'encontrou_mkt' é True
         if encontrou_anvisa: # 'encontrou_anvisa' é sempre True, exceto em bulas muito mal formatadas
@@ -667,7 +717,8 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
                 if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
                     diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_mkt})
 
-            if secao.upper() in secoes_ignorar_upper:
+            # v20.4: Compara com a lista normalizada
+            if normalizar_titulo_para_comparacao(secao) in secoes_ignorar_upper:
                 continue
 
             if normalizar_texto(conteudo_anvisa) != normalizar_texto(conteudo_mkt):
@@ -683,21 +734,25 @@ def verificar_secoes_e_conteudo(texto_anvisa, texto_mkt, tipo_bula):
 
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos
 
-# ----------------- ORTOGRAFIA -----------------
+# ----------------- ORTOGRAFIA (v20.4) -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula):
     if not nlp or not texto_para_checar:
         return []
 
     try:
+        # v20.4: Listas agora são numeradas
         secoes_ignorar = obter_secoes_ignorar_ortografia()
         secoes_todas = obter_secoes_por_tipo(tipo_bula)
         texto_filtrado_para_checar = []
 
-        mapa_secoes = mapear_secoes(texto_para_checar, secoes_todas)
+        mapa_secoes = mapear_secoes(texto_para_checar, secoes_todas, tipo_bula) # v20.4 passa tipo_bula
         linhas_texto = texto_para_checar.split('\n')
 
+        secoes_ignorar_norm = [normalizar_titulo_para_comparacao(s) for s in secoes_ignorar]
+
         for secao_nome in secoes_todas:
-            if secao_nome.upper() in [s.upper() for s in secoes_ignorar]:
+            # v20.4: Compara normalizado
+            if normalizar_titulo_para_comparacao(secao_nome) in secoes_ignorar_norm:
                 continue
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto, tipo_bula)
             if encontrou and conteudo:
@@ -885,10 +940,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Arquivo da Anvisa: {data_ref}\n   - Arquivo Marketing: {data_belfar}")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n    - Arquivo da Anvisa: {data_ref}\n    - Arquivo Marketing: {data_belfar}")
 
     if secoes_faltantes:
-        st.error(f"🚨 **Seções faltantes na bula Arquivo Marketing ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
+        st.error(f"🚨 **Seções faltantes na bula Arquivo Marketing ({len(secoes_faltantes)})**:\n" + "\n".join([f"    - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Nenhuma seção obrigatória faltando.")
 
@@ -956,15 +1011,16 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
-    mapa_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
-    mapa_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
+    secoes_canonicas = obter_secoes_por_tipo(tipo_bula)
+    mapa_ref = mapear_secoes(texto_ref, secoes_canonicas, tipo_bula)
+    mapa_belfar = mapear_secoes(texto_belfar, secoes_canonicas, tipo_bula)
 
     # --- INÍCIO DA CORREÇÃO DE ESPAÇAMENTO ---
     # Reformatar texto por seções detectadas
     try:
         texto_ref_reformatado_lista = []
         # Itera sobre os canônicos para garantir a ordem
-        for secao_canon in obter_secoes_por_tipo(tipo_bula):
+        for secao_canon in secoes_canonicas:
             # Encontra a seção no mapa (se existir)
             encontrou, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_ref, texto_ref.split('\n'), tipo_bula)
             if encontrou:
@@ -975,7 +1031,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         texto_ref_reformatado = "\n\n".join(texto_ref_reformatado_lista) if texto_ref_reformatado_lista else texto_ref
 
         texto_belfar_reformatado_lista = []
-        for secao_canon in obter_secoes_por_tipo(tipo_bula):
+        for secao_canon in secoes_canonicas:
             encontrou, titulo_real, conteudo = obter_dados_secao(secao_canon, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
             if encontrou:
                 # Adiciona o título em negrito e o conteúdo
@@ -1073,4 +1129,4 @@ if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de AuditorIA de Bulas v20.2 | Correção de Conteúdo e Mapeamento de Seções")
+st.caption("Sistema de AuditorIA de Bulas v20.4 | Enumeração e Correção de Falsos-Títulos")
