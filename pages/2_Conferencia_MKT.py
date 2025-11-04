@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Sistema: AuditorIA de Bulas v20.12 - Limpeza Final de SyntaxError
+# Sistema: AuditorIA de Bulas v20.12 - Limpeza Final de SyntaxError (U+00A0)
 # Objetivo: comparar bulas (Anvisa x Marketing), com OCR, reflow, detecção de seções,
 # marcação de diferenças palavra-a-palavra, checagem ortográfica e visualização lado-a-lado.
 #
 # Observações:
-# - v20.12: (CORREÇÃO DE SYNTAXERROR) Recriado para garantir
-#           NENHUM 'non-breaking space' (U+00A0). Bloco 'hide_streamlit_UI'
-#           foi reescrito manualmente para ser 100% limpo.
+# - v20.12: (CORREÇÃO DE SYNTAXERROR) Script inteiro limpo programaticamente
+#           de 'non-breaking spaces' (U+00A0) que estavam nos comentários.
 # - v20.8: (Mantido) Filtro de Bbox no extrator de PDF para ignorar 12% do topo/rodapé.
 # - v20.8: (Mantido) Regex da data ANVISA corrigida para aceitar quebras de linha.
 # - Mantenha Tesseract e o modelo SpaCy instalados: `tesseract` + `pt_core_news_lg`
