@@ -142,7 +142,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             
             texto = "\n".join(linhas_filtradas)
             
-            texto = re.sub(r'\n{3,}', '\n\n', texto) 
+            texto = re.sub(r'\n{3,}', '\n\n', texto)  
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
@@ -584,26 +584,27 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n    - Referência: {data_ref}\n    - BELFAR: {data_belfar}")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: {data_ref}\n   - BELFAR: {data_belfar}")
 
     if secoes_faltantes:
-        st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"    - {s}" for s in secoes_faltantes]))
+        st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
     
     if diferencas_conteudo:
         st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
         
+        # --- MODIFICAÇÃO ESTÉTICA 1: Alinhamento do Expander ---
         expander_caixa_style = (
             "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
             "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
-            "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
+            "font-family: 'Georgia', 'Times New Roman', serif; text-align: left;" # ALTERADO DE 'justify' para 'left'
         )
 
         for diff in diferencas_conteudo:
             with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
                 expander_html_ref = marcar_diferencas_palavra_por_palavra(
-                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
+                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referENCIA=True
                 ).replace('\n', '<br>')
                 
                 expander_html_belfar = marcar_diferencas_palavra_por_palavra(
@@ -653,27 +654,36 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
     html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
 
-    # 2. Estilo da Caixa de Visualização
+    # 2. Estilo da Caixa de Visualização (COM CORREÇÃO DE CORTE)
     caixa_style = (
-        "max-height: 700px; "  # Altura máxima, permite caixas menores se o conteúdo for curto
+        "max-height: 700px; "
         "overflow-y: auto; "
-        "border: 1px solid #e0e0e0; "  # Borda mais suave
-        "border-radius: 8px; "  # Cantos mais arredondados
-        "padding: 20px 24px; "  # Padding interno
+        "border: 1px solid #e0e0e0; "
+        "border-radius: 8px; "
+        "padding: 20px 24px; "
         "background-color: #ffffff; "
-        "font-size: 15px; "  # Fonte ligeiramente maior para leitura
-        "line-height: 1.7; "  # Melhor espaçamento entre linhas
-        "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "  # Sombra mais suave
-        "text-align: left; "  # Alinhamento à esquerda é melhor para leitura
+        "font-size: 15px; "
+        "line-height: 1.7; "
+        "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "
+        "text-align: left; "
+        "overflow-wrap: break-word; "  # <-- CORREÇÃO PRINCIPAL: Evita o corte horizontal
+        "word-break: break-word; "      # <-- CORREÇÃO (Fallback): Garante a quebra
     )
     
-    col1, col2 = st.columns(2, gap="medium")
+    # 3. Estilo dos Títulos das Colunas (NOVO)
+    title_style = (
+        "font-size: 1.25rem; " # 20px
+        "font-weight: 600; "
+        "margin-bottom: 8px; "
+        "color: #31333F;" # Cor de texto padrão do Streamlit
+    )
+    
+    col1, col2 = st.columns(2, gap="large") # Gap aumentado para "large"
     with col1:
-        # 3. Título como H4 (um pouco menor que subheader)
-        st.markdown(f"#### {nome_ref}") 
+        st.markdown(f"<div style='{title_style}'>{nome_ref}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"#### {nome_belfar}")
+        st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
     
     # --- FIM DA MODIFICAÇÃO ESTÉTICA ---
