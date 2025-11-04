@@ -33,19 +33,19 @@ hide_streamlit_UI = """
             /* Esconde o container principal do badge */
             [data-testid="stStatusWidget"] {
                 display: none !important;
-                visibility: hidden !important;
+                visibility: hidden !importa
             }
 
             /* Esconde o 'Created by' */
             [data-testid="stCreatedBy"] {
                 display: none !important;
-                visibility: hidden !important;
+                visibility: hidden !importa
             }
 
             /* Esconde o 'Hosted with Streamlit' */
             [data-testid="stHostedBy"] {
                 display: none !important;
-                visibility: hidden !important;
+                visibility: hidden !importa
             }
             </style>
             """
@@ -64,7 +64,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA V18.7) -----------------
+# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA V18.8) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos, com lógica condicional para PDFs de 1 ou 2 colunas.
@@ -80,24 +80,23 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                # --- INÍCIO DA CORREÇÃO (BAGUNÇA) ---
+                # --- INÍCIO DA CORREÇÃO (LINHAS QUEBRADAS) ---
                 if is_marketing_pdf:
                     # Lógica de 2 colunas SÓ para o PDF do Marketing
-                    # Esta lógica lê a coluna da esquerda INTEIRA, depois a da direita.
-                    # Crucialmente, NÃO usamos sort=True aqui.
+                    # Adicionamos 'sort=True' para fazer o texto fluir
                     for page in doc:
                         rect = page.rect
                         clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
                         clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
                         
-                        texto_esquerda = page.get_text("text", clip=clip_esquerda) # Sem sort
-                        texto_direita = page.get_text("text", clip=clip_direita)  # Sem sort
+                        # Adicionado sort=True para "re-fluir" o texto
+                        texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True) 
+                        texto_direita = page.get_text("text", clip=clip_direita, sort=True)  
                         
                         full_text_list.append(texto_esquerda)
                         full_text_list.append(texto_direita)
                 else:
                     # Lógica de 1 coluna (padrão) para o PDF da Anvisa
-                    # Aqui o sort=True é seguro e correto.
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
                 # --- FIM DA CORREÇÃO ---
@@ -114,7 +113,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
-            texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
+            # Removido o de-hifenizador que pode juntar palavras
+            # texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
             linhas = texto.split('\n')
             
@@ -127,8 +127,16 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
                 r'|^\s*\d+\s*mm\s*$'
-                r'|^\s*-\s*Normal e Negrito\. Corpo \d+\s*$'
+                # Removido filtro de "Normal e Negrito" que estava na sua amostra
+                # r'|^\s*-\s*Normal e Negrito\. Corpo \d+\s*$'
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
+                # Adicionado filtro para os novos ruídos
+                r'|BUL_CLORIDRATO_DE_A.*'
+                r'|AMBROXOL_BUL\d+V\d+.*'
+                r'|es New Roman.*'
+                r'|rpo \d+.*'
+                r'|olL: Times New Roman.*'
+                r'|\d{2}\s\d{4}\s\d{4}.*' # Filtro para o telefone 31 2105 1100
             , re.IGNORECASE)
             
             linhas_filtradas = []
@@ -552,7 +560,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         """Preserva o layout original com <br>."""
         if html_content is None:
             return ""
-        return html_content.replace('\n', '<br>')
+        # Substitui DUAS quebras por <br><br> (parágrafo)
+        # e UMA quebra por <br> (linha)
+        html_content = html_content.replace('\n\n', '<br><br>')
+        html_content = html_content.replace('\n', '<br>')
+        return html_content
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f"   - {s}" for s in secoes_faltantes]))
@@ -684,11 +696,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- INÍCIO DA CHAMADA CORRIGIDA v18.7 ---
-            # Extrai o texto da Anvisa (1 coluna)
+            # --- INÍCIO DA CHAMADA CORRIGIDA v18.8 ---
+            # Extrai o texto da Anvisa (1 coluna, com sort)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
-            # Extrai o texto do Marketing (2 colunas)
+            # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             # --- FIM DA CHAMADA CORRIGIDA ---
 
@@ -707,4 +719,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.7 | Correção de Extração (Coluna Dupla)")
+st.caption("Sistema de Auditoria de Bulas v18.8 | Correção de Fluxo de Texto (sort=True)")
