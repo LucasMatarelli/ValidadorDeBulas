@@ -64,13 +64,13 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO -----------------
+# ----------------- EXTRAÇÃO (FUNÇÃO CORRIGIDA V22.0) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
     - PDF Anvisa (1 col): Usa sort=True para fluir o texto.
-    - PDF Marketing (2 col): NÃO usa sort, para preservar as linhas
-      para o mapeamento de 3 linhas.
+    - PDF Marketing (2 col): Usa sort=True DENTRO de cada coluna,
+      para fluir o texto e deixar o layout "bonitinho".
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -81,16 +81,17 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
+                # --- INÍCIO DA CORREÇÃO (v22.0) ---
                 if is_marketing_pdf:
                     # Lógica de 2 colunas SÓ para o PDF do Marketing
-                    # NÃO usamos sort=True, para que o mapeador de 3 linhas funcione
+                    # Usamos 'sort=True' DENTRO de cada clipe
                     for page in doc:
                         rect = page.rect
                         clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
                         clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
                         
-                        texto_esquerda = page.get_text("text", clip=clip_esquerda) # SEM SORT
-                        texto_direita = page.get_text("text", clip=clip_direita)  # SEM SORT
+                        texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True) # COM SORT
+                        texto_direita = page.get_text("text", clip=clip_direita, sort=True)  # COM SORT
                         
                         full_text_list.append(texto_esquerda)
                         full_text_list.append(texto_direita)
@@ -98,6 +99,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     # Lógica de 1 coluna (padrão) para o PDF da Anvisa
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
+                # --- FIM DA CORREÇÃO ---
             
             texto = "\n\n".join(full_text_list)
         
@@ -115,6 +117,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             linhas = texto.split('\n')
             
+            # --- FILTRO DE RUÍDO APRIMORADO (v22.0) ---
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
@@ -131,6 +134,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|rpo \d+.*'
                 r'|olL: Times New Roman.*'
                 r'|\d{2}\s\d{4}\s\d{4}.*' 
+                r'|cloridrato de ambroxo\s*$' # Linha solta com erro
+                r'|Normal e Negrito\. Co\s*$' # Linha solta de ruído
             , re.IGNORECASE)
             
             linhas_filtradas = []
@@ -566,20 +571,21 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.subheader("Detalhes dos Problemas Encontrados")
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n   - Referência: {data_ref}\n   - BELFAR: {data_belfar}")
     
-    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v21.0) ---
+    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v22.0) ---
     def formatar_html_para_leitura(html_content):
         """
-        Corrige o bug "tudo junto" (v20.0)
-        Agora, simplesmente preserva TODAS as quebras de linha
-        originais do documento, para AMBOS os arquivos.
+        O texto já vem "fluído" da extração (sort=True).
+        Esta função apenas preserva os parágrafos reais.
         """
         if html_content is None:
             return ""
         
-        # Preserva parágrafos
+        # Preserva parágrafos (2+ quebras)
         html_content = html_content.replace('\n\n', '<br><br>')
-        # Preserva quebras de linha únicas (layout do PDF)
-        html_content = html_content.replace('\n', '<br>')
+        
+        # Remove quebras de linha únicas (lixo do PDF)
+        # que o sort=True possa ter deixado
+        html_content = html_content.replace('\n', ' ')
         return html_content
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
@@ -611,7 +617,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
 
-                # Aplica a formatação v21.0 (preserva quebras)
+                # Aplica a formatação v22.0
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
@@ -656,7 +662,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # Aplica a formatação v21.0 (preserva quebras)
+    # Aplica a formatação v22.0
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
 
@@ -715,11 +721,13 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
+            # --- INÍCIO DA CHAMADA CORRIGIDA v22.0 ---
             # Extrai o texto da Anvisa (1 coluna, com sort)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
-            # Extrai o texto do Marketing (2 colunas, SEM sort)
+            # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+            # --- FIM DA CHAMADA CORRIGIDA ---
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -736,4 +744,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21.0 | Correção de Layout ('Tudo Junto')")
+st.caption("Sistema de Auditoria de Bulas v22.0 | Correção de Layout (sort=True) e Filtro de Ruído")
