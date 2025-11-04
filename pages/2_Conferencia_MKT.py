@@ -1,7 +1,6 @@
 # pages/2_Conferencia_MKT.py
-# Versão v27.0
-# - Trunca o texto da Anvisa E do Marketing após a data da ANVISA.
-# - Exibe TODAS as seções em expanders, com status individual (Idêntico, Divergente, Faltante, Ignorado).
+# (Seu código v26.1 completo e corrigido)
+# Versão v26.2: Numeração de seções e renomeação de labels (ANVISA/MKT)
 
 # --- IMPORTS ---
 import re
@@ -121,60 +120,85 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
-    # Regex mais flexível para "aprovação"
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
-        # Encontra o fim da linha onde a data foi encontrada
         end_of_line_pos = texto.find('\n', match.end())
         if end_of_line_pos != -1:
-            # Retorna o texto ATÉ o fim dessa linha
             return texto[:end_of_line_pos]
         else:
-            # Se não houver \n, retorna o texto até o fim (pois é a última linha)
             return texto
-    # Se não encontrar a data, retorna o texto original
     return texto
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
+    
+    # --- ALTERAÇÃO SOLICITADA ---
+    # Numeração completa das seções
     secoes = {
         "Paciente": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
-            "COMO ESTE MEDICAMENTO FUNCIONA?", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-            "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "COMO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-            "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-            "DIZERES LEGAIS"
+            "1. APRESENTAÇÕES", 
+            "2. COMPOSIÇÃO", 
+            "3. PARA QUE ESTE MEDICAMENTO É INDICADO?",
+            "4. COMO ESTE MEDICAMENTO FUNCIONA?", 
+            "5. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+            "6. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+            "7. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+            "8. COMO DEVO USAR ESTE MEDICAMENTO?",
+            "9. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+            "10. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+            "11. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+            "12. DIZERES LEGAIS"
         ],
         "Profissional": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
-            "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
-            "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
-            "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
-            "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
+            "1. APRESENTAÇÕES", 
+            "2. COMPOSIÇÃO", 
+            "3. INDICAÇÕES", 
+            "4. RESULTADOS DE EFICÁCIA",
+            "5. CARACTERÍSTICAS FARMACOLÓGICAS", 
+            "6. CONTRAINDICAÇÕES",
+            "7. ADVERTÊNCIAS E PRECAUÇÕES", 
+            "8. INTERAÇÕES MEDICAMENTOSAS",
+            "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", 
+            "10. POSOLOGIA E MODO DE USAR",
+            "11. REAÇÕES ADVERSAS", 
+            "12. SUPERDOSE", 
+            "13. DIZERES LEGAIS"
         ]
     }
+    # --- FIM DA ALTERAÇÃO ---
+    
     return secoes.get(tipo_bula, [])
 
 def obter_aliases_secao():
+    # Mantém os aliases sem numeração para flexibilidade no match
     return {
-        "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
-        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
+        "INDICAÇÕES": "3. INDICAÇÕES", # Profissional
+        "PARA QUE ESTE MEDICAMENTO É INDICADO?": "3. PARA QUE ESTE MEDICAMENTO É INDICADO?", # Paciente
+        
+        "CONTRAINDICAÇÕES": "6. CONTRAINDICAÇÕES", # Profissional
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "5. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?", # Paciente
+        
+        "POSOLOGIA E MODO DE USAR": "10. POSOLOGIA E MODO DE USAR", # Profissional
+        "COMO DEVO USAR ESTE MEDICAMENTO?": "8. COMO DEVO USAR ESTE MEDICAMENTO?", # Paciente
+        
+        "REAÇÕES ADVERSAS": "11. REAÇÕES ADVERSAS", # Profissional
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "10. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?", # Paciente
+        
+        "SUPERDOSE": "12. SUPERDOSE", # Profissional
+        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "11. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?", # Paciente
+        
+        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", # Profissional
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "7. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?" # Paciente
     }
 
 def obter_secoes_ignorar_ortografia():
-    return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
+    # Ignora pela numeração
+    return ["2. COMPOSIÇÃO", "12. DIZERES LEGAIS", "13. DIZERES LEGAIS"]
 
 def obter_secoes_ignorar_comparacao():
-    return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES", "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"]
+    # Ignora pela numeração
+    return ["1. APRESENTAÇÕES", "2. COMPOSIÇÃO", "12. DIZERES LEGAIS", "13. DIZERES LEGAIS", "7. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", "9. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO"]
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
@@ -187,6 +211,7 @@ def normalizar_texto(texto):
 
 def normalizar_titulo_para_comparacao(texto):
     texto_norm = normalizar_texto(texto)
+    # Remove a numeração (ex: "1. ", "1.", "1) ") do início para a comparação
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
@@ -246,7 +271,11 @@ def is_titulo_secao(linha):
     if len(linha) > 100:
         return False
         
-    return True
+    # Permite títulos não numerados que são totalmente maiúsculos
+    if linha.isupper():
+        return True
+        
+    return False
             
 def mapear_secoes(texto_completo, secoes_esperadas):
     """Mapeador simplificado (v23) para funcionar com o texto "bonito" (fluído)"""
@@ -256,11 +285,12 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     
     titulos_possiveis = {}
     for secao in secoes_esperadas:
-        titulos_possiveis[secao] = secao
+        titulos_possiveis[secao] = secao # Key: "1. APRESENTAÇÕES", Value: "1. APRESENTAÇÕES"
     for alias, canonico in aliases.items():
         if canonico in secoes_esperadas:
-            titulos_possiveis[alias] = canonico
+            titulos_possiveis[alias] = canonico # Key: "APRESENTAÇÕES", Value: "1. APRESENTAÇÕES"
             
+    # Compara a versão normalizada e SEM NÚMERO
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
 
     limiar_score = 85  # Reduzido de 95 para 85 para maior tolerância
@@ -271,6 +301,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if not is_titulo_secao(linha_limpa):
             continue
         
+        # Compara a linha normalizada e SEM NÚMERO
         norm_linha_1 = normalizar_titulo_para_comparacao(linha_limpa)
         best_score = 0
         best_canonico = None
@@ -284,8 +315,8 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if best_score >= limiar_score:
             if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
-                    'canonico': best_canonico,
-                    'titulo_encontrado': linha_limpa,
+                    'canonico': best_canonico, # Ex: "1. APRESENTAÇÕES"
+                    'titulo_encontrado': linha_limpa, # Ex: "APRESENTAÇÕES"
                     'linha_inicio': idx,
                     'score': best_score,
                     'num_linhas_titulo': 1 # Sempre 1 linha no texto fluído
@@ -496,7 +527,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
                 flags=re.IGNORECASE
             )
             
-    # Regex de data anvisa (mais flexível para 'aprovação')
+    # Corrigido: Regex de data anvisa (mais flexível para 'aprovação')
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match = re.search(regex_anvisa, texto_original, re.IGNORECASE)
     
@@ -515,7 +546,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
-    # Regex de data anvisa (mais flexível para 'aprovação')
+    # Corrigido: Regex de data anvisa (mais flexível para 'aprovação')
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     
     match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
@@ -535,30 +566,20 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (Referência)", data_ref)
+    
+    # --- ALTERAÇÃO SOLICITADA ---
+    col3.metric("Data ANVISA (Arquivo ANVISA)", data_ref)
+    # --- FIM DA ALTERAÇÃO ---
+    
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
     
-    # --- INÍCIO DA MODIFICAÇÃO (v27.0): Preparar dados para expanders ---
-    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
-    linhas_ref = texto_ref_safe.split('\n')
-    linhas_belfar = texto_belfar_safe.split('\n')
-    mapa_ref = mapear_secoes(texto_ref_safe, secoes_esperadas)
-    mapa_belfar = mapear_secoes(texto_belfar_safe, secoes_esperadas)
-    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
-    diff_lookup = {d['secao']: d for d in diferencas_conteudo}
+    # --- ALTERAÇÃO SOLICITADA ---
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
+    # --- FIM DA ALTERAÇÃO ---
     
-    expander_caixa_style = (
-        "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
-        "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
-        "font-family: 'Georgia', 'Times New Roman', serif; text-align: left;"
-        "overflow-wrap: break-word; word-break: break-word;"
-    )
-    # --- FIM DA PREPARAÇÃO ---
-
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Referência: {data_ref}\n  - BELFAR: {data_belfar}")
     
     # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.0) ---
     def formatar_html_para_leitura(html_content):
@@ -614,61 +635,53 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         return html_content
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
-    # --- INÍCIO DA MODIFICAÇÃO (v27.0): Loop de Seção ---
-    # Substitui os blocos "if secoes_faltantes" e "if diferencas_conteudo"
+    if secoes_faltantes:
+        # --- ALTERAÇÃO SOLICITADA ---
+        st.error(f"🚨 **Seções faltantes na bula Arquivo MKT ({len(secoes_faltantes)})**:\n" + "\n".join([f"  - {s}" for s in secoes_faltantes]))
+        # --- FIM DA ALTERAÇÃO ---
+    else:
+        st.success("✅ Todas as seções obrigatórias estão presentes")
     
-    for secao in secoes_esperadas:
-        encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref)
-        encontrou_belfar, _, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar)
+    if diferencas_conteudo:
+        st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
+        
+        expander_caixa_style = (
+            "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
+            "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
+            "font-family: 'Georgia', 'Times New Roman', serif; text-align: left;"
+            "overflow-wrap: break-word; word-break: break-word;"
+        )
 
-        conteudo_ref_str = conteudo_ref or ""
-        conteudo_belfar_str = conteudo_belfar or ""
+        for diff in diferencas_conteudo:
+            with st.expander(f"📄 {diff['secao']} - ❌ CONTEÚDO DIVERGENTE"):
+                
+                conteudo_ref_str = diff.get('conteudo_ref') or ""
+                conteudo_belfar_str = diff.get('conteudo_belfar') or ""
 
-        is_diff = secao in diff_lookup
-        is_missing = secao in secoes_faltantes
-        is_ignored = secao.upper() in secoes_ignorar_upper
+                html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
+                    conteudo_ref_str, conteudo_belfar_str, eh_referencia=True
+                )
+                html_belfar_bruto_expander = marcar_diferencas_palavra_por_palavra(
+                    conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
+                )
 
-        # Define o título do expander
-        title = f"📄 {secao}"
-        if is_missing:
-            title += " - ⚠️ NÃO ENCONTRADA"
-        elif is_ignored:
-            title += " - ℹ️ IGNORADA (Não comparada)"
-        elif is_diff:
-            title += " - ❌ CONTEÚDO DIVERGENTE"
-        else:
-            title += " - ✅ CONTEÚDO IDÊNTICO"
-
-        with st.expander(title):
-            if is_missing:
-                st.warning("Esta seção não foi encontrada no arquivo do Marketing.")
-            else:
-                # Preparar HTML
-                html_ref_bruto_expander = ""
-                html_belfar_bruto_expander = ""
-
-                if is_diff:
-                    # Se for diferente, marca as diferenças
-                    html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(conteudo_ref_str, conteudo_belfar_str, eh_referencia=True)
-                    html_belfar_bruto_expander = marcar_diferencas_palavra_por_palavra(conteudo_ref_str, conteudo_belfar_str, eh_referencia=False)
-                else:
-                    # Se não for diferente, apenas mostra o texto puro
-                    html_ref_bruto_expander = conteudo_ref_str
-                    html_belfar_bruto_expander = conteudo_belfar_str
-
-                # Formatar para leitura (sempre)
+                # Aplica a formatação v26.0
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
-                # Exibir
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown("**Referência:**")
+                    # --- ALTERAÇÃO SOLICITADA ---
+                    st.markdown("**Arquivo ANVISA:**")
+                    # --- FIM DA ALTERAÇÃO ---
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
                 with c2:
-                    st.markdown("**BELFAR:**")
+                    # --- ALTERAÇÃO SOLICITADA ---
+                    st.markdown("**Arquivo MKT:**")
+                    # --- FIM DA ALTERAÇÃO ---
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
-    # --- FIM DA MODIFICAÇÃO (v27.0) ---
+    else:
+        st.success("✅ Conteúdo das seções está idêntico")
 
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
@@ -750,10 +763,14 @@ st.header("📋 Configuração da Auditoria")
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arquivo da Anvisa")
+    # --- ALTERAÇÃO SOLICITADA ---
+    st.subheader("📄 Arquivo ANVISA")
+    # --- FIM DA ALTERAÇÃO ---
     pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
 with col2:
-    st.subheader("📄 Arquivo Marketing")
+    # --- ALTERAÇÃO SOLICITADA ---
+    st.subheader("📄 Arquivo MKT")
+    # --- FIM DA ALTERAÇÃO ---
     pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
@@ -768,25 +785,21 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
-            # --- INÍCIO DA MODIFICAÇÃO (v27.0): Truncar os dois arquivos ---
-            if not erro_ref:
-                texto_ref = truncar_apos_anvisa(texto_ref)
-                
             if not erro_belfar:
                 # Aplica correção de títulos quebrados ANTES de truncar e mapear
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
-            # --- FIM DA MODIFICAÇÃO ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
-            # Verifica se os textos não ficaram vazios APÓS o truncamento
             elif not texto_ref or not texto_belfar:
-                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente (possivelmente a data da ANVISA não foi encontrada).")
+                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo da Anvisa", "Arquivo Marketing", tipo_bula_selecionado)
+                # --- ALTERAÇÃO SOLICITADA ---
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
+                # --- FIM DA ALTERAÇÃO ---
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v27.0 | Expanders de Seção e Truncamento Duplo")
+st.caption("Sistema de Auditoria de Bulas v26.2 | Numeração de Seções e Labels (ANVISA/MKT)")
