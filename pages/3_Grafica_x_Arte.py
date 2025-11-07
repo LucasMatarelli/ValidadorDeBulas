@@ -1,6 +1,5 @@
-# 🔬 Auditoria de Bulas – v21 (Leitura Forçada de Colunas - Versão Limpa)
-# Resolve o problema de colunas misturadas no PDF da Gráfica
-# VERSÃO LIMPA: Corrigidos erros de sintaxe (caracteres invisíveis \xa0)
+# 🔬 Auditoria de Bulas – v22 (Híbrido de Coluna Universal)
+# Resolve problemas de extração de colunas tanto em PDFs de texto quanto de imagem.
 
 # --- IMPORTS ---
 
@@ -43,77 +42,72 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO - v21] FUNÇÕES DE EXTRAÇÃO -----------------
+# ----------------- [NOVO - v22] EXTRAÇÃO HÍBRIDA DE COLUNAS -----------------
 
-def extrair_texto_pdf_colunas(arquivo_bytes):
+def extrair_pdf_hibrido_colunas(arquivo_bytes):
     """
-    Extrai texto de um PDF de "Arte Gráfica" que TEM colunas.
-    Ele força a leitura por colunas (esquerda, depois direita) para
-    evitar a "salada" de texto.
+    Extrai texto de QUALQUER PDF com 2 colunas, seja texto ou imagem.
+    Tenta extração direta por colunas. Se falhar, usa OCR por colunas.
     """
-    st.info("Executando extração otimizada para colunas (Gráfica)...")
-    texto_total = ""
+    texto_total_final = ""
+    
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for page in doc:
-            # 1. Definir as colunas
+        st.info(f"Processando {len(doc)} página(s) com lógica de coluna...")
+        
+        for i, page in enumerate(doc):
+            # 1. Definir as colunas (com margem para evitar cabeçalhos/rodapés)
             rect = page.rect
-            # Coluna da Esquerda
-            rect_col_1 = fitz.Rect(0, 0, rect.width * 0.5, rect.height)
-            # Coluna da Direita
-            rect_col_2 = fitz.Rect(rect.width * 0.5, 0, rect.width, rect.height)
+            margin_y = 20 # Margem de 20 pontos no topo e rodapé
+            rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
+            rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
 
-            # 2. Extrair texto de cada coluna separadamente
-            # Usamos "blocks" e "sort=True" DENTRO da área de corte (clip).
-            blocks_col_1 = page.get_text("blocks", clip=rect_col_1, sort=True)
-            blocks_col_2 = page.get_text("blocks", clip=rect_col_2, sort=True)
+            # --- TENTATIVA 1: Extração Direta (para PDFs de texto) ---
+            try:
+                blocks_col_1 = page.get_text("blocks", clip=rect_col_1, sort=True)
+                blocks_col_2 = page.get_text("blocks", clip=rect_col_2, sort=True)
+                
+                texto_direto_col_1 = "".join([b[4] for b in blocks_col_1])
+                texto_direto_col_2 = "".join([b[4] for b in blocks_col_2])
+                
+                texto_direto_pagina = texto_direto_col_1 + "\n" + texto_direto_col_2
+            except Exception:
+                texto_direto_pagina = ""
+
+            # --- VERIFICAÇÃO 1 ---
+            # Se a extração direta funcionou bem, usa ela e vai para a próxima página
+            if len(texto_direto_pagina.strip()) > 200:
+                texto_total_final += texto_direto_pagina + "\n"
+                continue # Pula para a próxima página
+
+            # --- TENTATIVA 2: Extração por OCR (para PDFs de imagem) ---
+            # Se a direta falhou (texto < 200 chars), faz OCR
+            st.warning(f"Extração direta falhou na pág. {i+1}. Ativando OCR por colunas (pode ser lento)...")
+            try:
+                # OCR da Coluna 1
+                pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
+                img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
+                texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por')
+                
+                # OCR da Coluna 2
+                pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
+                img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
+                texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por')
+                
+                texto_ocr_pagina = texto_ocr_col_1 + "\n" + texto_ocr_col_2
+                texto_total_final += texto_ocr_pagina + "\n"
             
-            texto_col_1 = "".join([b[4] for b in blocks_col_1])
-            texto_col_2 = "".join([b[4] for b in blocks_col_2])
-
-            # 3. Concatenar: Esquerda, depois Direita
-            texto_total += texto_col_1 + "\n" + texto_col_2 + "\n"
-    
-    return texto_total
-
-def extrair_texto_pdf_simples(arquivo_bytes):
-    """
-    Extrai texto de um PDF "simples" (como a Referência).
-    Tenta extração direta primeiro. Usa OCR como Plano B se a direta falhar.
-    """
-    texto_final = ""
-    # TENTATIVA 1: Extração Direta (Rápida)
-    try:
-        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-            for page in doc:
-                blocks = page.get_text("blocks", sort=True)
-                texto_pagina = "".join([b[4] for b in blocks])
-                texto_final += texto_pagina + "\n"
-    except Exception:
-        texto_final = ""
-
-    # VERIFICAÇÃO
-    if len(texto_final.strip()) > 100:
-        st.info("Extração direta (Referência) concluída.")
-        return texto_final
-
-    # TENTATIVA 2: OCR (Lenta, para imagem)
-    st.info("Extração direta (Referência) falhou. Iniciando OCR...")
-    texto_ocr = ""
-    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for page in doc:
-            pix = page.get_pixmap(dpi=300)
-            img_bytes = pix.tobytes("png")
-            imagem = Image.open(io.BytesIO(img_bytes))
-            texto_pagina_ocr = pytesseract.image_to_string(imagem, lang='por')
-            texto_ocr += texto_pagina_ocr + "\n"
-    
-    return texto_ocr
+            except Exception as e:
+                st.error(f"Erro fatal no OCR da pág. {i+1}: {e}")
+                continue
+                
+    st.success("Extração de PDF concluída.")
+    return texto_total_final
 
 # --- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL ---
-def extrair_texto(arquivo, tipo_arquivo, is_grafica_pdf=False):
+def extrair_texto(arquivo, tipo_arquivo):
     """
-    Função principal de extração. Decide qual método usar
-    baseado no tipo de arquivo e se é o PDF da Gráfica.
+    Função principal de extração. Decide qual método usar.
+    v22: Usa a lógica de colunas para TODOS os PDFs.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -124,15 +118,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_grafica_pdf=False):
         arquivo_bytes = arquivo.read() # Ler os bytes uma vez
 
         if tipo_arquivo == "pdf":
-            if is_grafica_pdf:
-                # Usar a nova lógica de corte de coluna
-                texto = extrair_texto_pdf_colunas(arquivo_bytes)
-            else:
-                # Usar a lógica híbrida simples para a Referência
-                texto = extrair_texto_pdf_simples(arquivo_bytes)
+            # --- MUDANÇA v22 ---
+            # Usa a nova lógica HÍBRIDA DE COLUNAS para TODOS os PDFs
+            texto = extrair_pdf_hibrido_colunas(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
-            # DOCX é sempre simples
+            # DOCX é sempre simples (sem colunas)
+            st.info("Extraindo texto de DOCX...")
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto = "\n".join([p.text for p in doc.paragraphs])
         
@@ -146,11 +138,27 @@ def extrair_texto(arquivo, tipo_arquivo, is_grafica_pdf=False):
                 r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
                 r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
                 r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+",
-                r"e\s*----+\s*\d+mm\s*>>>I\)", # Filtro para "e----------- 190mm >>>I)"
-                r"14.prova - \d+/\d+/\d+" # Filtro para "14.prova - 31/10/2025"
+                r"e\s*-+\s*\d+mm\s*>>>I\)", # Filtro para "e----------- 190mm >>>I)"
+                # --- Filtros Corrigidos v22 ---
+                r"\d+ª\s*prova\s*-\s*\d+", # Filtro para "1ª prova - 3"
+                r"^\s*\d+/\d+/\d+\s*$" # Filtro para datas sozinhas "31/10/2025"
             ]
-            for padrao in padroes_ignorados:
-                texto = re.sub(padrao, "", texto)
+            
+            # Aplicar filtros
+            linhas_originais = texto.split('\n')
+            linhas_filtradas = []
+            
+            for linha in linhas_originais:
+                linha_limpa = linha.strip()
+                ignorar_linha = False
+                for padrao in padroes_ignorados:
+                    if re.search(padrao, linha_limpa, re.MULTILINE):
+                        ignorar_linha = True
+                        break
+                if not ignorar_linha:
+                    linhas_filtradas.append(linha)
+            
+            texto = "\n".join(linhas_filtradas)
 
             # Limpeza padrão de normalização
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
@@ -160,15 +168,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_grafica_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
+            
+            # Re-filtrar por rodapés padrão
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
+            linhas_filtradas_final = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             
-            linhas_filtradas = []
-            for linha in linhas:
-                if not padrao_rodape.search(linha.strip()):
-                    linhas_filtradas.append(linha)
-                    
-            texto = "\n".join(linhas_filtradas)
+            texto = "\n".join(linhas_filtradas_final)
             texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
@@ -177,7 +183,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_grafica_pdf=False):
         return texto, None
 
     except Exception as e:
-        return "", f"Erro ao ler o arquivo {tipo_arquivo} ({'Gráfica' if is_grafica_pdf else 'Ref'}): {e}"
+        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
 
 # ----------------- TRUNCAR APÓS ANVISA -----------------
@@ -228,7 +234,7 @@ def obter_secoes_por_tipo(tipo_bula):
     }
     return secoes.get(tipo_bula, [])
 
-# --- O RESTANTE DO CÓDIGO (v18.4) PERMANECE IDÊNTICO ---
+# --- O RESTANTE DO CÓDIGO (v21) PERMANECE IDÊNTICO ---
 
 def obter_aliases_secao():
     return {
@@ -821,12 +827,12 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v21] ---
-            # Extração da Referência (lógica simples/híbrida)
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_grafica_pdf=False)
+            # --- [MUDANÇA v22] ---
+            # Extração da Referência
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
-            # Extração da Gráfica (lógica forçada de colunas)
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_grafica_pdf=True)
+            # Extração da Gráfica
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
             # --- [FIM DA MUDANÇA] ---
             
             if not erro_ref:
@@ -842,4 +848,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21 | Leitura Forçada de Colunas (Limpo)")
+st.caption("Sistema de Auditoria de Bulas v22 | Híbrido de Coluna Universal")
