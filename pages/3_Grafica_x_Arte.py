@@ -42,51 +42,71 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO - v18.3] EXTRAÇÃO HÍBRIDA (DIRETA + OCR) -----------------
+# ----------------- [NOVO - v18.5] EXTRAÇÃO HÍBRIDA (DIRETA-PRIMEIRO) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
     Extrai texto de todas as páginas do PDF usando uma abordagem HÍBRIDA.
-    Tenta extração direta (ótima para colunas) e OCR (para imagens).
-    Usa o melhor resultado e filtra trechos técnicos.
+    Tenta extração direta (ótima para colunas) PRIMEIRO.
+    Usa OCR (lento) APENAS se a extração direta falhar (ex: PDF em imagem).
     """
     texto_final = ""
+    
+    # --- TENTATIVA 1: Extração Direta (Rápida e boa para colunas) ---
+    try:
+        with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+            for i, page in enumerate(doc):
+                # 'sort=True' é crucial para colunas, como no seu PDF.
+                blocks = page.get_text("blocks", sort=True)
+                texto_pagina = "".join([b[4] for b in blocks])
+                texto_final += texto_pagina + "\n"
+    except Exception as e:
+        st.warning(f"Erro na extração direta: {e}. Tentando OCR.")
+        texto_final = "" # Reseta o texto se a extração direta falhou
+
+    # --- VERIFICAÇÃO ---
+    # Se a extração direta funcionou (produziu texto), nós a usamos.
+    if len(texto_final.strip()) > 100:
+        st.info("Extração direta de texto (rápida) concluída.")
+        # Aplicar filtros ao texto_final
+        padroes_ignorados = [
+            r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
+            r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
+            r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
+            r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
+            # Adicionados para limpar o rodapé do seu exemplo:
+            r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
+            r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+"
+        ]
+        for padrao in padroes_ignorados:
+            texto_final = re.sub(padrao, "", texto_final)
+        return texto_final
+
+    # --- TENTATIVA 2: Extração por OCR (Lenta, para texto em imagem) ---
+    # Isso só roda se a Tentativa 1 falhar (texto_final < 100 chars)
+    st.info("Extração direta falhou ou gerou pouco texto. Iniciando OCR (pode demorar)...")
+    texto_ocr = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         for i, page in enumerate(doc):
-            
-            # --- TENTATIVA 1: Extração Direta (Rápida e boa para colunas) ---
-            # 'sort=True' é crucial para colunas, como no seu PDF.
-            blocks = page.get_text("blocks", sort=True)
-            texto_direto = "".join([b[4] for b in blocks]).strip()
-
-            # --- TENTATIVA 2: Extração por OCR (Lenta, para texto em imagem) ---
-            pix = page.get_pixmap(dpi=300) # Usar 300 dpi é o ideal
+            pix = page.get_pixmap(dpi=300)
             img_bytes = pix.tobytes("png")
             imagem = Image.open(io.BytesIO(img_bytes))
-            texto_ocr = pytesseract.image_to_string(imagem, lang='por')
-
-            # --- COMPARAÇÃO: Usa o que tiver mais texto ---
-            # Para o seu PDF "Belspan", o 'texto_direto' vai ganhar e
-            # manterá a ordem correta das colunas.
-            texto_usar = texto_ocr if len(texto_ocr) > len(texto_direto) else texto_direto
-            texto_final += texto_usar + "\n"
-
-    # --- FILTRAGEM (da v18.2) ---
-    # Aplica os filtros que você adicionou, independentemente do método.
+            texto_pagina_ocr = pytesseract.image_to_string(imagem, lang='por')
+            texto_ocr += texto_pagina_ocr + "\n"
+    
+    # Aplicar filtros ao texto_ocr
     padroes_ignorados = [
         r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
         r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
         r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
         r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
-        # Adicionados para limpar o rodapé do seu exemplo:
         r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
         r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+"
     ]
     for padrao in padroes_ignorados:
-        texto_final = re.sub(padrao, "", texto_final)
-
-    return texto_final
-
-
+        texto_ocr = re.sub(padrao, "", texto_ocr)
+    
+    return texto_ocr
+    
 # ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL (Sem alteração) -----------------
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
