@@ -1050,18 +1050,23 @@ with col2:
     st.subheader("📄 PDF da Gráfica (com colunas)")
     pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
 
+# ----------------- [ATUALIZADA - v29.1] INTERFACE PRINCIPAL -----------------
+
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v28 - Forçando OCR)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v29 - Forçando OCR)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v29] ---
+            # --- [MUDANÇA v29.1] ---
+            # Removido o argumento 'force_ocr=True', pois a função extrair_texto
+            # agora SEMPRE força o OCR para PDFs.
+            
             # Extração da Referência (SEMPRE OCR)
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, force_ocr=True)
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
             # Extração da Gráfica (SEMPRE OCR)
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', force_ocr=True)
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
             # --- [FIM DA MUDANÇA] ---
             
             # truncar após ANVISA em ambos
@@ -1078,4 +1083,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v29 | OCR Forçado (psm 3) + Embelezador de Layout")
+st.caption("Sistema de Auditoria de Bulas v29.1 | OCR Forçado (psm 3) + Embelezador de Layout")
