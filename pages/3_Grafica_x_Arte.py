@@ -189,8 +189,8 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     return texto
 
-# ----------------- [NOVO - v30] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
-def extrair_pdf_ocr_colunas_v30(arquivo_bytes: bytes) -> str:
+# ----------------- [NOVO - v32] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
+def extrair_pdf_ocr_colunas_v32(arquivo_bytes: bytes) -> str:
     """
     Força a extração de OCR em 2 colunas para QUALQUER PDF.
     Usa --psm 3 (Auto Layout) para melhor detecção.
@@ -205,7 +205,7 @@ def extrair_pdf_ocr_colunas_v30(arquivo_bytes: bytes) -> str:
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
             rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
             
-            # --- MUDANÇA v30: Usa --psm 3 (Auto Layout) ---
+            # --- MUDANÇA v32: Usa --psm 3 (Auto Layout) ---
             # Isso é melhor para detectar parágrafos e colunas automaticamente.
             ocr_config = r'--psm 3' 
             
@@ -226,7 +226,7 @@ def extrair_pdf_ocr_colunas_v30(arquivo_bytes: bytes) -> str:
 def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
     """
     Função principal de extração.
-    v30: SEMPRE força OCR para PDFs.
+    v32: SEMPRE força OCR para PDFs.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -237,9 +237,9 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
         arquivo_bytes = arquivo.read()
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v30 ---
+            # --- MUDANÇA v32 ---
             # SEMPRE usar OCR por colunas para TODOS os PDFs
-            texto = extrair_pdf_ocr_colunas_v30(arquivo_bytes)
+            texto = extrair_pdf_ocr_colunas_v32(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
             st.info("Extraindo texto de DOCX...")
@@ -318,7 +318,7 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             
             texto = "\n".join(linhas_filtradas_final)
             
-            # --- [NOVO v30] Aplicar melhoria de layout e correção de erros ---
+            # --- [NOVO v32] Aplicar melhoria de layout e correção de erros ---
             texto = melhorar_layout_grafica(texto)
 
             # Limpeza final de espaços
@@ -403,7 +403,7 @@ def obter_aliases_secao() -> Dict[str, str]:
 def obter_secoes_ignorar_ortografia() -> List[str]:
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# --- [ATUALIZADA - v31] ---
+# --- [ATUALIZADA - v32] ---
 def obter_secoes_ignorar_comparacao() -> List[str]:
     # Removido "ONDE, COMO..." e "CUIDADOS DE..." como pedido
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
@@ -441,10 +441,10 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- [CORRIGIDO - v31] MAPEAMENTO DE SEÇÕES -----------------
+# ----------------- [CORRIGIDO - v32] MAPEAMENTO DE SEÇÕES -----------------
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
     """
-    v31: Verifica CADA linha e também linha[i] + linha[i+1] + linha[i+2] contra a lista de títulos.
+    v32: Verifica CADA linha e também linha[i] + linha[i+1] + linha[i+2] contra a lista de títulos.
     Isso permite encontrar títulos de 1, 2 ou 3 linhas.
     """
     mapa = []
@@ -537,11 +537,12 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                     match_real = None
                     for t_orig in titulos_possiveis: # Procura o título original
                         if normalizar_titulo_para_comparacao(t_orig) == titulo_norm:
-                            match_real = re.match(re.escape(t_orig), linha_limpa_1, re.IGNORECASE)
-                            if match_real:
-                                best_match_titulo_real = match_real.group(0)
+                            # Tenta encontrar o título exato
+                            match_real_titulo = re.search(re.escape(t_orig), linha_limpa_1, re.IGNORECASE)
+                            if match_real_titulo:
+                                best_match_titulo_real = match_real_titulo.group(0)
                                 break
-                    if not match_real: # Fallback
+                    if not best_match_titulo_real: # Fallback
                          best_match_titulo_real = " ".join(linha_limpa_1.split()[:10])
                     
                     lines_consumed = 1
@@ -564,11 +565,11 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [CORRIGIDO - v31] MAPEAMENTO DE SEÇÃO ---
+# --- [CORRIGIDO - v32] MAPEAMENTO DE SEÇÃO ---
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
-    v31: CORRIGIDO para encontrar conteúdo na MESMA linha do título.
+    v32: CORRIGIDO para encontrar conteúdo na MESMA linha do título.
     """
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
@@ -581,7 +582,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         linha_inicio = secao_mapa['linha_inicio']
         lines_consumed = secao_mapa.get('lines_consumed', 1)
         
-        # --- [INÍCIO DA CORREÇÃO v31] ---
+        # --- [INÍCIO DA CORREÇÃO v32] ---
         # Pega a linha original onde o título foi encontrado
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
@@ -635,7 +636,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
         
-        # --- [INÍCIO DA CORREÇÃO v31] ---
+        # --- [INÍCIO DA CORREÇÃO v32] ---
         # Pega as linhas DEPOIS da linha do título
         conteudo_restante = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         
@@ -1011,7 +1012,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     )
 
     # --- [MUDANÇA v31] ---
-    # Botão de download removido
+    # Botão de download removido, conforme solicitado
     # b = relatório_html.encode('utf-8')
     # st.download_button("⬇️ Baixar relatório (HTML)", data=b, file_name="relatorio_auditoria_grafica_x_arte.html", mime="text/html", use_container_width=True)
 
