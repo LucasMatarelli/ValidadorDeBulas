@@ -1,7 +1,8 @@
-# 🔬 Auditoria de Bulas – v26 (Forçar OCR + Comparação Universal)
-# Adiciona um checkbox "Forçar OCR" para PDFs de imagem.
-# Mostra o comparativo lado a lado para TODAS as seções (idênticas ou não).
-# Corrige erros de OCR (`Jevido`, `3elspan`, etc.) e filtra mais lixo.
+# 🔬 Auditoria de Bulas – v25 (Híbrido de Coluna + OCR --psm 6 + Corretor)
+# Resolve problemas de extração de colunas tanto em PDFs de texto quanto de imagem.
+# Adiciona correção pós-OCR para erros comuns (ex: 3lfar -> Belfar).
+# Implementa comparação 100% literal (sensível a pontuação).
+# Usa --psm 6 no Tesseract para forçar a leitura de bloco único, corrigindo lixo de OCR.
 
 # --- IMPORTS ---
 
@@ -44,7 +45,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO - v26] CORRETOR DE OCR -----------------
+# ----------------- [NOVO - v25] CORRETOR DE OCR -----------------
 def corrigir_erros_ocr_comuns(texto):
     """
     Corrige erros de OCR comuns e específicos do negócio (ex: 3lfar -> Belfar)
@@ -70,13 +71,12 @@ def corrigir_erros_ocr_comuns(texto):
         
         # Correções da Imagem 827376.png
         r"(?i)\bJevido\b": "Devido",
-        r"\"ertilidade\b": "Fertilidade",
+        r"(?i)\"ertilidade\b": "Fertilidade",
         r"(?i)\bjperar\b": "operar",
-        r"\'ombinação\b": "combinação",
+        r"(?i)\'ombinação\b": "combinação",
         r"(?i)\bjue\b": "que",
         r"(?i)\brereditários\b": "hereditários",
         r"(?i)\bralactosemia\b": "galactosemia",
-        r"(?i)\bjacientes\b": "pacientes",
     }
     
     for padrao, correcao in correcoes.items():
@@ -84,63 +84,71 @@ def corrigir_erros_ocr_comuns(texto):
         
     return texto
 
-# ----------------- [NOVO - v26] LÓGICA DE EXTRAÇÃO SEPARADA -----------------
-
-def extrair_pdf_texto_colunas(arquivo_bytes):
+# ----------------- [NOVO - v25] EXTRAÇÃO HÍBRIDA DE COLUNAS -----------------
+def extrair_pdf_hibrido_colunas(arquivo_bytes):
     """
-    Força a extração de TEXTO PURO em 2 colunas.
-    Ideal para PDFs baseados em texto (como a "Arte Vigente").
+    Extrai texto de QUALQUER PDF com 2 colunas, seja texto ou imagem.
+    Tenta extração direta por colunas. Se falhar, usa OCR por colunas.
     """
-    texto_total = ""
+    texto_total_final = ""
+    
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for page in doc:
-            rect = page.rect
-            margin_y = 20
-            rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
-            rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
-            
-            # Extrai texto puro de cada coluna
-            texto_col_1 = page.get_text("text", clip=rect_col_1, sort=True)
-            texto_col_2 = page.get_text("text", clip=rect_col_2, sort=True)
-            
-            texto_total += texto_col_1 + "\n" + texto_col_2 + "\n"
-    return texto_total
-
-def extrair_pdf_ocr_colunas(arquivo_bytes):
-    """
-    Força a extração de OCR em 2 colunas.
-    Ideal para PDFs baseados em imagem (como o "PDF da Gráfica").
-    """
-    texto_total = ""
-    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR em {len(doc)} página(s) (pode ser lento)...")
+        st.info(f"Processando {len(doc)} página(s) com lógica de coluna...")
+        
         for i, page in enumerate(doc):
             rect = page.rect
             margin_y = 20
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
             rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
+
+            # --- TENTATIVA 1: Extração Direta (para PDFs de texto) ---
+            try:
+                texto_direto_col_1 = page.get_text("text", clip=rect_col_1, sort=True)
+                texto_direto_col_2 = page.get_text("text", clip=rect_col_2, sort=True)
+                
+                texto_direto_pagina = texto_direto_col_1 + "\n" + texto_direto_col_2
+            except Exception:
+                texto_direto_pagina = ""
+
+            # --- VERIFICAÇÃO 1 ---
+            # Se a extração direta funcionou bem, usa ela e vai para a próxima página
+            if len(texto_direto_pagina.strip()) > 200:
+                texto_total_final += texto_direto_pagina + "\n"
+                continue # Pula para a próxima página
+
+            # --- TENTATIVA 2: Extração por OCR (para PDFs de imagem) ---
+            st.warning(f"Extração direta falhou na pág. {i+1}. Ativando OCR por colunas (pode ser lento)...")
+            try:
+                # --- MUDANÇA v25: Adicionado config='--psm 6' ---
+                # PSM 6: Assume um único bloco de texto uniforme. Perfeito para colunas.
+                # Isso impede que o Tesseract tente adivinhar o layout e gere lixo.
+                ocr_config = r'--psm 6'
+                
+                # OCR da Coluna 1
+                pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
+                img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
+                texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
+                
+                # OCR da Coluna 2
+                pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
+                img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
+                texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
+                
+                texto_ocr_pagina = texto_ocr_col_1 + "\n" + texto_ocr_col_2
+                texto_total_final += texto_ocr_pagina + "\n"
             
-            ocr_config = r'--psm 6' # Trata a coluna como um único bloco de texto
-            
-            # OCR da Coluna 1
-            pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
-            img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
-            texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
-            
-            # OCR da Coluna 2
-            pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
-            img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
-            texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
-            
-            texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
-    return texto_total
+            except Exception as e:
+                st.error(f"Erro fatal no OCR da pág. {i+1}: {e}")
+                continue
+                
+    st.success("Extração de PDF concluída.")
+    return texto_total_final
 
 # --- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL ---
-def extrair_texto(arquivo, tipo_arquivo, force_ocr=False):
+def extrair_texto(arquivo, tipo_arquivo):
     """
-    Função principal de extração.
-    Usa OCR forçado se `force_ocr=True`.
-    Caso contrário, tenta extração de texto direto.
+    Função principal de extração. Decide qual método usar.
+    v25: Usa a lógica de colunas para TODOS os PDFs e depois corrige o OCR.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -148,15 +156,10 @@ def extrair_texto(arquivo, tipo_arquivo, force_ocr=False):
     try:
         arquivo.seek(0)
         texto = ""
-        arquivo_bytes = arquivo.read()
+        arquivo_bytes = arquivo.read() # Ler os bytes uma vez
 
         if tipo_arquivo == "pdf":
-            if force_ocr:
-                # Caminho B: PDF da Gráfica (Imagem)
-                texto = extrair_pdf_ocr_colunas(arquivo_bytes)
-            else:
-                # Caminho A: Arte Vigente (Texto)
-                texto = extrair_pdf_texto_colunas(arquivo_bytes)
+            texto = extrair_pdf_hibrido_colunas(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
             st.info("Extraindo texto de DOCX...")
@@ -167,7 +170,6 @@ def extrair_texto(arquivo, tipo_arquivo, force_ocr=False):
         if texto:
             # Filtros de lixo técnico da gráfica
             padroes_ignorados = [
-                # Palavras-chave técnicas
                 r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
                 r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
                 r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
@@ -175,7 +177,7 @@ def extrair_texto(arquivo, tipo_arquivo, force_ocr=False):
                 r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
                 r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+",
                 
-                # Lixo específico do OCR (visto nas imagens v23/v24/v25)
+                # Lixo específico do OCR (visto nas imagens v23/v24)
                 r"e\s*-+\s*\d+mm\s*>>>I\)", 
                 r"\d+ª\s*prova\s*-\s*\d+", 
                 r"\d+º\s*prova\s*-", 
@@ -189,13 +191,6 @@ def extrair_texto(arquivo, tipo_arquivo, force_ocr=False):
                 r"^\s*contato\s*$",
                 r"^\s*\|\s*$",
                 r"\+\|",
-                r"^\s*a\s*\?\s*la\s*KH\s*\d+\s*r", # Lixo: a ? la KH 190 r
-                r"^mm\s+>>>", # Lixo: mm >>> >—>—>—»
-                r"^mm\s+USO", # Substituído por correção
-                r"^mm\s+COMPOSIÇÃO", # Substituído por correção
-                r"^mm\s+Cada", # Substituído por correção
-                r"^\s*nm\s+A\s*$", # Lixo: nm A
-                r"^\s*TE\s*-\s*À\s*$", # Lixo: TE - À
                 
                 # Lixo da Imagem 8211c5.png
                 r"AMO\s+dm\s+JAM\s+Vmindrtoihko\s+amo\s+o",
@@ -242,7 +237,7 @@ def extrair_texto(arquivo, tipo_arquivo, force_ocr=False):
             texto = texto.strip()
         # --- [FIM] Bloco de Limpeza ---
 
-        # --- [NOVO v26] ---
+        # --- [NOVO v25] ---
         # Corrigir erros comuns de OCR antes de retornar
         texto = corrigir_erros_ocr_comuns(texto)
 
@@ -322,10 +317,8 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_ortografia():
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# --- [ATUALIZADA - v26] ---
 def obter_secoes_ignorar_comparacao():
-    # Removemos "ONDE, COMO..." e "CUIDADOS DE..." como pedido
-    return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
+    return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES", "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO"]
 
 # ----------------- [NOVO - v24] NORMALIZAÇÃO LITERAL -----------------
 def normalizar_para_comparacao_literal(texto):
@@ -715,7 +708,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
     return texto_trabalho
 
-# ----------------- [ATUALIZADO - v26] RELATÓRIO -----------------
+# ----------------- RELATÓRIO (CORRIGIDO - v21) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     js_scroll_script = """
@@ -801,68 +794,49 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
     )
 
-    # --- [MUDANÇA v26] ---
-    # Loop para mostrar TODAS as seções, idênticas ou não
     for secao in secoes_esperadas:
         secao_canon_norm = normalizar_titulo_para_comparacao(secao)
         ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
         
-        # Se for "Seção não comparada"
         if secao_canon_norm in ignorar_comparacao_norm:
             with st.expander(f"📄 {secao} - ℹ️ (Seção não comparada)"):
                 st.info("Esta seção (ex: Composição, Dizeres Legais) é ignorada na comparação de conteúdo por padrão.")
             continue
-            
-        # Se estiver FALTANDO
-        if secao in secoes_faltantes:
-            # Já foi reportado no erro "Seções Faltantes", então não faz nada aqui
-            continue
-            
-        # Se foi ENCONTRADA (seja idêntica ou diferente)
-        # Prepara o conteúdo para exibir
-        
-        # Tenta pegar a divergência; se não existir, é porque é idêntica
-        diff = mapa_diferencas.get(secao)
-        
-        if diff:
-            # Seção com DIVERGÊNCIA
+
+        if secao in mapa_diferencas:
+            diff = mapa_diferencas[secao]
             titulo_display = diff.get('titulo_encontrado') or secao
-            expander_title = f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"
-            conteudo_ref_para_marcar = diff['conteudo_ref']
-            conteudo_bel_para_marcar = diff['conteudo_belfar']
-        else:
-            # Seção IDÊNTICA
-            expander_title = f"📄 {secao} - ✅ CONTEÚDO IDÊNTICO"
-            # Pega o conteúdo de qualquer forma para exibir
-            _, _, conteudo_ref_para_marcar = obter_dados_secao(secao, mapa_ref, texto_ref.split('\n'), tipo_bula)
-            _, _, conteudo_bel_para_marcar = obter_dados_secao(secao, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
             
-        with st.expander(expander_title):
-            anchor_id_ref = _create_anchor_id(secao, "ref")
-            anchor_id_bel = _create_anchor_id(secao, "bel")
+            with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
+                secao_canonico = diff['secao']
+                anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
+                anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
 
-            # Gera o HTML com destaques (amarelo)
-            expander_html_ref = marcar_diferencas_palavra_por_palavra(
-                conteudo_ref_para_marcar, conteudo_bel_para_marcar, eh_referencia=True
-            ).replace('\n', '<br>')
-            
-            expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                conteudo_ref_para_marcar, conteudo_bel_para_marcar, eh_referencia=False
-            ).replace('\n', '<br>')
+                expander_html_ref = marcar_diferencas_palavra_por_palavra(
+                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
+                ).replace('\n', '<br>')
+                
+                expander_html_belfar = marcar_diferencas_palavra_por_palavra(
+                    diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
+                ).replace('\n', '<br>')
 
-            clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
-            
-            html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
-            html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Referência:** (Clique na caixa para rolar)")
-                st.markdown(html_ref_box, unsafe_allow_html=True)
-            with c2:
-                st.markdown("**BELFAR:** (Clique na caixa para rolar)")
-                st.markdown(html_bel_box, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA v26] ---
+                clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
+                
+                html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
+                
+                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Referência:** (Clique na caixa para rolar)")
+                    st.markdown(html_ref_box, unsafe_allow_html=True)
+                with c2:
+                    st.markdown("**BELFAR:** (Clique na caixa para rolar)")
+                    st.markdown(html_bel_box, unsafe_allow_html=True)
+        
+        elif secao not in secoes_faltantes:
+            with st.expander(f"📄 {secao} - ✅ CONTEÚDO IDÊNTICO"):
+                st.success("O conteúdo desta seção é idêntico em ambos os documentos.")
     
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
@@ -914,7 +888,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"**📄 {nome_belfar}**")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
 
-# ----------------- [ATUALIZADA - v26] INTERFACE -----------------
+# ----------------- [ATUALIZADA] INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
@@ -931,21 +905,19 @@ with col1:
 with col2:
     st.subheader("📄 PDF da Gráfica (com colunas)")
     pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
-    # --- [NOVO v26] Checkbox para forçar OCR ---
-    force_ocr_belfar = st.checkbox("Forçar OCR (use se o PDF for uma imagem ou 'em curva')", key="force_ocr")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas..."):
+        with st.spinner("🔄 Processando e analisando as bulas... (Método Híbrido de Colunas)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v26] ---
-            # Extração da Referência (sempre como texto)
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, force_ocr=False)
+            # --- [MUDANÇA v25] ---
+            # Extração da Referência
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
-            # Extração da Gráfica (usa o checkbox para decidir)
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', force_ocr=force_ocr_belfar)
+            # Extração da Gráfica
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
             # --- [FIM DA MUDANÇA] ---
             
             if not erro_ref:
@@ -961,4 +933,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26 | Forçar OCR + Comparação Universal")
+st.caption("Sistema de Auditoria de Bulas v25 | Híbrido de Coluna + OCR psm 6 + Corretor")
