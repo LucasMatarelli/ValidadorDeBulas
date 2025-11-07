@@ -1,16 +1,11 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v29 (Solução Definitiva)
+# Versão: v30 (Solução Definitiva)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v29: REMOVE checkbox. SEMPRE força OCR em colunas para AMBOS os PDFs.
-# v29: Usa OCR --psm 3 (Auto Layout) em vez de psm 6, para melhor detecção de colunas.
-# v29: Melhora a função 'melhorar_layout_grafica' para corrigir erros e formatar texto.
-# v29: Filtros de lixo atualizados (a ? la KH 190 r, AMO dm JAM, etc.).
-# v29: Relatório MOSTRA TODAS as seções (idênticas ou não) lado a lado.
-# v29: Seção "5. ONDE, COMO..." não é mais ignorada.
+# v30: REMOVE checkbox. SEMPRE força OCR (psm 3 - Auto Layout) para AMBOS os PDFs.
+# v30: Usa a função do usuário 'melhorar_layout_grafica' para corrigir e formatar.
+# v30: Relatório MOSTRA TODAS as seções (idênticas ou não) lado a lado.
+# v30: Seção "5. ONDE, COMO..." não é mais ignorada.
 
-# --- IMPORTS ---
-
-# Libs Padrão
 import re
 import difflib
 import unicodedata
@@ -18,7 +13,6 @@ import io
 import html
 from typing import Tuple, List, Dict
 
-# Libs de Terceiros (Third-party)
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
@@ -52,8 +46,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-
-# ----------------- [ATUALIZADO - v29] CORRETOR E EMBELEZADOR DE OCR -----------------
+# ----------------- [ATUALIZADO - v30] CORRETOR E EMBELEZADOR DE OCR -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
@@ -172,122 +165,44 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     return texto
 
-# --- [ATUALIZADA - v29.1] FUNÇÃO DE EXTRAÇÃO PRINCIPAL ---
-def extrair_texto(arquivo, tipo_arquivo: str, force_ocr: bool = False) -> Tuple[str, str]:
+# ----------------- [NOVO - v30] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
+def extrair_pdf_ocr_colunas_v30(arquivo_bytes: bytes) -> str:
     """
-    Função principal de extração.
-    v29.1: CORRIGIDO para aceitar o argumento 'force_ocr'
+    Força a extração de OCR em 2 colunas para QUALQUER PDF.
+    Usa --psm 3 (Auto Layout) para melhor detecção.
     """
-    if arquivo is None:
-        return "", f"Arquivo {tipo_arquivo} não enviado."
-
-    try:
-        arquivo.seek(0)
-        texto = ""
-        arquivo_bytes = arquivo.read()
-
-        if tipo_arquivo == "pdf":
-            # --- MUDANÇA v29 ---
-            # SEMPRE usar OCR por colunas para TODOS os PDFs
-            texto = extrair_pdf_ocr_colunas_v29(arquivo_bytes)
-        
-        elif tipo_arquivo == "docx":
-            st.info("Extraindo texto de DOCX...")
-            doc = docx.Document(io.BytesIO(arquivo_bytes))
-            texto = "\n".join([p.text for p in doc.paragraphs])
-        
-        # --- [INÍCIO] Bloco de Limpeza (Filtros) ---
-        if texto:
-            # Filtros de lixo técnico da gráfica
-            padroes_ignorados = [
-                # Palavras-chave técnicas
-                r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
-                r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
-                r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
-                r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
-                r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
-                r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+",
-                
-                # Lixo específico do OCR (visto nas imagens v23/v24/v25)
-                r"e\s*-+\s*\d+mm\s*>>>I\)", 
-                r"\d+ª\s*prova\s*-\s*\d+", 
-                r"\d+º\s*prova\s*-", 
-                r"^\s*\d+/\d+/\d+\s*$", 
-                r"(?i)n\s*Roman\s*U\)", 
-                r"(?i)lew\s*Roman\s*U\s*\]", 
-                r"KH\s*—\s*\d+", 
-                r"pp\s*\d+", 
-                r"^\s*an\s*$", 
-                r"^\s*man\s*$", 
-                r"^\s*contato\s*$",
-                r"^\s*\|\s*$",
-                r"\+\|",
-                r"^\s*a\s*\?\s*la\s*KH\s*\d+\s*r", # Lixo: a ? la KH 190 r
-                r"^mm\s+>>>", 
-                r"^\s*nm\s+A\s*$", 
-                r"^\s*TE\s*-\s*À\s*$", 
-                r"1º\s*PROVA\s*-\s*LA", 
-                
-                # Lixo da Imagem 8211c5.png
-                r"AMO\s+dm\s+JAM\s+Vmindrtoihko\s+amo\s+o",
-                r"\[E\s*O\s*\|\s*dj\s*jul",
-                r"\+\s*\|\s*hd\s*bl\s*O\s*mm\s*DS\s*AALPRA",
-                r"A\s*\+\s*med\s*FÃ\s*ias\s*A\s*KA\s*aõArA\s*\+\s*ima",
-                r"BUL\s+BELSPAN\s+COMPR",
-                r"^\s*m--*\s*$",
-            ]
+    texto_total = ""
+    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+        st.info(f"Forçando OCR em {len(doc)} página(s) (pode ser lento)...")
+        for i, page in enumerate(doc):
+            rect = page.rect
+            margin_y = 20
+            # Define as duas colunas
+            rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
+            rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
             
-            # Aplicar filtros
-            linhas_originais = texto.split('\n')
-            linhas_filtradas = []
+            # --- MUDANÇA v30: Usa --psm 3 (Auto Layout) ---
+            # Isso é melhor para detectar parágrafos e colunas automaticamente.
+            ocr_config = r'--psm 3' 
             
-            for linha in linhas_originais:
-                linha_limpa = linha.strip()
-                ignorar_linha = False
-                for padrao in padroes_ignorados:
-                    if re.search(padrao, linha_limpa, re.IGNORECASE | re.MULTILINE):
-                        ignorar_linha = True
-                        break
-                if not ignorar_linha:
-                    linhas_filtradas.append(linha)
+            # OCR da Coluna 1
+            pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
+            img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
+            texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
             
-            texto = "\n".join(linhas_filtradas)
-
-            # Limpeza padrão de normalização
-            caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
-            for char in caracteres_invisiveis:
-                texto = texto.replace(char, '')
-
-            texto = texto.replace('\r\n', '\n').replace('\r', '\n')
-            texto = texto.replace('\u00A0', ' ')
+            # OCR da Coluna 2
+            pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
+            img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
+            texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
             
-            # Re-filtrar por rodapés padrão
-            linhas = texto.split('\n')
-            padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
-            linhas_filtradas_final = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
-            
-            texto = "\n".join(linhas_filtradas_final)
-            
-            # --- [NOVO v29] Aplicar melhoria de layout e correção de erros ---
-            texto = melhorar_layout_grafica(texto)
+            texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
+    return texto_total
 
-            # Limpeza final de espaços
-            texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
-            texto = re.sub(r'[ \t]+', ' ', texto)
-            texto = texto.strip()
-        # --- [FIM] Bloco de Limpeza ---
-
-        return texto, None
-
-    except Exception as e:
-        st.error(f"Erro fatal em extrair_texto: {e}", icon="🚨")
-        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-
-# --- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
+# ----------------- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
 def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
     """
     Função principal de extração.
-    v29: SEMPRE força OCR para PDFs.
+    v30: SEMPRE força OCR para PDFs.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -298,9 +213,9 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
         arquivo_bytes = arquivo.read()
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v29 ---
+            # --- MUDANÇA v30 ---
             # SEMPRE usar OCR por colunas para TODOS os PDFs
-            texto = extrair_pdf_ocr_colunas_v29(arquivo_bytes)
+            texto = extrair_pdf_ocr_colunas_v30(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
             st.info("Extraindo texto de DOCX...")
@@ -379,7 +294,7 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             
             texto = "\n".join(linhas_filtradas_final)
             
-            # --- [NOVO v29] Aplicar melhoria de layout e correção de erros ---
+            # --- [NOVO v30] Aplicar melhoria de layout e correção de erros ---
             texto = melhorar_layout_grafica(texto)
 
             # Limpeza final de espaços
@@ -464,7 +379,7 @@ def obter_aliases_secao() -> Dict[str, str]:
 def obter_secoes_ignorar_ortografia() -> List[str]:
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# --- [ATUALIZADA - v29] ---
+# --- [ATUALIZADA - v30] ---
 def obter_secoes_ignorar_comparacao() -> List[str]:
     # Removido "ONDE, COMO..." e "CUIDADOS DE..." como pedido
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
@@ -808,7 +723,7 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     return texto_final
 
-# ----------------- [ATUALIZADO - v28] RELATÓRIO E EXPORTAÇÃO -----------------
+# ----------------- [ATUALIZADO - v30] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
     # Prepara os dados para o relatório
@@ -842,7 +757,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
 
-    # --- [MUDANÇA v28] ---
+    # --- [MUDANÇA v30] ---
     # Relatório por seção (mostra TUDO, idêntico ou não)
     st.warning(f"⚠️ **Relatório de Conteúdo por Seção:**")
     mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
@@ -908,7 +823,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             with c2:
                 st.markdown("**BELFAR:** (Clique na caixa para rolar)")
                 st.markdown(html_bel_box, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA v28] ---
+    # --- [FIM DA MUDANÇA v30] ---
     
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)}):**\n" + ", ".join(erros_ortograficos))
@@ -1026,15 +941,15 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v28
+Gerado pelo sistema de Auditoria de Bulas — v30
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v28] INTERFACE PRINCIPAL -----------------
-st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v28)")
+# ----------------- [ATUALIZADA - v30] INTERFACE PRINCIPAL -----------------
+st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v30)")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
 
@@ -1050,18 +965,13 @@ with col2:
     st.subheader("📄 PDF da Gráfica (com colunas)")
     pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
 
-# ----------------- [ATUALIZADA - v29.1] INTERFACE PRINCIPAL -----------------
-
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v29 - Forçando OCR)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v30 - Forçando OCR)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v29.1] ---
-            # Removido o argumento 'force_ocr=True', pois a função extrair_texto
-            # agora SEMPRE força o OCR para PDFs.
-            
+            # --- [MUDANÇA v30] ---
             # Extração da Referência (SEMPRE OCR)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
@@ -1083,4 +993,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v29.1 | OCR Forçado (psm 3) + Embelezador de Layout")
+st.caption("Sistema de Auditoria de Bulas v30 | OCR Forçado (psm 3) + Embelezador de Layout")
