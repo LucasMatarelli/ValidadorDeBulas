@@ -282,13 +282,13 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
+# ----------------- MAPEAMENTO (FUNÇÃO CORRIGIDA) -----------------
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
+    v18.4: Lógica de busca aprimorada para detectar títulos na mesma linha que o conteúdo.
     """
-    # Títulos oficiais da bula para o tipo selecionado
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
-    
     # Normaliza a lista de títulos oficiais uma vez para otimizar a busca
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
 
@@ -300,38 +300,56 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         linha_inicio = secao_mapa['linha_inicio']
         linha_inicio_conteudo = linha_inicio + 1
 
-        # --- LÓGICA DE BUSCA APRIMORADA (1 ou 2 linhas) ---
+        # --- LÓGICA DE BUSCA APRIMORADA ---
         prox_idx = None
         for j in range(linha_inicio_conteudo, len(linhas_texto)):
             linha_atual = linhas_texto[j].strip()
+            if not linha_atual:
+                continue
+
+            # Normaliza a linha atual
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
 
-            encontrou_titulo_1_linha = False
+            # --- [INÍCIO DA CORREÇÃO v18.4] ---
+            # Compara a linha_atual_norm com todos os títulos oficiais
+            encontrou_titulo = False
             for titulo_oficial_norm in titulos_norm_set:
-                if titulo_oficial_norm in linha_atual_norm:
-                    encontrou_titulo_1_linha = True
+                # Causa 1: O título está na mesma linha que o conteúdo (Problema da Referência)
+                # Ex: "3. QUANDO... ? Você não deve..."
+                # O `linha_atual_norm` será "quando... voce nao deve"
+                # O `titulo_oficial_norm` é "quando..."
+                # O `startswith` resolve isso.
+                if linha_atual_norm.startswith(titulo_oficial_norm):
+                     encontrou_titulo = True
+                     break
+                
+                # Causa 2: O título está sozinho, mas com pequenas variações (Fuzzy match)
+                if fuzz.token_set_ratio(titulo_oficial_norm, linha_atual_norm) >= 98:
+                    encontrou_titulo = True
                     break
             
-            if encontrou_titulo_1_linha:
-                prox_idx = j 
+            if encontrou_titulo:
+                prox_idx = j # Encontrou um título
                 break 
+            # --- [FIM DA CORREÇÃO v18.4] ---
 
+            # Lógica de 2 linhas (mantida, pois é importante para o PDF da gráfica)
             if (j + 1) < len(linhas_texto):
                 linha_seguinte = linhas_texto[j + 1].strip()
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
                 titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
-                
+
                 encontrou_titulo_2_linhas = False
                 for titulo_oficial_norm in titulos_norm_set:
-                     if titulo_oficial_norm in titulo_duas_linhas_norm:
+                    if fuzz.token_set_ratio(titulo_oficial_norm, titulo_duas_linhas_norm) >= 98:
                         encontrou_titulo_2_linhas = True
-                        break 
+                        break
                 
                 if encontrou_titulo_2_linhas:
-                    prox_idx = j 
+                    prox_idx = j # Encontrou um título em duas linhas
                     break 
-        # --- FIM DA LÓGICA DE BUSCA ---
-
+        
+        # --- Fim da Lógica de Busca ---
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
         conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         conteudo_final = "\n".join(conteudo).strip()
@@ -339,7 +357,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado, conteudo_final
     
     return False, None, ""
-
+    
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
