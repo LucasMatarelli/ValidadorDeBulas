@@ -1,5 +1,6 @@
-# 🔬 Auditoria de Bulas – v22 (Híbrido de Coluna Universal)
+# 🔬 Auditoria de Bulas – v23 (Híbrido de Coluna Universal + Corretor OCR)
 # Resolve problemas de extração de colunas tanto em PDFs de texto quanto de imagem.
+# Adiciona correção pós-OCR para erros comuns (ex: 3lfar -> Belfar).
 
 # --- IMPORTS ---
 
@@ -42,8 +43,37 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO - v22] EXTRAÇÃO HÍBRIDA DE COLUNAS -----------------
+# ----------------- [NOVO - v23] CORRETOR DE OCR -----------------
+def corrigir_erros_ocr_comuns(texto):
+    """
+    Corrige erros de OCR comuns e específicos do negócio (ex: 3lfar -> Belfar)
+    usando regex, antes da comparação.
+    """
+    if not texto:
+        return ""
+        
+    correcoes = {
+        # Corrigir "Belfar"
+        r"(?i)\b(3|1)lfar\b": "Belfar",
+        r"(?i)\bBeifar\b": "Belfar",
+        # Corrigir "USO"
+        r"(?i)USO\s+ADULTO": "USO ADULTO",
+        r"(?i)USO\s+ORAL": "USO ORAL",
+        # Corrigir "NÃO"
+        r"(?i)\bNAO\b": "NÃO",
+        # Corrigir "COMPOSIÇÃO"
+        r"(?i)\bCOMPOSIÇAO\b": "COMPOSIÇÃO",
+        # Corrigir "MEDICAMENTO"
+        r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO", # 0 -> O
+        # Adicionar mais correções comuns aqui
+    }
+    
+    for padrao, correcao in correcoes.items():
+        texto = re.sub(padrao, correcao, texto)
+        
+    return texto
 
+# ----------------- [NOVO - v23] EXTRAÇÃO HÍBRIDA DE COLUNAS -----------------
 def extrair_pdf_hibrido_colunas(arquivo_bytes):
     """
     Extrai texto de QUALQUER PDF com 2 colunas, seja texto ou imagem.
@@ -55,19 +85,17 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
         st.info(f"Processando {len(doc)} página(s) com lógica de coluna...")
         
         for i, page in enumerate(doc):
-            # 1. Definir as colunas (com margem para evitar cabeçalhos/rodapés)
+            # 1. Definir as colunas (margem vertical para cabeçalhos/rodapés)
             rect = page.rect
-            margin_y = 20 # Margem de 20 pontos no topo e rodapé
+            margin_y = 20
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
             rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
 
             # --- TENTATIVA 1: Extração Direta (para PDFs de texto) ---
             try:
-                blocks_col_1 = page.get_text("blocks", clip=rect_col_1, sort=True)
-                blocks_col_2 = page.get_text("blocks", clip=rect_col_2, sort=True)
-                
-                texto_direto_col_1 = "".join([b[4] for b in blocks_col_1])
-                texto_direto_col_2 = "".join([b[4] for b in blocks_col_2])
+                # Usar "text" é mais robusto para PDFs de texto com colunas
+                texto_direto_col_1 = page.get_text("text", clip=rect_col_1, sort=True)
+                texto_direto_col_2 = page.get_text("text", clip=rect_col_2, sort=True)
                 
                 texto_direto_pagina = texto_direto_col_1 + "\n" + texto_direto_col_2
             except Exception:
@@ -75,6 +103,7 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
 
             # --- VERIFICAÇÃO 1 ---
             # Se a extração direta funcionou bem, usa ela e vai para a próxima página
+            # Usamos 200 como um limite seguro para garantir que não é lixo
             if len(texto_direto_pagina.strip()) > 200:
                 texto_total_final += texto_direto_pagina + "\n"
                 continue # Pula para a próxima página
@@ -107,7 +136,7 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
 def extrair_texto(arquivo, tipo_arquivo):
     """
     Função principal de extração. Decide qual método usar.
-    v22: Usa a lógica de colunas para TODOS os PDFs.
+    v23: Usa a lógica de colunas para TODOS os PDFs e depois corrige o OCR.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -118,7 +147,7 @@ def extrair_texto(arquivo, tipo_arquivo):
         arquivo_bytes = arquivo.read() # Ler os bytes uma vez
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v22 ---
+            # --- MUDANÇA v23 ---
             # Usa a nova lógica HÍBRIDA DE COLUNAS para TODOS os PDFs
             texto = extrair_pdf_hibrido_colunas(arquivo_bytes)
         
@@ -132,16 +161,26 @@ def extrair_texto(arquivo, tipo_arquivo):
         if texto:
             # Filtros de lixo técnico da gráfica
             padroes_ignorados = [
+                # Palavras-chave técnicas
                 r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
                 r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
                 r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
                 r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
                 r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
                 r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+",
+                
+                # Lixo específico do OCR (visto nas imagens)
                 r"e\s*-+\s*\d+mm\s*>>>I\)", # Filtro para "e----------- 190mm >>>I)"
-                # --- Filtros Corrigidos v22 ---
                 r"\d+ª\s*prova\s*-\s*\d+", # Filtro para "1ª prova - 3"
-                r"^\s*\d+/\d+/\d+\s*$" # Filtro para datas sozinhas "31/10/2025"
+                r"\d+º\s*prova\s*-", # Filtro para "1º prova - ."
+                r"^\s*\d+/\d+/\d+\s*$", # Filtro para datas sozinhas "31/10/2025"
+                r"(?i)n\s*Roman\s*U\)", # Filtro para "n Roman U)"
+                r"(?i)lew\s*Roman\s*U\)", # Filtro para "lew Roman U]"
+                r"KH\s*—\s*\d+", # Filtro para "KH — 190"
+                r"pp\s*\d+", # Filtro para "pp 190"
+                r"^\s*an\s*$", # Filtro para "an"
+                r"^\s*man\s*$", # Filtro para "man"
+                r"^\s*contato\s*$", # Filtro para "contato"
             ]
             
             # Aplicar filtros
@@ -179,6 +218,10 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
         # --- [FIM] Bloco de Limpeza ---
+
+        # --- [NOVO v23] ---
+        # Corrigir erros comuns de OCR antes de retornar
+        texto = corrigir_erros_ocr_comuns(texto)
 
         return texto, None
 
@@ -234,7 +277,7 @@ def obter_secoes_por_tipo(tipo_bula):
     }
     return secoes.get(tipo_bula, [])
 
-# --- O RESTANTE DO CÓDIGO (v21) PERMANECE IDÊNTICO ---
+# --- O RESTANTE DO CÓDIGO (v22) PERMANECE IDÊNTICO ---
 
 def obter_aliases_secao():
     return {
@@ -738,7 +781,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
                 
-                # --- AQUI ESTÁ A CORREÇÃO (QUE JÁ ESTAVA NO SEU CÓDIGO v20) ---
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
                 
                 c1, c2 = st.columns(2)
@@ -823,11 +865,11 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas..."):
+        with st.spinner("🔄 Processando e analisando as bulas... (Método Híbrido de Colunas)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v22] ---
+            # --- [MUDANÇA v23] ---
             # Extração da Referência
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
@@ -843,9 +885,13 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
+                # Debug: Mostrar o início do texto extraído (opcional)
+                # st.text_area("Debug Ref:", texto_ref[:1000])
+                # st.text_area("Debug Gráfica:", texto_belfar[:1000])
+                
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arte Vigente (Referência)", "PDF da Gráfica", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v22 | Híbrido de Coluna Universal")
+st.caption("Sistema de Auditoria de Bulas v23 | Híbrido de Coluna Universal + Corretor OCR")
