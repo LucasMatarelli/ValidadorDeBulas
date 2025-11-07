@@ -1,5 +1,6 @@
 # 🔬 Auditoria de Bulas – v20 (Leitura Forçada de Colunas)
 # Resolve o problema de colunas misturadas no PDF da Gráfica
+# VERSÃO LIMPA: Corrigidos erros de sintaxe (caracteres invisíveis \xa0)
 
 # --- IMPORTS ---
 
@@ -615,7 +616,6 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
     return texto_trabalho
 
-# ----------------- RELATÓRIO (v18.4 - Mostra todos os expansores) -----------------
 # ----------------- RELATÓRIO (CORRIGIDO - v20) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
@@ -797,6 +797,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+
 # ----------------- [ATUALIZADA] INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
