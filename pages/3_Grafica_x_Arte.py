@@ -616,6 +616,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 
 # ----------------- RELATÓRIO (v18.4 - Mostra todos os expansores) -----------------
+# ----------------- RELATÓRIO (CORRIGIDO - v20) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     js_scroll_script = """
@@ -730,6 +731,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
                 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
+                
+                # --- AQUI ESTÁ A CORREÇÃO ---
+                # A linha abaixo usa 'expander_html_belfar', e NÃO 'html_bel_box'
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
                 
                 c1, c2 = st.columns(2)
@@ -793,7 +797,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
-
 # ----------------- [ATUALIZADA] INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
