@@ -1,5 +1,5 @@
 # --------------------------------------------------------------
-#  Auditoria de Bulas – v26.95 (OCR + LIMPEZA + FORMATAÇÃO)
+#  Auditoria de Bulas – v26.96 (OCR ESTÁVEL + SEM CRASH)
 # --------------------------------------------------------------
 import re
 import difflib
@@ -9,7 +9,6 @@ import streamlit as st
 import fitz  # PyMuPDF
 import spacy
 from thefuzz import fuzz
-from spellchecker import SpellChecker
 import pytesseract
 from PIL import Image
 
@@ -40,7 +39,7 @@ CSS = """
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
-# ====================== OCR + LIMPEZA AGRESSIVA ======================
+# ====================== OCR ESTÁVEL (SEM CRASH) ======================
 def extrair_texto_com_ocr(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if not arquivo: return "", "Arquivo não enviado."
     arquivo.seek(0)
@@ -67,35 +66,46 @@ def extrair_texto_com_ocr(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         st.warning(f"Falha na extração nativa: {e}")
 
-    # --- TENTATIVA 2: OCR COM DPI ALTO + CONFIGURAÇÃO OTIMIZADA ---
+    # --- TENTATIVA 2: OCR COM TRY/EXCEPT POR PÁGINA ---
     try:
         st.info("Usando OCR como fallback (DPI 300 + PSM 6)...")
         texto_ocr = ""
         with fitz.open(stream=bytes_data, filetype="pdf") as doc:
-            for page in doc:
-                if is_marketing_pdf:
-                    rect = page.rect
-                    for clip in [fitz.Rect(0, 0, rect.width/2, rect.height), fitz.Rect(rect.width/2, 0, rect.width, rect.height)]:
-                        pix = page.get_pixmap(clip=clip, dpi=300)
+            for page_num, page in enumerate(doc):
+                try:
+                    if is_marketing_pdf:
+                        rect = page.rect
+                        for clip in [fitz.Rect(0, 0, rect.width/2, rect.height), fitz.Rect(rect.width/2, 0, rect.width, rect.height)]:
+                            pix = page.get_pixmap(clip=clip, dpi=300)
+                            img = Image.open(io.BytesIO(pix.tobytes("png")))
+                            ocr = pytesseract.image_to_string(
+                                img, lang='por',
+                                config='--psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzáéíóúãõçÁÉÍÓÚÃÕÇ.,;:!?()[]{}"\'- '
+                            )
+                            texto_ocr += ocr + "\n"
+                    else:
+                        pix = page.get_pixmap(dpi=300)
                         img = Image.open(io.BytesIO(pix.tobytes("png")))
-                        ocr = pytesseract.image_to_string(img, lang='por', config='--psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzáéíóúãõçÁÉÍÓÚÃÕÇ.,;:!?()[]{}"\'- ')
+                        ocr = pytesseract.image_to_string(
+                            img, lang='por',
+                            config='--psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzáéíóúãõçÁÉÍÓÚÃÕÇ.,;:!?()[]{}"\'- '
+                        )
                         texto_ocr += ocr + "\n"
-                else:
-                    pix = page.get_pixmap(dpi=300)
-                    img = Image.open(io.BytesIO(pix.tobytes("png")))
-                    ocr = pytesseract.image_to_string(img, lang='por', config='--psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzáéíóúãõçÁÉÍÓÚÃÕÇ.,;:!?()[]{}"\'- ')
-                    texto_ocr += ocr + "\n"
-        return limpar_texto_agressivo(texto_ocr), None
+                except Exception as e_page:
+                    st.warning(f"OCR falhou na página {page_num + 1}: {e_page}")
+                    continue  # Continua com as próximas páginas
+        if texto_ocr.strip():
+            return limpar_texto_agressivo(texto_ocr), None
+        else:
+            return "", "OCR não extraiu texto em nenhuma página."
     except Exception as e:
-        return "", f"OCR falhou: {e}"
+        return "", f"OCR falhou completamente: {e}"
 
 def limpar_texto_agressivo(texto):
     if not texto: return ""
-    # Remove caracteres invisíveis e lixo
     invis = ['\u00AD','\u200B','\u200C','\u200D','\uFEFF','\u2060','\u200E','\u200F']
     for c in invis: texto = texto.replace(c, '')
     texto = texto.replace('\r\n','\n').replace('\r','\n').replace('\u00A0',' ')
-    # Remove ruídos comuns de PDF
     padrao_ruido = re.compile(
         r'k———190mm|>>>>|<<<|New Roman U|\(31\) 3514-2900|pp 190|mm — >>>»|a \?|1º prova -|la|KH 190 r|'
         r'BUL.*|FRENTE|VERSO|Times New Roman|Papel.*|Cor.*|Contato.*|artes@belfar\.com\.br|'
@@ -107,13 +117,10 @@ def limpar_texto_agressivo(texto):
         ln = ln.strip()
         if not ln or padrao_ruido.search(ln): continue
         if len(ln) < 3: continue
-        # Remove números de página isolados
         if re.fullmatch(r'\d{1,3}', ln): continue
         linhas.append(ln)
     texto = "\n".join(linhas)
-    # Junta quebras de linha em títulos
     texto = corrigir_quebras_em_titulos(texto)
-    # Remove linhas duplicadas
     linhas_unicas = []
     for ln in texto.split('\n'):
         if ln not in linhas_unicas:
@@ -130,7 +137,6 @@ def corrigir_quebras_em_titulos(texto):
     for linha in linhas:
         linha = linha.strip()
         if not linha: continue
-        # Se for título em MAIÚSCULAS e curto, junta com o anterior
         if linha.isupper() and len(linha) < 70 and re.match(r'^[A-Z0-9\.\s\?\!]+$', linha):
             buffer += (" " + linha) if buffer else linha
         else:
@@ -179,26 +185,6 @@ def obter_secoes_por_tipo(tipo_bula):
     }
     return secoes.get(tipo_bula, [])
 
-def obter_aliases_secao():
-    return {
-        "PARA QUE ESTE MEDICAMENTO É INDICADO?": "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "COMO ESTE MEDICAMENTO FUNCIONA?": "2. COMO ESTE MEDICAMENTO FUNCIONA?",
-        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-        "COMO DEVO USAR ESTE MEDICAMENTO?": "6. COMO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "INDICAÇÕES": "1. INDICAÇÕES", "RESULTADOS DE EFICÁCIA": "2. RESULTADOS DE EFICÁCIA",
-        "CARACTERÍSTICAS FARMACOLÓGICAS": "3. CARACTERÍSTICAS FARMACOLÓGICAS",
-        "CONTRAINDICAÇÕES": "4. CONTRAINDICAÇÕES", "ADVERTÊNCIAS E PRECAUÇÕES": "5. ADVERTÊNCIAS E PRECAUÇÕES",
-        "INTERAÇÕES MEDICAMENTOSAS": "6. INTERAÇÕES MEDICAMENTOSAS",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
-        "POSOLOGIA E MODO DE USAR": "8. POSOLOGIA E MODO DE USAR",
-        "REAÇÕES ADVERSAS": "9. REAÇÕES ADVERSAS", "SUPERDOSE": "10. SUPERDOSE"
-    }
-
 # ====================== NORMALIZAÇÃO ======================
 def normalizar_texto(texto):
     if not isinstance(texto, str): return ""
@@ -219,12 +205,8 @@ def is_titulo_secao(linha):
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     linhas = texto_completo.split('\n')
-    aliases = obter_aliases_secao()
-    titulos_possiveis = {s: s for s in secoes_esperadas}
-    for alias, canonico in aliases.items():
-        if canonico in secoes_esperadas: titulos_possiveis[alias] = canonico
-    titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
-    limiar = 82  # Abaixado para maior tolerância
+    titulos_norm_lookup = {normalizar_titulo_para_comparacao(s): s for s in secoes_esperadas}
+    limiar = 80
 
     for idx, linha in enumerate(linhas):
         linha_limpa = linha.strip()
@@ -296,7 +278,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_ref):
     indices = set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag != 'equal': indices.update(range(i1, i2) if eh_ref else range(j1, j2))
-    tokens = ref_tokens if eh_ref else bel_tokens
+    tokens = refute_tokens if eh_ref else bel_tokens
     marcado = []
     for idx, tok in enumerate(tokens):
         if idx in indices and tok.strip(): marcado.append(f"<mark class='diff'>{tok}</mark>")
@@ -325,19 +307,14 @@ def formatar_html_para_leitura(html_content):
 
 # ====================== RELATÓRIO FINAL ======================
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
-    st.header("Relatório de Auditoria Inteligente")
+    st.header("Relatório de Auditoria")
     relatorio, similaridades = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
     score = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Conformidade", f"{score:.0f}%")
     col2.metric("Seções Faltantes", sum(1 for r in relatorio if r['status'] == 'faltante'))
-
-    match_anvisa = re.search(r"[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}", texto_ref, re.I)
-    data_anvisa = match_anvisa.group() if match_anvisa else "N/D"
-    col3.metric("Data ANVISA", data_anvisa)
-
-    col4.metric("Status", "CONFORME" if score >= 95 else "DIVERGENTE")
+    col3.metric("Status", "CONFORME" if score >= 95 else "DIVERGENTE")
 
     st.divider()
     for item in relatorio:
@@ -352,10 +329,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             html_bel = formatar_html_para_leitura(marcar_diferencas_palavra_por_palavra(item['conteudo_ref'], item['conteudo_belfar'], False))
             with c1:
                 st.markdown("**Artes Vigentes**")
-                st.markdown(f"<div style='height:350px;overflow-y:auto;border:1px solid #ddd;padding:12px;background:#fff;font-size:14px;line-height:1.7;'>{html_ref}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='height:300px;overflow-y:auto;border:1px solid #ddd;padding:10px;background:#fff;font-size:14px;line-height:1.7;'>{html_ref}</div>", unsafe_allow_html=True)
             with c2:
                 st.markdown("**PDF da Gráfica**")
-                st.markdown(f"<div style='height:350px;overflow-y:auto;border:1px solid #ddd;padding:12px;background:#fff;font-size:14px;line-height:1.7;'>{html_bel}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='height:300px;overflow-y:auto;border:1px solid #ddd;padding:10px;background:#fff;font-size:14px;line-height:1.7;'>{html_bel}</div>", unsafe_allow_html=True)
 
     st.divider()
     st.subheader("Visualização Lado a Lado")
@@ -370,8 +347,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"<div class='container-scroll'>{html_bel}</div>", unsafe_allow_html=True)
 
 # ====================== INTERFACE ======================
-st.title("Auditoria de Bulas – v26.95")
-st.markdown("Sistema com **OCR otimizado + limpeza inteligente**")
+st.title("Auditoria de Bulas – v26.96")
+st.markdown("**OCR estável + limpeza robusta + sem crash**")
 st.divider()
 
 tipo_bula = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
@@ -393,14 +370,16 @@ if st.button("Iniciar Auditoria", use_container_width=True, type="primary"):
             texto_ref, erro_ref = extrair_texto_com_ocr(pdf_ref, tipo_ref, is_marketing_pdf=False)
             texto_belfar, erro_belfar = extrair_texto_com_ocr(pdf_belfar, 'pdf', is_marketing_pdf=True)
 
-            if erro_ref or erro_belfar:
-                st.error(f"Erro: {erro_ref or erro_belfar}")
+            if erro_ref:
+                st.error(f"Erro no arquivo de referência: {erro_ref}")
+            elif erro_belfar:
+                st.error(f"Erro no PDF da gráfica: {erro_belfar}")
             elif len(texto_ref.strip()) < 100 or len(texto_belfar.strip()) < 100:
-                st.error("Texto muito curto. Verifique os arquivos.")
+                st.error("Texto extraído muito curto. Verifique se os PDFs têm texto selecionável ou tente outro arquivo.")
             else:
                 texto_ref = truncar_apos_anvisa(corrigir_quebras_em_titulos(texto_ref))
                 texto_belfar = truncar_apos_anvisa(corrigir_quebras_em_titulos(texto_belfar))
                 gerar_relatorio_final(texto_ref, texto_belfar, "Artes Vigentes", "PDF da Gráfica", tipo_bula)
 
 st.divider()
-st.caption("v26.95 | OCR + Limpeza + Formatação Perfeita")
+st.caption("v26.96 | OCR estável + sem crash + formatação perfeita")
