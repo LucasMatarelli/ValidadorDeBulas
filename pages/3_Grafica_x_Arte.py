@@ -117,8 +117,14 @@ def melhorar_layout_grafica(texto: str) -> str:
 
     # 2. Corrigir hífen de quebra (hifenização)
     texto = re.sub(r"(\w+)-\n(\w+)", r"\1\2", texto)
+    
+    # 3. Remover lixo de OCR (pontos de formatação, etc.)
+    texto = re.sub(r'(\.|\s){5,}', ' ', texto) # Remove '.....'
+    texto = re.sub(r'[«»”ÉÀ“"”]', '', texto) # Remove caracteres de citação estranhos
+    texto = re.sub(r'\bBEE\s\*\b', '', texto) # Remove 'BEE *'
+    texto = re.sub(r'\b(mm|mma)\b', '', texto) # Remove 'mm' 'mma' soltos
 
-    # 3. Corrigir quebras de linha indevidas (Juntar parágrafos)
+    # 4. Corrigir quebras de linha indevidas (Juntar parágrafos)
     # Esta é a lógica principal para "embelezar" o layout.
     linhas = texto.split('\n')
     novas_linhas = []
@@ -156,19 +162,19 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     texto = "\n".join(novas_linhas)
 
-    # 4. Corrigir padrões OCR (alguns da v26.9)
+    # 5. Corrigir padrões OCR (alguns da v26.9)
     texto = re.sub(r"\bJ[O0]\s*mg\b", "10 mg", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\bJO\s*mg\b", "10 mg", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\s+([,;:\.\?\!%°])", r"\1", texto) # Remove espaço ANTES de pontuação
 
-    # 5. Limpeza final
+    # 6. Limpeza final
     texto = texto.strip()
     texto = re.sub(r'\n{3,}', '\n\n', texto)
     texto = re.sub(r'[ \t]{2,}', ' ', texto) # Limpa espaços duplos
     
     return texto
 
-# ----------------- [NOVO - v27] LÓGICA DE EXTRAÇÃO SEPARADA -----------------
+# ----------------- [NOVO - v28] LÓGICA DE EXTRAÇÃO SEPARADA -----------------
 
 def extrair_pdf_texto_colunas(arquivo_bytes: bytes) -> str:
     """
@@ -204,7 +210,7 @@ def extrair_pdf_ocr_colunas(arquivo_bytes: bytes) -> str:
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
             rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
             
-            # --- MUDANÇA v27: Adicionado config='--psm 6' ---
+            # --- MUDANÇA v28: Adicionado config='--psm 6' ---
             # PSM 6: Assume um único bloco de texto uniforme. Perfeito para colunas.
             ocr_config = r'--psm 6' 
             
