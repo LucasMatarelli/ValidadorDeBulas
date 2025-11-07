@@ -120,9 +120,7 @@ def extrair_pdf_ocr_colunas(arquivo_bytes):
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
             rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
             
-            # --- MUDANÇA v26: Adicionado config='--psm 6' ---
-            # PSM 6: Assume um único bloco de texto uniforme. Perfeito para colunas.
-            ocr_config = r'--psm 6' 
+            ocr_config = r'--psm 6' # Trata a coluna como um único bloco de texto
             
             # OCR da Coluna 1
             pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
@@ -193,6 +191,9 @@ def extrair_texto(arquivo, tipo_arquivo, force_ocr=False):
                 r"\+\|",
                 r"^\s*a\s*\?\s*la\s*KH\s*\d+\s*r", # Lixo: a ? la KH 190 r
                 r"^mm\s+>>>", # Lixo: mm >>> >—>—>—»
+                r"^mm\s+USO", # Substituído por correção
+                r"^mm\s+COMPOSIÇÃO", # Substituído por correção
+                r"^mm\s+Cada", # Substituído por correção
                 r"^\s*nm\s+A\s*$", # Lixo: nm A
                 r"^\s*TE\s*-\s*À\s*$", # Lixo: TE - À
                 
@@ -768,10 +769,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
     
-    # Prepara os mapas de seção ANTES de verificar, para o relatório completo
-    mapa_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
-    mapa_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
-    
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     
@@ -827,22 +824,18 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # Tenta pegar a divergência; se não existir, é porque é idêntica
         diff = mapa_diferencas.get(secao)
         
-        # Pega o conteúdo de qualquer forma para exibir
-        encontrou_ref, _, conteudo_ref_para_marcar = obter_dados_secao(secao, mapa_ref, texto_ref.split('\n'), tipo_bula)
-        encontrou_belfar, titulo_belfar_encontrado, conteudo_bel_para_marcar = obter_dados_secao(secao, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
-
-        if not encontrou_ref or not encontrou_belfar:
-            # Isso não deve acontecer se não estiver em 'secoes_faltantes', mas é uma segurança
-            continue 
-
         if diff:
             # Seção com DIVERGÊNCIA
-            titulo_display = diff.get('titulo_encontrado') or titulo_belfar_encontrado or secao
+            titulo_display = diff.get('titulo_encontrado') or secao
             expander_title = f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"
+            conteudo_ref_para_marcar = diff['conteudo_ref']
+            conteudo_bel_para_marcar = diff['conteudo_belfar']
         else:
             # Seção IDÊNTICA
-            titulo_display = titulo_belfar_encontrado or secao
-            expander_title = f"📄 {titulo_display} - ✅ CONTEÚDO IDÊNTICO"
+            expander_title = f"📄 {secao} - ✅ CONTEÚDO IDÊNTICO"
+            # Pega o conteúdo de qualquer forma para exibir
+            _, _, conteudo_ref_para_marcar = obter_dados_secao(secao, mapa_ref, texto_ref.split('\n'), tipo_bula)
+            _, _, conteudo_bel_para_marcar = obter_dados_secao(secao, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
             
         with st.expander(expander_title):
             anchor_id_ref = _create_anchor_id(secao, "ref")
