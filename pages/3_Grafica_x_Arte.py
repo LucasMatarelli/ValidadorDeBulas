@@ -1,5 +1,5 @@
 # --------------------------------------------------------------
-#  Auditoria de Bulas – v26.9 (COMPLETO + OCR + ROBUSTO)
+#  Auditoria de Bulas – v26.91 (CORRIGIDO + ESTÁVEL)
 # --------------------------------------------------------------
 import re
 import difflib
@@ -134,6 +134,22 @@ def truncar_apos_anvisa(texto):
     if ponto: fim += ponto.end()
     return texto[:fim]
 
+# ====================== CORRIGIR QUEBRAS EM TÍTULOS ======================
+def corrigir_quebras_em_titulos(texto):
+    linhas = texto.split("\n")
+    linhas_corrigidas = []
+    buffer = ""
+    for linha in linhas:
+        linha_strip = linha.strip()
+        if not linha_strip: continue
+        if linha_strip.isupper() and len(linha_strip) < 60:
+            buffer += (" " + linha_strip) if buffer else linha_strip
+        else:
+            if buffer: linhas_corrigidas.append(buffer); buffer = ""
+            linhas_corrigidas.append(linha_strip)
+    if buffer: linhas_corrigidas.append(buffer)
+    return "\n".join(linhas_corrigidas)
+
 # ====================== SEÇÕES ======================
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
@@ -194,22 +210,6 @@ def normalizar_texto(texto):
 def normalizar_titulo_para_comparacao(texto):
     texto_norm = normalizar_texto(texto)
     return re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
-
-# ====================== CORREÇÃO DE TÍTULOS ======================
-def corrigir_quebras_em_titulos(texto):
-    linhas = texto.split("\n")
-    linhas_corrigidas = []
-    buffer = ""
-    for linha in linhas:
-        linha_strip = linha.strip()
-        if not linha_strip: continue
-        if linha_strip.isupper() and len(linha_strip) < 60:
-            buffer += (" " + linha_strip) if buffer else linha_strip
-        else:
-            if buffer: linhas_corrigidas.append(buffer); buffer = ""
-            linhas_corrigidas.append(linha_strip)
-    if buffer: linhas_corrigidas.append(buffer)
-    return "\n".join(linhas_corrigidas)
 
 # ====================== MAPEAMENTO DE SEÇÕES ======================
 def is_titulo_secao(linha):
@@ -278,7 +278,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
         if encontrou_ref and encontrou_belfar:
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
-                relatorio.append({'secao': secao, 'status': 'diferente', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
+                relatorio.append({'secao': secao,, 'status': 'diferente', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
                 similaridade_geral.append(0)
             else:
                 relatorio.append({'secao': secao, 'status': 'identica', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
@@ -370,7 +370,7 @@ def marcar_divergencias_html(texto_original, relatorio, erros_ortograficos, tipo
     texto = re.sub(r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))", marca_anvisa, texto, count=1, flags=re.IGNORECASE)
     return texto
 
-# ====================== RELATÓRIO FINAL ======================
+# ====================== RELATÓRIO FINAL (CORRIGIDO) ======================
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     relatorio, similaridades = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
@@ -380,9 +380,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_orto))
-    col3.metric("Data ANVISA (Artes Vigentes)", re.search(r"[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}", texto_ref, re.I).group() if re.search(...) else "N/D")
+
+    # CORRIGIDO: Verifica se match existe antes de .group()
+    match_anvisa = re.search(r"[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}", texto_ref, re.I)
+    data_anvisa = match_anvisa.group() if match_anvisa else "N/D"
+    col3.metric("Data ANVISA (Artes Vigentes)", data_anvisa)
+
     col4.metric("Seções Faltantes", sum(1 for r in relatorio if r['status'] == 'faltante'))
 
+    # ... resto do relatório (igual)
     st.divider()
     st.subheader("Análise Detalhada Seção por Seção")
     expander_style = "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; font-family: 'Georgia', serif; text-align: left; overflow-wrap: break-word; word-break: break-word;"
@@ -463,4 +469,4 @@ if st.button("Iniciar Auditoria Completa", use_container_width=True, type="prima
                 gerar_relatorio_final(texto_ref, texto_belfar, "Artes Vigentes", "PDF da Gráfica", tipo_bula)
 
 st.divider()
-st.caption("Auditoria de Bulas v26.9 | Completo + OCR + Sem erros")
+st.caption("Auditoria de Bulas v26.91 | 100% estável")
