@@ -1,4 +1,5 @@
-# 🔬 Auditoria de Bulas – v18.1 (com OCR forçado e seções numeradas)
+# 🔬 Auditoria de Bulas – v18.3 (Híbrido + Filtros + Seções Numeradas)
+# COMENTÁRIO: Combina a extração híbrida (v18.1) com os filtros (v18.2)
 
 # --- IMPORTS ---
 
@@ -41,27 +42,44 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO] EXTRAÇÃO DE PDF COM OCR FORÇADO -----------------
+# ----------------- [NOVO - v18.3] EXTRAÇÃO HÍBRIDA (DIRETA + OCR) -----------------
 def extrair_texto_pdf_com_ocr(arquivo_bytes):
     """
-    Extrai texto de todas as páginas do PDF usando OCR (forçado),
-    ignorando trechos técnicos como medidas, papel, tipologia e contatos da BELFAR.
+    Extrai texto de todas as páginas do PDF usando uma abordagem HÍBRIDA.
+    Tenta extração direta (ótima para colunas) e OCR (para imagens).
+    Usa o melhor resultado e filtra trechos técnicos.
     """
     texto_final = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         for i, page in enumerate(doc):
-            pix = page.get_pixmap(dpi=300)  # alta resolução
+            
+            # --- TENTATIVA 1: Extração Direta (Rápida e boa para colunas) ---
+            # 'sort=True' é crucial para colunas, como no seu PDF.
+            blocks = page.get_text("blocks", sort=True)
+            texto_direto = "".join([b[4] for b in blocks]).strip()
+
+            # --- TENTATIVA 2: Extração por OCR (Lenta, para texto em imagem) ---
+            pix = page.get_pixmap(dpi=300) # Usar 300 dpi é o ideal
             img_bytes = pix.tobytes("png")
             imagem = Image.open(io.BytesIO(img_bytes))
-            texto_pagina = pytesseract.image_to_string(imagem, lang="por")
-            texto_final += texto_pagina + "\n"
+            texto_ocr = pytesseract.image_to_string(imagem, lang='por')
 
-    # --- FILTRAGEM DE TRECHOS TÉCNICOS INDESEJADOS ---
+            # --- COMPARAÇÃO: Usa o que tiver mais texto ---
+            # Para o seu PDF "Belspan", o 'texto_direto' vai ganhar e
+            # manterá a ordem correta das colunas.
+            texto_usar = texto_ocr if len(texto_ocr) > len(texto_direto) else texto_direto
+            texto_final += texto_usar + "\n"
+
+    # --- FILTRAGEM (da v18.2) ---
+    # Aplica os filtros que você adicionou, independentemente do método.
     padroes_ignorados = [
         r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
         r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
         r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
-        r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm"
+        r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
+        # Adicionados para limpar o rodapé do seu exemplo:
+        r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
+        r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+"
     ]
     for padrao in padroes_ignorados:
         texto_final = re.sub(padrao, "", texto_final)
@@ -69,7 +87,7 @@ def extrair_texto_pdf_com_ocr(arquivo_bytes):
     return texto_final
 
 
-# ----------------- [NOVA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
+# ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL (Sem alteração) -----------------
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -106,7 +124,7 @@ def extrair_texto(arquivo, tipo_arquivo):
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
 
-# ----------------- [NOVO] TRUNCAR APÓS ANVISA -----------------
+# ----------------- TRUNCAR APÓS ANVISA (Sem alteração) -----------------
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
@@ -119,7 +137,7 @@ def truncar_apos_anvisa(texto):
     return texto
 
 
-# ----------------- [NOVA] CONFIGURAÇÃO DE SEÇÕES NUMERADAS -----------------
+# ----------------- CONFIGURAÇÃO DE SEÇÕES NUMERADAS (Mantido) -----------------
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
         "Paciente": [
@@ -650,7 +668,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
                 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
-                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
+                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{html_bel_box}</div>"
                 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -732,7 +750,8 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (Pode demorar com OCR)"):
+        # Mensagem de spinner atualizada
+        with st.spinner("🔄 Processando e analisando as bulas... (Método híbrido, pode demorar)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
@@ -752,4 +771,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.2 | OCR Forçado + Seções Numeradas")
+st.caption("Sistema de Auditoria de Bulas v18.3 | Extração Híbrida (Direta + OCR)")
