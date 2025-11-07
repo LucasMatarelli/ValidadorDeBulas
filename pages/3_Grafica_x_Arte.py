@@ -1,5 +1,5 @@
-# 🔬 Auditoria de Bulas – v18.3 (Híbrido + Filtros + Seções Numeradas)
-# COMENTÁRIO: Combina a extração híbrida (v18.1) com os filtros (v18.2)
+# 🔬 Auditoria de Bulas – v20 (Leitura Forçada de Colunas)
+# Resolve o problema de colunas misturadas no PDF da Gráfica
 
 # --- IMPORTS ---
 
@@ -42,87 +42,116 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO - v18.5] EXTRAÇÃO HÍBRIDA (DIRETA-PRIMEIRO) -----------------
-def extrair_texto_pdf_com_ocr(arquivo_bytes):
+# ----------------- [NOVO - v20] FUNÇÕES DE EXTRAÇÃO -----------------
+
+def extrair_texto_pdf_colunas(arquivo_bytes):
     """
-    Extrai texto de todas as páginas do PDF usando uma abordagem HÍBRIDA.
-    Tenta extração direta (ótima para colunas) PRIMEIRO.
-    Usa OCR (lento) APENAS se a extração direta falhar (ex: PDF em imagem).
+    Extrai texto de um PDF de "Arte Gráfica" que TEM colunas.
+    Ele força a leitura por colunas (esquerda, depois direita) para
+    evitar a "salada" de texto.
+    """
+    st.info("Executando extração otimizada para colunas (Gráfica)...")
+    texto_total = ""
+    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+        for page in doc:
+            # 1. Definir as colunas
+            rect = page.rect
+            # Coluna da Esquerda
+            rect_col_1 = fitz.Rect(0, 0, rect.width * 0.5, rect.height)
+            # Coluna da Direita
+            rect_col_2 = fitz.Rect(rect.width * 0.5, 0, rect.width, rect.height)
+
+            # 2. Extrair texto de cada coluna separadamente
+            # Usamos "blocks" e "sort=True" DENTRO da área de corte (clip).
+            blocks_col_1 = page.get_text("blocks", clip=rect_col_1, sort=True)
+            blocks_col_2 = page.get_text("blocks", clip=rect_col_2, sort=True)
+            
+            texto_col_1 = "".join([b[4] for b in blocks_col_1])
+            texto_col_2 = "".join([b[4] for b in blocks_col_2])
+
+            # 3. Concatenar: Esquerda, depois Direita
+            texto_total += texto_col_1 + "\n" + texto_col_2 + "\n"
+    
+    return texto_total
+
+def extrair_texto_pdf_simples(arquivo_bytes):
+    """
+    Extrai texto de um PDF "simples" (como a Referência).
+    Tenta extração direta primeiro. Usa OCR como Plano B se a direta falhar.
     """
     texto_final = ""
-    
-    # --- TENTATIVA 1: Extração Direta (Rápida e boa para colunas) ---
+    # TENTATIVA 1: Extração Direta (Rápida)
     try:
         with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-            for i, page in enumerate(doc):
-                # 'sort=True' é crucial para colunas, como no seu PDF.
+            for page in doc:
                 blocks = page.get_text("blocks", sort=True)
                 texto_pagina = "".join([b[4] for b in blocks])
                 texto_final += texto_pagina + "\n"
-    except Exception as e:
-        st.warning(f"Erro na extração direta: {e}. Tentando OCR.")
-        texto_final = "" # Reseta o texto se a extração direta falhou
+    except Exception:
+        texto_final = ""
 
-    # --- VERIFICAÇÃO ---
-    # Se a extração direta funcionou (produziu texto), nós a usamos.
+    # VERIFICAÇÃO
     if len(texto_final.strip()) > 100:
-        st.info("Extração direta de texto (rápida) concluída.")
-        # Aplicar filtros ao texto_final
-        padroes_ignorados = [
-            r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
-            r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
-            r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
-            r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
-            # Adicionados para limpar o rodapé do seu exemplo:
-            r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
-            r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+"
-        ]
-        for padrao in padroes_ignorados:
-            texto_final = re.sub(padrao, "", texto_final)
+        st.info("Extração direta (Referência) concluída.")
         return texto_final
 
-    # --- TENTATIVA 2: Extração por OCR (Lenta, para texto em imagem) ---
-    # Isso só roda se a Tentativa 1 falhar (texto_final < 100 chars)
-    st.info("Extração direta falhou ou gerou pouco texto. Iniciando OCR (pode demorar)...")
+    # TENTATIVA 2: OCR (Lenta, para imagem)
+    st.info("Extração direta (Referência) falhou. Iniciando OCR...")
     texto_ocr = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        for i, page in enumerate(doc):
+        for page in doc:
             pix = page.get_pixmap(dpi=300)
             img_bytes = pix.tobytes("png")
             imagem = Image.open(io.BytesIO(img_bytes))
             texto_pagina_ocr = pytesseract.image_to_string(imagem, lang='por')
             texto_ocr += texto_pagina_ocr + "\n"
     
-    # Aplicar filtros ao texto_ocr
-    padroes_ignorados = [
-        r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
-        r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
-        r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
-        r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
-        r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
-        r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+"
-    ]
-    for padrao in padroes_ignorados:
-        texto_ocr = re.sub(padrao, "", texto_ocr)
-    
     return texto_ocr
-    
-# ----------------- FUNÇÃO DE EXTRAÇÃO PRINCIPAL (Sem alteração) -----------------
-def extrair_texto(arquivo, tipo_arquivo):
+
+# --- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL ---
+def extrair_texto(arquivo, tipo_arquivo, is_grafica_pdf=False):
+    """
+    Função principal de extração. Decide qual método usar
+    baseado no tipo de arquivo e se é o PDF da Gráfica.
+    """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
 
     try:
         arquivo.seek(0)
         texto = ""
+        arquivo_bytes = arquivo.read() # Ler os bytes uma vez
 
         if tipo_arquivo == "pdf":
-            texto = extrair_texto_pdf_com_ocr(arquivo.read())
+            if is_grafica_pdf:
+                # Usar a nova lógica de corte de coluna
+                texto = extrair_texto_pdf_colunas(arquivo_bytes)
+            else:
+                # Usar a lógica híbrida simples para a Referência
+                texto = extrair_texto_pdf_simples(arquivo_bytes)
+        
         elif tipo_arquivo == "docx":
-            doc = docx.Document(arquivo)
+            # DOCX é sempre simples
+            doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto = "\n".join([p.text for p in doc.paragraphs])
-
+        
+        # --- [INÍCIO] Bloco de Limpeza (Filtros) ---
         if texto:
+            # Filtros de lixo técnico da gráfica
+            padroes_ignorados = [
+                r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
+                r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
+                r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
+                r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
+                r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
+                r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+",
+                r"e\s*----+\s*\d+mm\s*>>>I\)", # Filtro para "e----------- 190mm >>>I)"
+                r"14.prova - \d+/\d+/\d+" # Filtro para "14.prova - 31/10/2025"
+            ]
+            for padrao in padroes_ignorados:
+                texto = re.sub(padrao, "", texto)
+
+            # Limpeza padrão de normalização
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
@@ -132,19 +161,25 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
-            linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
+            
+            linhas_filtradas = []
+            for linha in linhas:
+                if not padrao_rodape.search(linha.strip()):
+                    linhas_filtradas.append(linha)
+                    
             texto = "\n".join(linhas_filtradas)
-            texto = re.sub(r'\n{3,}', '\n\n', texto)
+            texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
+        # --- [FIM] Bloco de Limpeza ---
 
         return texto, None
 
     except Exception as e:
-        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+        return "", f"Erro ao ler o arquivo {tipo_arquivo} ({'Gráfica' if is_grafica_pdf else 'Ref'}): {e}"
 
 
-# ----------------- TRUNCAR APÓS ANVISA (Sem alteração) -----------------
+# ----------------- TRUNCAR APÓS ANVISA -----------------
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
@@ -157,7 +192,7 @@ def truncar_apos_anvisa(texto):
     return texto
 
 
-# ----------------- CONFIGURAÇÃO DE SEÇÕES NUMERADAS (Mantido) -----------------
+# ----------------- CONFIGURAÇÃO DE SEÇÕES NUMERADAS -----------------
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
         "Paciente": [
@@ -192,10 +227,9 @@ def obter_secoes_por_tipo(tipo_bula):
     }
     return secoes.get(tipo_bula, [])
 
-# --- O RESTANTE DO CÓDIGO (v18) PERMANECE IDÊNTICO ---
+# --- O RESTANTE DO CÓDIGO (v18.4) PERMANECE IDÊNTICO ---
 
 def obter_aliases_secao():
-    # Os aliases não precisam de números, pois a normalização remove
     return {
         "INDICAÇÕES": "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
         "CONTRAINDICAÇÕES": "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
@@ -203,7 +237,6 @@ def obter_aliases_secao():
         "REAÇÕES ADVERSAS": "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
         "SUPERDOSE": "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-        # Aliases Profissional
         "INDICAÇÕES": "1. INDICAÇÕES",
         "CONTRAINDICAÇÕES": "4. CONTRAINDICAÇÕES",
         "POSOLOGIA E MODO DE USAR": "8. POSOLOGIA E MODO DE USAR",
@@ -226,23 +259,17 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
-    """Normalização robusta para títulos, removendo acentos, pontuação e numeração inicial."""
     texto_norm = normalizar_texto(texto)
-    # Esta linha é a chave: ela remove os números (ex: "1.", "2.", "9.") antes de comparar
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
-# Helper para criar IDs únicos para as âncoras HTML
 def _create_anchor_id(secao_nome, prefix):
-    """Cria um ID HTML seguro para a âncora."""
     norm = normalizar_texto(secao_nome)
-    # Remove caracteres que podem quebrar o seletor JS
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES -----------------
 def is_titulo_secao(linha):
-    """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
     if len(linha) < 4: return False
     if len(linha.split()) > 20: return False
@@ -257,12 +284,10 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     aliases = obter_aliases_secao()
     titulos_possiveis = {}
     
-    # Mapeia tanto a seção canônica (numerada) quanto seus aliases (não numerados)
     for secao in secoes_esperadas:
         titulos_possiveis[secao] = secao
     for alias, canonico in aliases.items():
         if canonico in secoes_esperadas:
-            # Garante que um alias não sobrescreva o outro se houver colisões
             if alias not in titulos_possiveis:
                 titulos_possiveis[alias] = canonico
     
@@ -281,7 +306,6 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         linha_norm_comparacao = normalizar_titulo_para_comparacao(linha_limpa)
         
         for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-            # Compara a linha (sem número) com o título possível (sem número)
             score = fuzz.token_set_ratio(
                 normalizar_titulo_para_comparacao(titulo_possivel), 
                 linha_norm_comparacao
@@ -302,14 +326,13 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# ----------------- MAPEAMENTO (FUNÇÃO CORRIGIDA) -----------------
+# --- [MAPEAMENTO v18.4] - FUNÇÃO CORRIGIDA ---
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
     v18.4: Lógica de busca aprimorada para detectar títulos na mesma linha que o conteúdo.
     """
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
-    # Normaliza a lista de títulos oficiais uma vez para otimizar a busca
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
 
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -320,30 +343,22 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         linha_inicio = secao_mapa['linha_inicio']
         linha_inicio_conteudo = linha_inicio + 1
 
-        # --- LÓGICA DE BUSCA APRIMORADA ---
         prox_idx = None
         for j in range(linha_inicio_conteudo, len(linhas_texto)):
             linha_atual = linhas_texto[j].strip()
             if not linha_atual:
                 continue
 
-            # Normaliza a linha atual
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
 
-            # --- [INÍCIO DA CORREÇÃO v18.4] ---
-            # Compara a linha_atual_norm com todos os títulos oficiais
             encontrou_titulo = False
             for titulo_oficial_norm in titulos_norm_set:
                 # Causa 1: O título está na mesma linha que o conteúdo (Problema da Referência)
-                # Ex: "3. QUANDO... ? Você não deve..."
-                # O `linha_atual_norm` será "quando... voce nao deve"
-                # O `titulo_oficial_norm` é "quando..."
-                # O `startswith` resolve isso.
-                if linha_atual_norm.startswith(titulo_oficial_norm):
+                if linha_atual_norm.startswith(titulo_oficial_norm) and len(linha_atual_norm) > len(titulo_oficial_norm) + 5:
                      encontrou_titulo = True
                      break
                 
-                # Causa 2: O título está sozinho, mas com pequenas variações (Fuzzy match)
+                # Causa 2: O título está sozinho (Fuzzy match)
                 if fuzz.token_set_ratio(titulo_oficial_norm, linha_atual_norm) >= 98:
                     encontrou_titulo = True
                     break
@@ -351,9 +366,8 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             if encontrou_titulo:
                 prox_idx = j # Encontrou um título
                 break 
-            # --- [FIM DA CORREÇÃO v18.4] ---
 
-            # Lógica de 2 linhas (mantida, pois é importante para o PDF da gráfica)
+            # Lógica de 2 linhas (mantida)
             if (j + 1) < len(linhas_texto):
                 linha_seguinte = linhas_texto[j + 1].strip()
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
@@ -366,10 +380,9 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                         break
                 
                 if encontrou_titulo_2_linhas:
-                    prox_idx = j # Encontrou um título em duas linhas
+                    prox_idx = j
                     break 
         
-        # --- Fim da Lógica de Busca ---
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
         conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         conteudo_final = "\n".join(conteudo).strip()
@@ -377,12 +390,11 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado, conteudo_final
     
     return False, None, ""
-    
+
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
-    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
     
     linhas_ref = texto_ref.split('\n')
     linhas_belfar = texto_belfar.split('\n')
@@ -397,7 +409,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
 
         if not encontrou_belfar:
-            # Tenta encontrar por similaridade (fuzzy) se a busca direta falhar
             melhor_score = 0
             melhor_titulo = None
             for m in mapa_belfar:
@@ -408,8 +419,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             
             if melhor_score >= 95:
                 diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
-                
-                # Extrai o conteúdo da seção encontrada por similaridade
                 for m in mapa_belfar:
                     if m['titulo_encontrado'] == melhor_titulo:
                         next_section_start = len(linhas_belfar)
@@ -431,11 +440,11 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
                     diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar if titulo_belfar else melhor_titulo})
             
-            # Normaliza o nome da seção para ignorar (ex: "5. ONDE...") vira "onde..."
             secao_canon_norm = normalizar_titulo_para_comparacao(secao)
             ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
 
             if secao_canon_norm in ignorar_comparacao_norm:
+                similaridades_secoes.append(100) # Adicionado para contagem correta
                 continue
             
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
@@ -484,7 +493,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             return []
 
         spell = SpellChecker(language='pt')
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel"}
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "escopolamina", "dipirona", "butilbrometo"}
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         
         doc = nlp(texto_para_checar)
@@ -499,6 +508,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         
         return list(sorted(set([e for e in erros if len(e) > 3])))[:20]
     except Exception as e:
+        st.error(f"Erro na ortografia: {e}")
         return []
 
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
@@ -575,6 +585,11 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
             if conteudo_a_marcar in texto_trabalho:
                 texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora)
+            else:
+                # Fallback se o conteúdo exato não for encontrado (ex: por limpeza)
+                # Tenta substituir o conteúdo marcado original (sem âncora)
+                if conteudo_marcado in texto_trabalho:
+                     texto_trabalho = texto_trabalho.replace(conteudo_marcado, conteudo_com_ancora)
 
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
@@ -600,8 +615,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
     return texto_trabalho
 
-# ----------------- RELATÓRIO -----------------
-# ----------------- RELATÓRIO (FUNÇÃO CORRIGIDA) -----------------
+# ----------------- RELATÓRIO (v18.4 - Mostra todos os expansores) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     js_scroll_script = """
@@ -676,10 +690,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
     
-    # --- [INÍCIO DA MUDANÇA v18.4] ---
     st.warning(f"⚠️ **Relatório de Conteúdo por Seção:**")
     
-    # Cria um lookup rápido das diferenças
     mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     
@@ -690,17 +702,14 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     )
 
     for secao in secoes_esperadas:
-        # Normaliza para verificar se deve ignorar
         secao_canon_norm = normalizar_titulo_para_comparacao(secao)
         ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
         
-        # Se a seção está na lista de ignorados
         if secao_canon_norm in ignorar_comparacao_norm:
             with st.expander(f"📄 {secao} - ℹ️ (Seção não comparada)"):
                 st.info("Esta seção (ex: Composição, Dizeres Legais) é ignorada na comparação de conteúdo por padrão.")
             continue
 
-        # Se a seção está na lista de diferenças
         if secao in mapa_diferencas:
             diff = mapa_diferencas[secao]
             titulo_display = diff.get('titulo_encontrado') or secao
@@ -721,8 +730,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
                 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
-                
-                # (A correção do UnboundLocalError da última vez já está aqui)
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
                 
                 c1, c2 = st.columns(2)
@@ -733,13 +740,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     st.markdown("**BELFAR:** (Clique na caixa para rolar)")
                     st.markdown(html_bel_box, unsafe_allow_html=True)
         
-        # Se a seção NÃO está nas diferenças E NÃO está faltando
         elif secao not in secoes_faltantes:
             with st.expander(f"📄 {secao} - ✅ CONTEÚDO IDÊNTICO"):
                 st.success("O conteúdo desta seção é idêntico em ambos os documentos.")
-    
-    # O `else` original foi removido, pois agora o loop cuida de tudo
-    # --- [FIM DA MUDANÇA v18.4] ---
     
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
@@ -790,8 +793,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
-        
-# ----------------- INTERFACE -----------------
+
+# ----------------- [ATUALIZADA] INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
@@ -802,22 +805,26 @@ tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), 
 
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arte Vigente")
+    st.subheader("📄 Arte Vigente (Referência)")
     pdf_ref = st.file_uploader("Envie o PDF ou DOCX de referência", type=["pdf", "docx"], key="ref")
 
 with col2:
-    st.subheader("📄 PDF da Gráfica")
+    st.subheader("📄 PDF da Gráfica (com colunas)")
     pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        # Mensagem de spinner atualizada
-        with st.spinner("🔄 Processando e analisando as bulas... (Método híbrido, pode demorar)"):
+        with st.spinner("🔄 Processando e analisando as bulas..."):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
+            # --- [MUDANÇA v20] ---
+            # Extração da Referência (lógica simples/híbrida)
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_grafica_pdf=False)
+            
+            # Extração da Gráfica (lógica forçada de colunas)
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_grafica_pdf=True)
+            # --- [FIM DA MUDANÇA] ---
             
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -832,4 +839,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.3 | Extração Híbrida (Direta + OCR)")
+st.caption("Sistema de Auditoria de Bulas v20 | Leitura Forçada de Colunas")
