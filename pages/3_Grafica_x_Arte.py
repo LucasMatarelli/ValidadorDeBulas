@@ -1,7 +1,8 @@
-# 🔬 Auditoria de Bulas – v24 (Híbrido de Coluna Universal + Comparação Literal)
+# 🔬 Auditoria de Bulas – v25 (Híbrido de Coluna + OCR --psm 6 + Corretor)
 # Resolve problemas de extração de colunas tanto em PDFs de texto quanto de imagem.
 # Adiciona correção pós-OCR para erros comuns (ex: 3lfar -> Belfar).
 # Implementa comparação 100% literal (sensível a pontuação).
+# Usa --psm 6 no Tesseract para forçar a leitura de bloco único, corrigindo lixo de OCR.
 
 # --- IMPORTS ---
 
@@ -44,7 +45,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO - v24] CORRETOR DE OCR -----------------
+# ----------------- [NOVO - v25] CORRETOR DE OCR -----------------
 def corrigir_erros_ocr_comuns(texto):
     """
     Corrige erros de OCR comuns e específicos do negócio (ex: 3lfar -> Belfar)
@@ -57,6 +58,7 @@ def corrigir_erros_ocr_comuns(texto):
         # Corrigir "Belfar"
         r"(?i)\b(3|1)lfar\b": "Belfar",
         r"(?i)\bBeifar\b": "Belfar",
+        r"(?i)\b3elspan\b": "Belspan",
         # Corrigir "USO"
         r"(?i)USO\s+ADULTO": "USO ADULTO",
         r"(?i)USO\s+ORAL": "USO ORAL",
@@ -66,6 +68,15 @@ def corrigir_erros_ocr_comuns(texto):
         r"(?i)\bCOMPOSIÇAO\b": "COMPOSIÇÃO",
         # Corrigir "MEDICAMENTO"
         r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO", # 0 -> O
+        
+        # Correções da Imagem 827376.png
+        r"(?i)\bJevido\b": "Devido",
+        r"(?i)\"ertilidade\b": "Fertilidade",
+        r"(?i)\bjperar\b": "operar",
+        r"(?i)\'ombinação\b": "combinação",
+        r"(?i)\bjue\b": "que",
+        r"(?i)\brereditários\b": "hereditários",
+        r"(?i)\bralactosemia\b": "galactosemia",
     }
     
     for padrao, correcao in correcoes.items():
@@ -73,7 +84,7 @@ def corrigir_erros_ocr_comuns(texto):
         
     return texto
 
-# ----------------- [NOVO - v24] EXTRAÇÃO HÍBRIDA DE COLUNAS -----------------
+# ----------------- [NOVO - v25] EXTRAÇÃO HÍBRIDA DE COLUNAS -----------------
 def extrair_pdf_hibrido_colunas(arquivo_bytes):
     """
     Extrai texto de QUALQUER PDF com 2 colunas, seja texto ou imagem.
@@ -92,7 +103,6 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
 
             # --- TENTATIVA 1: Extração Direta (para PDFs de texto) ---
             try:
-                # Usar "text" é mais robusto para PDFs de texto com colunas
                 texto_direto_col_1 = page.get_text("text", clip=rect_col_1, sort=True)
                 texto_direto_col_2 = page.get_text("text", clip=rect_col_2, sort=True)
                 
@@ -109,15 +119,20 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
             # --- TENTATIVA 2: Extração por OCR (para PDFs de imagem) ---
             st.warning(f"Extração direta falhou na pág. {i+1}. Ativando OCR por colunas (pode ser lento)...")
             try:
+                # --- MUDANÇA v25: Adicionado config='--psm 6' ---
+                # PSM 6: Assume um único bloco de texto uniforme. Perfeito para colunas.
+                # Isso impede que o Tesseract tente adivinhar o layout e gere lixo.
+                ocr_config = r'--psm 6'
+                
                 # OCR da Coluna 1
                 pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
                 img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
-                texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por')
+                texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
                 
                 # OCR da Coluna 2
                 pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
                 img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
-                texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por')
+                texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
                 
                 texto_ocr_pagina = texto_ocr_col_1 + "\n" + texto_ocr_col_2
                 texto_total_final += texto_ocr_pagina + "\n"
@@ -133,7 +148,7 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
 def extrair_texto(arquivo, tipo_arquivo):
     """
     Função principal de extração. Decide qual método usar.
-    v24: Usa a lógica de colunas para TODOS os PDFs e depois corrige o OCR.
+    v25: Usa a lógica de colunas para TODOS os PDFs e depois corrige o OCR.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -162,7 +177,7 @@ def extrair_texto(arquivo, tipo_arquivo):
                 r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
                 r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+",
                 
-                # Lixo específico do OCR (visto nas imagens v23)
+                # Lixo específico do OCR (visto nas imagens v23/v24)
                 r"e\s*-+\s*\d+mm\s*>>>I\)", 
                 r"\d+ª\s*prova\s*-\s*\d+", 
                 r"\d+º\s*prova\s*-", 
@@ -171,20 +186,19 @@ def extrair_texto(arquivo, tipo_arquivo):
                 r"(?i)lew\s*Roman\s*U\)", 
                 r"KH\s*—\s*\d+", 
                 r"pp\s*\d+", 
-                
-                # Lixo da Imagem 8211c5.png (v24)
-                r"AMO\s+dm\s+JAM\s+Vmindrtoihko\s+amo\s+o",
-                r"\[E\s+O\s+\|\s+djJul",
-                r"raio\s+ra",
-                r"A\s+\+\s+med\s+FÁ\s+ias\s+A\s+KA\s+aõArA\s+\+\s+ima",
-                r"BUL\s+BELSPAN\s+COMPR",
-                r"m---",
-                # Lixo de OCR mais genérico
                 r"^\s*an\s*$", 
                 r"^\s*man\s*$", 
                 r"^\s*contato\s*$",
                 r"^\s*\|\s*$",
                 r"\+\|",
+                
+                # Lixo da Imagem 8211c5.png
+                r"AMO\s+dm\s+JAM\s+Vmindrtoihko\s+amo\s+o",
+                r"\[E\s*O\s*\|\s*dj\s*jul",
+                r"\+\s*\|\s*hd\s*bl\s*O\s*mm\s*DS\s*AALPRA",
+                r"A\s*\+\s*med\s*FÃ\s*ias\s*A\s*KA\s*aõArA\s*\+\s*ima",
+                r"BUL\s+BELSPAN\s+COMPR",
+                r"^\s*m--*\s*$",
             ]
             
             # Aplicar filtros
@@ -223,7 +237,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = texto.strip()
         # --- [FIM] Bloco de Limpeza ---
 
-        # --- [NOVO v24] ---
+        # --- [NOVO v25] ---
         # Corrigir erros comuns de OCR antes de retornar
         texto = corrigir_erros_ocr_comuns(texto)
 
@@ -282,7 +296,7 @@ def obter_secoes_por_tipo(tipo_bula):
     }
     return secoes.get(tipo_bula, [])
 
-# --- O RESTANTE DO CÓDIGO (v22) PERMANECE IDÊNTICO ---
+# --- O RESTANTE DO CÓDIGO (v24) PERMANECE IDÊNTICO ---
 
 def obter_aliases_secao():
     return {
@@ -526,7 +540,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 continue
             
             # --- MUDANÇA v24: Comparação Literal ---
-            # Usa a nova função de normalização leve que mantém pontuação/acentos
             if normalizar_para_comparacao_literal(conteudo_ref) != normalizar_para_comparacao_literal(conteudo_belfar):
                 titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
                 diferencas_conteudo.append({
@@ -596,12 +609,9 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     
     def tokenizar(txt):
-        # Separa palavras, números, quebras de linha e pontuação
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
     
     def norm(tok):
-        # Normalização leve: apenas minúsculas para palavras
-        # MANTÉM pontuação como tokens distintos
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
             return tok.lower()
         return tok
@@ -609,7 +619,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
     
-    # Normaliza os tokens para a COMPARAÇÃO do difflib
     ref_norm = [norm(t) for t in ref_tokens]
     bel_norm = [norm(t) for t in bel_tokens]
     
@@ -618,40 +627,32 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag != 'equal':
-            # Marca os índices dos tokens originais (não normalizados)
             indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
     
     tokens = ref_tokens if eh_referencia else bel_tokens
     marcado = []
     
     for idx, tok in enumerate(tokens):
-        # Se o índice está marcado E não é um espaço em branco
         if idx in indices and tok.strip() != '':
             marcado.append(f"<mark style='background-color: #ffff99; padding: 2px;'>{tok}</mark>")
         else:
             marcado.append(tok)
     
-    # --- Lógica de Re-montagem (Juntar tokens) ---
     resultado = ""
     for i, tok in enumerate(marcado):
         if i == 0:
             resultado += tok
             continue
         
-        # Pega o token *sem* a tag <mark> para análise
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
         
-        # Se o token for pontuação ou quebra de linha, junta sem espaço
         if re.match(r'^[^\w\s]$', raw_tok) or raw_tok == '\n':
             resultado += tok
         else:
-            # Se for uma palavra, adiciona um espaço antes
             resultado += " " + tok
     
-    # Limpeza final de espaços antes de pontuação
     resultado = re.sub(r'\s+([.,;:!?)])', r'\1', resultado)
     resultado = re.sub(r'(\()\s+', r'\1', resultado)
-    # Junta highlights que estão separados apenas por um espaço
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", r"\1 \2", resultado)
     
     return resultado
@@ -911,7 +912,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v24] ---
+            # --- [MUDANÇA v25] ---
             # Extração da Referência
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
@@ -932,4 +933,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v24 | Híbrido de Coluna Universal + Comparação Literal")
+st.caption("Sistema de Auditoria de Bulas v25 | Híbrido de Coluna + OCR psm 6 + Corretor")
