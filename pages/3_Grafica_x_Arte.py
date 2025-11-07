@@ -1,6 +1,7 @@
-# 🔬 Auditoria de Bulas – v23 (Híbrido de Coluna Universal + Corretor OCR)
+# 🔬 Auditoria de Bulas – v24 (Híbrido de Coluna Universal + Comparação Literal)
 # Resolve problemas de extração de colunas tanto em PDFs de texto quanto de imagem.
 # Adiciona correção pós-OCR para erros comuns (ex: 3lfar -> Belfar).
+# Implementa comparação 100% literal (sensível a pontuação).
 
 # --- IMPORTS ---
 
@@ -43,7 +44,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO - v23] CORRETOR DE OCR -----------------
+# ----------------- [NOVO - v24] CORRETOR DE OCR -----------------
 def corrigir_erros_ocr_comuns(texto):
     """
     Corrige erros de OCR comuns e específicos do negócio (ex: 3lfar -> Belfar)
@@ -65,7 +66,6 @@ def corrigir_erros_ocr_comuns(texto):
         r"(?i)\bCOMPOSIÇAO\b": "COMPOSIÇÃO",
         # Corrigir "MEDICAMENTO"
         r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO", # 0 -> O
-        # Adicionar mais correções comuns aqui
     }
     
     for padrao, correcao in correcoes.items():
@@ -73,7 +73,7 @@ def corrigir_erros_ocr_comuns(texto):
         
     return texto
 
-# ----------------- [NOVO - v23] EXTRAÇÃO HÍBRIDA DE COLUNAS -----------------
+# ----------------- [NOVO - v24] EXTRAÇÃO HÍBRIDA DE COLUNAS -----------------
 def extrair_pdf_hibrido_colunas(arquivo_bytes):
     """
     Extrai texto de QUALQUER PDF com 2 colunas, seja texto ou imagem.
@@ -85,7 +85,6 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
         st.info(f"Processando {len(doc)} página(s) com lógica de coluna...")
         
         for i, page in enumerate(doc):
-            # 1. Definir as colunas (margem vertical para cabeçalhos/rodapés)
             rect = page.rect
             margin_y = 20
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
@@ -103,13 +102,11 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
 
             # --- VERIFICAÇÃO 1 ---
             # Se a extração direta funcionou bem, usa ela e vai para a próxima página
-            # Usamos 200 como um limite seguro para garantir que não é lixo
             if len(texto_direto_pagina.strip()) > 200:
                 texto_total_final += texto_direto_pagina + "\n"
                 continue # Pula para a próxima página
 
             # --- TENTATIVA 2: Extração por OCR (para PDFs de imagem) ---
-            # Se a direta falhou (texto < 200 chars), faz OCR
             st.warning(f"Extração direta falhou na pág. {i+1}. Ativando OCR por colunas (pode ser lento)...")
             try:
                 # OCR da Coluna 1
@@ -136,7 +133,7 @@ def extrair_pdf_hibrido_colunas(arquivo_bytes):
 def extrair_texto(arquivo, tipo_arquivo):
     """
     Função principal de extração. Decide qual método usar.
-    v23: Usa a lógica de colunas para TODOS os PDFs e depois corrige o OCR.
+    v24: Usa a lógica de colunas para TODOS os PDFs e depois corrige o OCR.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -147,12 +144,9 @@ def extrair_texto(arquivo, tipo_arquivo):
         arquivo_bytes = arquivo.read() # Ler os bytes uma vez
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v23 ---
-            # Usa a nova lógica HÍBRIDA DE COLUNAS para TODOS os PDFs
             texto = extrair_pdf_hibrido_colunas(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
-            # DOCX é sempre simples (sem colunas)
             st.info("Extraindo texto de DOCX...")
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto = "\n".join([p.text for p in doc.paragraphs])
@@ -161,7 +155,6 @@ def extrair_texto(arquivo, tipo_arquivo):
         if texto:
             # Filtros de lixo técnico da gráfica
             padroes_ignorados = [
-                # Palavras-chave técnicas
                 r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
                 r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
                 r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
@@ -169,18 +162,29 @@ def extrair_texto(arquivo, tipo_arquivo):
                 r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
                 r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+",
                 
-                # Lixo específico do OCR (visto nas imagens)
-                r"e\s*-+\s*\d+mm\s*>>>I\)", # Filtro para "e----------- 190mm >>>I)"
-                r"\d+ª\s*prova\s*-\s*\d+", # Filtro para "1ª prova - 3"
-                r"\d+º\s*prova\s*-", # Filtro para "1º prova - ."
-                r"^\s*\d+/\d+/\d+\s*$", # Filtro para datas sozinhas "31/10/2025"
-                r"(?i)n\s*Roman\s*U\)", # Filtro para "n Roman U)"
-                r"(?i)lew\s*Roman\s*U\)", # Filtro para "lew Roman U]"
-                r"KH\s*—\s*\d+", # Filtro para "KH — 190"
-                r"pp\s*\d+", # Filtro para "pp 190"
-                r"^\s*an\s*$", # Filtro para "an"
-                r"^\s*man\s*$", # Filtro para "man"
-                r"^\s*contato\s*$", # Filtro para "contato"
+                # Lixo específico do OCR (visto nas imagens v23)
+                r"e\s*-+\s*\d+mm\s*>>>I\)", 
+                r"\d+ª\s*prova\s*-\s*\d+", 
+                r"\d+º\s*prova\s*-", 
+                r"^\s*\d+/\d+/\d+\s*$", 
+                r"(?i)n\s*Roman\s*U\)", 
+                r"(?i)lew\s*Roman\s*U\)", 
+                r"KH\s*—\s*\d+", 
+                r"pp\s*\d+", 
+                
+                # Lixo da Imagem 8211c5.png (v24)
+                r"AMO\s+dm\s+JAM\s+Vmindrtoihko\s+amo\s+o",
+                r"\[E\s+O\s+\|\s+djJul",
+                r"raio\s+ra",
+                r"A\s+\+\s+med\s+FÁ\s+ias\s+A\s+KA\s+aõArA\s+\+\s+ima",
+                r"BUL\s+BELSPAN\s+COMPR",
+                r"m---",
+                # Lixo de OCR mais genérico
+                r"^\s*an\s*$", 
+                r"^\s*man\s*$", 
+                r"^\s*contato\s*$",
+                r"^\s*\|\s*$",
+                r"\+\|",
             ]
             
             # Aplicar filtros
@@ -191,7 +195,7 @@ def extrair_texto(arquivo, tipo_arquivo):
                 linha_limpa = linha.strip()
                 ignorar_linha = False
                 for padrao in padroes_ignorados:
-                    if re.search(padrao, linha_limpa, re.MULTILINE):
+                    if re.search(padrao, linha_limpa, re.IGNORECASE | re.MULTILINE):
                         ignorar_linha = True
                         break
                 if not ignorar_linha:
@@ -219,13 +223,14 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = texto.strip()
         # --- [FIM] Bloco de Limpeza ---
 
-        # --- [NOVO v23] ---
+        # --- [NOVO v24] ---
         # Corrigir erros comuns de OCR antes de retornar
         texto = corrigir_erros_ocr_comuns(texto)
 
         return texto, None
 
     except Exception as e:
+        st.error(f"Erro fatal em extrair_texto: {e}", icon="🚨")
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
 
@@ -301,14 +306,36 @@ def obter_secoes_ignorar_ortografia():
 def obter_secoes_ignorar_comparacao():
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES", "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO"]
 
-# ----------------- NORMALIZAÇÃO -----------------
+# ----------------- [NOVO - v24] NORMALIZAÇÃO LITERAL -----------------
+def normalizar_para_comparacao_literal(texto):
+    """
+    Normalização leve para comparação literal.
+    Apenas junta linhas, normaliza espaços e converte para minúsculo.
+    MANTÉM pontuação e acentos.
+    """
+    if not isinstance(texto, str):
+        return ""
+    # Substitui quebras de linha e tabs por espaço
+    texto = re.sub(r'[\n\r\t]+', ' ', texto)
+    # Substitui múltiplos espaços por um único espaço
+    texto = re.sub(r' +', ' ', texto)
+    # Remove espaços no início e fim
+    texto = texto.strip()
+    # Converte para minúsculas para uma comparação justa de capitalização
+    return texto.lower()
+
+
 def normalizar_texto(texto):
+    """ Normalização pesada (remove acentos/pontuação) - usada para fuzzy matching """
+    if not isinstance(texto, str):
+        return ""
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
     texto = ' '.join(texto.split())
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
+    """ Normalização para encontrar títulos (remove números, acentos, pontuação) """
     texto_norm = normalizar_texto(texto)
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
@@ -441,7 +468,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     
     return False, None, ""
 
-# ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
+# ----------------- [ATUALIZADA - v24] COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
@@ -459,6 +486,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
 
         if not encontrou_belfar:
+            # Tenta encontrar por similaridade
             melhor_score = 0
             melhor_titulo = None
             for m in mapa_belfar:
@@ -494,10 +522,12 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
 
             if secao_canon_norm in ignorar_comparacao_norm:
-                similaridades_secoes.append(100) # Adicionado para contagem correta
+                similaridades_secoes.append(100)
                 continue
             
-            if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
+            # --- MUDANÇA v24: Comparação Literal ---
+            # Usa a nova função de normalização leve que mantém pontuação/acentos
+            if normalizar_para_comparacao_literal(conteudo_ref) != normalizar_para_comparacao_literal(conteudo_belfar):
                 titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
                 diferencas_conteudo.append({
                     'secao': secao,
@@ -508,6 +538,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 similaridades_secoes.append(0)
             else:
                 similaridades_secoes.append(100)
+            # --- FIM DA MUDANÇA v24 ---
                 
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos
 
@@ -543,7 +574,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             return []
 
         spell = SpellChecker(language='pt')
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "escopolamina", "dipirona", "butilbrometo"}
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "escopolamina", "dipirona", "butilbrometo", "nafazolina", "cloreto"}
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         
         doc = nlp(texto_para_checar)
@@ -561,19 +592,24 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         st.error(f"Erro na ortografia: {e}")
         return []
 
-# ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
+# ----------------- [ATUALIZADA - v24] DIFERENÇAS PALAVRA A PALAVRA -----------------
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
+    
     def tokenizar(txt):
+        # Separa palavras, números, quebras de linha e pontuação
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
     
     def norm(tok):
+        # Normalização leve: apenas minúsculas para palavras
+        # MANTÉM pontuação como tokens distintos
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
-            return normalizar_texto(tok)
+            return tok.lower()
         return tok
     
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
     
+    # Normaliza os tokens para a COMPARAÇÃO do difflib
     ref_norm = [norm(t) for t in ref_tokens]
     bel_norm = [norm(t) for t in bel_tokens]
     
@@ -582,33 +618,41 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag != 'equal':
+            # Marca os índices dos tokens originais (não normalizados)
             indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
     
     tokens = ref_tokens if eh_referencia else bel_tokens
     marcado = []
     
     for idx, tok in enumerate(tokens):
+        # Se o índice está marcado E não é um espaço em branco
         if idx in indices and tok.strip() != '':
             marcado.append(f"<mark style='background-color: #ffff99; padding: 2px;'>{tok}</mark>")
         else:
             marcado.append(tok)
     
+    # --- Lógica de Re-montagem (Juntar tokens) ---
     resultado = ""
     for i, tok in enumerate(marcado):
         if i == 0:
             resultado += tok
             continue
         
+        # Pega o token *sem* a tag <mark> para análise
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
         
+        # Se o token for pontuação ou quebra de linha, junta sem espaço
         if re.match(r'^[^\w\s]$', raw_tok) or raw_tok == '\n':
             resultado += tok
         else:
+            # Se for uma palavra, adiciona um espaço antes
             resultado += " " + tok
     
+    # Limpeza final de espaços antes de pontuação
     resultado = re.sub(r'\s+([.,;:!?)])', r'\1', resultado)
     resultado = re.sub(r'(\()\s+', r'\1', resultado)
-    resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
+    # Junta highlights que estão separados apenas por um espaço
+    resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", r"\1 \2", resultado)
     
     return resultado
 
@@ -636,8 +680,6 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             if conteudo_a_marcar in texto_trabalho:
                 texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora)
             else:
-                # Fallback se o conteúdo exato não for encontrado (ex: por limpeza)
-                # Tenta substituir o conteúdo marcado original (sem âncora)
                 if conteudo_marcado in texto_trabalho:
                      texto_trabalho = texto_trabalho.replace(conteudo_marcado, conteudo_com_ancora)
 
@@ -869,7 +911,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v23] ---
+            # --- [MUDANÇA v24] ---
             # Extração da Referência
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
@@ -885,13 +927,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
-                # Debug: Mostrar o início do texto extraído (opcional)
-                # st.text_area("Debug Ref:", texto_ref[:1000])
-                # st.text_area("Debug Gráfica:", texto_belfar[:1000])
-                
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arte Vigente (Referência)", "PDF da Gráfica", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v23 | Híbrido de Coluna Universal + Corretor OCR")
+st.caption("Sistema de Auditoria de Bulas v24 | Híbrido de Coluna Universal + Comparação Literal")
