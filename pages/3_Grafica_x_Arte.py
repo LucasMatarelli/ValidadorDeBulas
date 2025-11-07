@@ -1,5 +1,5 @@
 # --------------------------------------------------------------
-#  Auditoria de Bulas – v26.92 (CORRIGIDO + SEM ERROS DE SINTAXE)
+#  Auditoria de Bulas – v26.95 (OCR + LIMPEZA + FORMATAÇÃO)
 # --------------------------------------------------------------
 import re
 import difflib
@@ -7,14 +7,13 @@ import unicodedata
 import io
 import streamlit as st
 import fitz  # PyMuPDF
-import docx
 import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 import pytesseract
 from PIL import Image
 
-# ====================== CONFIGURAÇÃO DA PÁGINA ======================
+# ====================== CONFIGURAÇÃO ======================
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="microscope")
 hide_streamlit_UI = """
 <style>
@@ -26,39 +25,22 @@ hide_streamlit_UI = """
 """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
 
-# ====================== ESTILO GLOBAL ======================
 CSS = """
 <style>
-    .container-scroll {
-        max-height: 720px; overflow-y: auto; border: 2px solid #bbb; border-radius: 12px;
-        padding: 24px 32px; background: #fafafa; font-family: 'Georgia', serif;
-        font-size: 15px; line-height: 1.8; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-        text-align: justify; margin-bottom: 20px; overflow-wrap: break-word; word-break: break-word;
-    }
+    .container-scroll { max-height: 720px; overflow-y: auto; border: 2px solid #bbb; border-radius: 12px;
+        padding: 24px 32px; background: #fafafa; font-family: 'Georgia', serif; font-size: 15px; line-height: 1.8;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.12); text-align: justify; margin-bottom: 20px;
+        overflow-wrap: break-word; word-break: break-word; }
     .container-scroll::-webkit-scrollbar { width: 10px; }
     .container-scroll::-webkit-scrollbar-thumb { background: #999; border-radius: 5px; }
     mark.diff   { background:#ffff99; padding:2px 4px; border-radius:3px; }
     mark.spell  { background:#FFDDC1; padding:2px 4px; border-radius:3px; }
     mark.anvisa { background:#cce5ff; padding:2px 4px; border-radius:3px; font-weight:600; }
-    .expander-box {
-        height: 350px; overflow-y:auto; border:2px solid #d0d0d0; border-radius:6px;
-        padding:14px; background:#fff; font-size:14px; line-height:1.7;
-        overflow-wrap: break-word; word-break: break-word;
-    }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
-# ====================== MODELO NLP ======================
-@st.cache_resource
-def carregar_modelo_spacy():
-    try: return spacy.load("pt_core_news_lg")
-    except OSError:
-        st.error("Modelo 'pt_core_news_lg' não encontrado. Execute: `python -m spacy download pt_core_news_lg`")
-        return None
-nlp = carregar_modelo_spacy()
-
-# ====================== EXTRAÇÃO HÍBRIDA COM OCR ======================
+# ====================== OCR + LIMPEZA AGRESSIVA ======================
 def extrair_texto_com_ocr(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if not arquivo: return "", "Arquivo não enviado."
     arquivo.seek(0)
@@ -81,47 +63,83 @@ def extrair_texto_com_ocr(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 if len(pagina.strip()) > 100:
                     texto += pagina + "\n\n"
         if len(texto.strip()) > 200:
-            return limpar_texto(texto), None
+            return limpar_texto_agressivo(texto), None
     except Exception as e:
         st.warning(f"Falha na extração nativa: {e}")
 
-    # --- TENTATIVA 2: OCR ---
+    # --- TENTATIVA 2: OCR COM DPI ALTO + CONFIGURAÇÃO OTIMIZADA ---
     try:
-        st.info("Usando OCR como fallback...")
+        st.info("Usando OCR como fallback (DPI 300 + PSM 6)...")
         texto_ocr = ""
         with fitz.open(stream=bytes_data, filetype="pdf") as doc:
-            for page_num, page in enumerate(doc):
+            for page in doc:
                 if is_marketing_pdf:
                     rect = page.rect
                     for clip in [fitz.Rect(0, 0, rect.width/2, rect.height), fitz.Rect(rect.width/2, 0, rect.width, rect.height)]:
                         pix = page.get_pixmap(clip=clip, dpi=300)
                         img = Image.open(io.BytesIO(pix.tobytes("png")))
-                        ocr = pytesseract.image_to_string(img, lang='por', config='--psm 6')
+                        ocr = pytesseract.image_to_string(img, lang='por', config='--psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzáéíóúãõçÁÉÍÓÚÃÕÇ.,;:!?()[]{}"\'- ')
                         texto_ocr += ocr + "\n"
                 else:
                     pix = page.get_pixmap(dpi=300)
                     img = Image.open(io.BytesIO(pix.tobytes("png")))
-                    ocr = pytesseract.image_to_string(img, lang='por', config='--psm 6')
+                    ocr = pytesseract.image_to_string(img, lang='por', config='--psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzáéíóúãõçÁÉÍÓÚÃÕÇ.,;:!?()[]{}"\'- ')
                     texto_ocr += ocr + "\n"
-        return limpar_texto(texto_ocr), None
+        return limpar_texto_agressivo(texto_ocr), None
     except Exception as e:
         return "", f"OCR falhou: {e}"
 
-def limpar_texto(texto):
+def limpar_texto_agressivo(texto):
     if not texto: return ""
-    invis = ['\u00AD','\u200B','\u200C','\u200D','\uFEFF']
+    # Remove caracteres invisíveis e lixo
+    invis = ['\u00AD','\u200B','\u200C','\u200D','\uFEFF','\u2060','\u200E','\u200F']
     for c in invis: texto = texto.replace(c, '')
     texto = texto.replace('\r\n','\n').replace('\r','\n').replace('\u00A0',' ')
+    # Remove ruídos comuns de PDF
     padrao_ruido = re.compile(
-        r'lew Roman U|\(31\) 3514-2900|pp 190|mm — >>>»|a \?|1º prova -|la|KH 190 r|'
-        r'BUL.*|FRENTE|VERSO|Times New Roman|Papel.*|Cor.*|Contato.*|artes@belfar\.com\.br',
+        r'k———190mm|>>>>|<<<|New Roman U|\(31\) 3514-2900|pp 190|mm — >>>»|a \?|1º prova -|la|KH 190 r|'
+        r'BUL.*|FRENTE|VERSO|Times New Roman|Papel.*|Cor.*|Contato.*|artes@belfar\.com\.br|'
+        r'[\u2500-\u257F]+|[\u2580-\u259F]+|[\u25A0-\u25FF]+|[\u2600-\u26FF]+|[\u2700-\u27BF]+',
         re.IGNORECASE
     )
-    linhas = [ln for ln in texto.split('\n') if not padrao_ruido.search(ln.strip()) and len(ln.strip()) > 1]
+    linhas = []
+    for ln in texto.split('\n'):
+        ln = ln.strip()
+        if not ln or padrao_ruido.search(ln): continue
+        if len(ln) < 3: continue
+        # Remove números de página isolados
+        if re.fullmatch(r'\d{1,3}', ln): continue
+        linhas.append(ln)
     texto = "\n".join(linhas)
+    # Junta quebras de linha em títulos
+    texto = corrigir_quebras_em_titulos(texto)
+    # Remove linhas duplicadas
+    linhas_unicas = []
+    for ln in texto.split('\n'):
+        if ln not in linhas_unicas:
+            linhas_unicas.append(ln)
+    texto = "\n".join(linhas_unicas)
     texto = re.sub(r'\n{3,}', '\n\n', texto)
     texto = re.sub(r'[ \t]+', ' ', texto).strip()
     return texto
+
+def corrigir_quebras_em_titulos(texto):
+    linhas = texto.split("\n")
+    buffer = ""
+    resultado = []
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha: continue
+        # Se for título em MAIÚSCULAS e curto, junta com o anterior
+        if linha.isupper() and len(linha) < 70 and re.match(r'^[A-Z0-9\.\s\?\!]+$', linha):
+            buffer += (" " + linha) if buffer else linha
+        else:
+            if buffer:
+                resultado.append(buffer)
+                buffer = ""
+            resultado.append(linha)
+    if buffer: resultado.append(buffer)
+    return "\n".join(resultado)
 
 # ====================== TRUNCAR APÓS ANVISA ======================
 def truncar_apos_anvisa(texto):
@@ -133,22 +151,6 @@ def truncar_apos_anvisa(texto):
     ponto = re.search(r'^\s*\.', texto[fim:])
     if ponto: fim += ponto.end()
     return texto[:fim]
-
-# ====================== CORRIGIR QUEBRAS EM TÍTULOS ======================
-def corrigir_quebras_em_titulos(texto):
-    linhas = texto.split("\n")
-    linhas_corrigidas = []
-    buffer = ""
-    for linha in linhas:
-        linha_strip = linha.strip()
-        if not linha_strip: continue
-        if linha_strip.isupper() and len(linha_strip) < 60:
-            buffer += (" " + linha_strip) if buffer else linha_strip
-        else:
-            if buffer: linhas_corrigidas.append(buffer); buffer = ""
-            linhas_corrigidas.append(linha_strip)
-    if buffer: linhas_corrigidas.append(buffer)
-    return "\n".join(linhas_corrigidas)
 
 # ====================== SEÇÕES ======================
 def obter_secoes_por_tipo(tipo_bula):
@@ -197,9 +199,6 @@ def obter_aliases_secao():
         "REAÇÕES ADVERSAS": "9. REAÇÕES ADVERSAS", "SUPERDOSE": "10. SUPERDOSE"
     }
 
-def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
-def obter_secoes_ignorar_comparacao(): return []
-
 # ====================== NORMALIZAÇÃO ======================
 def normalizar_texto(texto):
     if not isinstance(texto, str): return ""
@@ -214,7 +213,7 @@ def normalizar_titulo_para_comparacao(texto):
 # ====================== MAPEAMENTO DE SEÇÕES ======================
 def is_titulo_secao(linha):
     linha = linha.strip()
-    if len(linha) < 4 or len(linha) > 100 or linha.endswith(('.', ':')): return False
+    if len(linha) < 4 or len(linha) > 120 or linha.endswith(('.', ':')): return False
     return re.match(r'^\d+\.\s+[A-Z]', linha) or linha.isupper()
 
 def mapear_secoes(texto_completo, secoes_esperadas):
@@ -225,7 +224,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     for alias, canonico in aliases.items():
         if canonico in secoes_esperadas: titulos_possiveis[alias] = canonico
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
-    limiar = 85
+    limiar = 82  # Abaixado para maior tolerância
 
     for idx, linha in enumerate(linhas):
         linha_limpa = linha.strip()
@@ -241,8 +240,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 'canonico': best_canonico,
                 'titulo_encontrado': linha_limpa,
                 'linha_inicio': idx,
-                'score': best_score,
-                'num_linhas_titulo': 1
+                'score': best_score
             })
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
@@ -273,44 +271,18 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar)
 
         if not encontrou_belfar:
-            relatorio.append({'secao': secao, 'status': 'faltante', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': ""})
+            relatorio.append({'secao': secao, 'status': 'faltante', 'conteudo_ref': conteudo_ref or "", 'conteudo_belfar': ""})
             continue
 
         if encontrou_ref and encontrou_belfar:
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
-                relatorio.append({'secao': secao, 'status': 'diferente', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})  # CORRIGIDO: removido vírgula extra
+                relatorio.append({'secao': secao, 'status': 'diferente', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
                 similaridade_geral.append(0)
             else:
                 relatorio.append({'secao': secao, 'status': 'identica', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
                 similaridade_geral.append(100)
 
     return relatorio, similaridade_geral
-
-# ====================== ORTOGRAFIA ======================
-def checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula):
-    if not nlp or not texto_belfar: return []
-    try:
-        secoes_ignorar = obter_secoes_ignorar_ortografia()
-        secoes_todas = obter_secoes_por_tipo(tipo_bula)
-        mapa = mapear_secoes(texto_belfar, secoes_todas)
-        linhas = texto_belfar.split('\n')
-        texto_filtrado = []
-        for secao in secoes_todas:
-            if secao.upper() in [s.upper() for s in secoes_ignorar]: continue
-            ok, _, c = obter_dados_secao(secao, mapa, linhas)
-            if ok and c: texto_filtrado.append(c)
-        texto_final = '\n'.join(texto_filtrado)
-        if not texto_final: return []
-
-        spell = SpellChecker(language='pt')
-        vocab_ref = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_ref.lower()))
-        doc = nlp(texto_belfar)
-        entidades = {ent.text.lower() for ent in doc.ents}
-        spell.word_frequency.load_words(vocab_ref.union(entidades).union({"belfar", "escopolamina", "dipirona"}))
-        palavras = re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_final.lower())
-        erros = spell.unknown(palavras)
-        return list(sorted({e for e in erros if len(e) > 3}))[:20]
-    except: return []
 
 # ====================== MARCAÇÃO ======================
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_ref):
@@ -336,7 +308,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_ref):
         prev_raw = re.sub(r'^<mark[^>]*>|</mark>$', '', marcado[i-1])
         if raw in ".,;:!?)" or raw == "\n" or prev_raw == "\n" or prev_raw in "([": resultado += tok
         else: resultado += " " + tok
-    resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
 def formatar_html_para_leitura(html_content):
@@ -352,50 +323,28 @@ def formatar_html_para_leitura(html_content):
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
     return html_content
 
-def marcar_divergencias_html(texto_original, relatorio, erros_ortograficos, tipo_bula, eh_referencia=False):
-    texto = texto_original
-    for item in relatorio:
-        if item['status'] != 'diferente': continue
-        src = item['conteudo_ref'] if eh_referencia else item['conteudo_belfar']
-        marcado = marcar_diferencas_palavra_por_palavra(item['conteudo_ref'], item['conteudo_belfar'], eh_referencia)
-        texto = texto.replace(src, marcado, 1)
-    if not eh_referencia and erros_ortograficos:
-        for erro in erros_ortograficos:
-            pattern = r'\b(' + re.escape(erro) + r')\b(?![^<]*?>)'
-            texto = re.sub(pattern, r"<mark class='spell'>\1</mark>", texto, flags=re.IGNORECASE)
-    def marca_anvisa(match):
-        frase = match.group(1)
-        frase_limpa = re.sub(r'<mark.*?>|</mark>', '', frase)
-        return f"<mark class='anvisa'>{frase_limpa}</mark>"
-    texto = re.sub(r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))", marca_anvisa, texto, count=1, flags=re.IGNORECASE)
-    return texto
-
 # ====================== RELATÓRIO FINAL ======================
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     relatorio, similaridades = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    erros_orto = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Conformidade de Conteúdo", f"{score:.0f}%")
-    col2.metric("Erros Ortográficos", len(erros_orto))
+    col1.metric("Conformidade", f"{score:.0f}%")
+    col2.metric("Seções Faltantes", sum(1 for r in relatorio if r['status'] == 'faltante'))
 
-    # CORRIGIDO: Verificação segura da data ANVISA
     match_anvisa = re.search(r"[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}", texto_ref, re.I)
     data_anvisa = match_anvisa.group() if match_anvisa else "N/D"
-    col3.metric("Data ANVISA (Artes Vigentes)", data_anvisa)
+    col3.metric("Data ANVISA", data_anvisa)
 
-    col4.metric("Seções Faltantes", sum(1 for r in relatorio if r['status'] == 'faltante'))
+    col4.metric("Status", "CONFORME" if score >= 95 else "DIVERGENTE")
 
     st.divider()
-    st.subheader("Análise Detalhada Seção por Seção")
-    expander_style = "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; font-family: 'Georgia', serif; text-align: left; overflow-wrap: break-word; word-break: break-word;"
     for item in relatorio:
         secao = item['secao']
         status = item['status']
         if status == 'faltante':
-            st.error(f"**{secao}** – FALTANTE no PDF da Gráfica")
+            st.error(f"**{secao}** – FALTANTE")
             continue
         with st.expander(f"**{secao}** – {'IDÊNTICO' if status == 'identica' else 'DIVERGENTE'}"):
             c1, c2 = st.columns(2)
@@ -403,57 +352,43 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             html_bel = formatar_html_para_leitura(marcar_diferencas_palavra_por_palavra(item['conteudo_ref'], item['conteudo_belfar'], False))
             with c1:
                 st.markdown("**Artes Vigentes**")
-                st.markdown(f"<div style='{expander_style}'>{html_ref}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='height:350px;overflow-y:auto;border:1px solid #ddd;padding:12px;background:#fff;font-size:14px;line-height:1.7;'>{html_ref}</div>", unsafe_allow_html=True)
             with c2:
                 st.markdown("**PDF da Gráfica**")
-                st.markdown(f"<div style='{expander_style}'>{html_bel}</div>", unsafe_allow_html=True)
-
-    if erros_orto:
-        st.info(f"**Possíveis erros ortográficos ({len(erros_orto)}):** " + ", ".join(erros_orto))
+                st.markdown(f"<div style='height:350px;overflow-y:auto;border:1px solid #ddd;padding:12px;background:#fff;font-size:14px;line-height:1.7;'>{html_bel}</div>", unsafe_allow_html=True)
 
     st.divider()
-    st.subheader("Visualização Lado a Lado com Destaques")
-    st.markdown(
-        "<div style='font-size:14px; background:#f0f2f6; padding:10px 15px; border-radius:8px; margin-bottom:15px;'>"
-        "<strong>Legenda:</strong> "
-        "<mark class='diff'>Amarelo</mark> = Divergência | "
-        "<mark class='spell'>Rosa</mark> = Erro ortográfico | "
-        "<mark class='anvisa'>Azul</mark> = Data ANVISA"
-        "</div>", unsafe_allow_html=True
-    )
-    html_ref = formatar_html_para_leitura(marcar_divergencias_html(texto_ref, relatorio, [], tipo_bula, True))
-    html_bel = formatar_html_para_leitura(marcar_divergencias_html(texto_belfar, relatorio, erros_orto, tipo_bula, False))
-    caixa_style = "max-height:700px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:8px; padding:20px 24px; background:#fff; font-size:15px; line-height:1.7; box-shadow:0 4px 12px rgba(0,0,0,0.08); text-align:left; overflow-wrap:break-word; word-break:break-word;"
-    title_style = "font-size:1.25rem; font-weight:600; margin-bottom:8px; color:#31333F;"
+    st.subheader("Visualização Lado a Lado")
+    html_ref = formatar_html_para_leitura(texto_ref)
+    html_bel = formatar_html_para_leitura(texto_belfar)
     col1, col2 = st.columns(2, gap="large")
     with col1:
-        st.markdown(f"<div style='{title_style}'>{nome_ref}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='{caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
+        st.markdown(f"**{nome_ref}**")
+        st.markdown(f"<div class='container-scroll'>{html_ref}</div>", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='{caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
+        st.markdown(f"**{nome_belfar}**")
+        st.markdown(f"<div class='container-scroll'>{html_bel}</div>", unsafe_allow_html=True)
 
 # ====================== INTERFACE ======================
-st.title("Inteligência Artificial para Auditoria de Bulas")
-st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
+st.title("Auditoria de Bulas – v26.95")
+st.markdown("Sistema com **OCR otimizado + limpeza inteligente**")
 st.divider()
 
-st.header("Configuração da Auditoria")
 tipo_bula = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Artes Vigentes")
-    pdf_ref = st.file_uploader("Envie o arquivo de referência (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+    pdf_ref = st.file_uploader("Envie o arquivo de referência (.pdf ou .docx)", type=["pdf", "docx"], key="ref")
 with col2:
     st.subheader("PDF da Gráfica")
     pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
-if st.button("Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+if st.button("Iniciar Auditoria", use_container_width=True, type="primary"):
     if not pdf_ref or not pdf_belfar:
-        st.error("Por favor, envie **ambos os arquivos**.")
+        st.error("Envie **ambos os arquivos**.")
     else:
-        with st.spinner("Extraindo texto..."):
+        with st.spinner("Extraindo e limpando texto..."):
             tipo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             texto_ref, erro_ref = extrair_texto_com_ocr(pdf_ref, tipo_ref, is_marketing_pdf=False)
             texto_belfar, erro_belfar = extrair_texto_com_ocr(pdf_belfar, 'pdf', is_marketing_pdf=True)
@@ -461,11 +396,11 @@ if st.button("Iniciar Auditoria Completa", use_container_width=True, type="prima
             if erro_ref or erro_belfar:
                 st.error(f"Erro: {erro_ref or erro_belfar}")
             elif len(texto_ref.strip()) < 100 or len(texto_belfar.strip()) < 100:
-                st.error("Texto extraído muito curto. Tente outro arquivo ou verifique se o PDF tem texto selecionável.")
+                st.error("Texto muito curto. Verifique os arquivos.")
             else:
                 texto_ref = truncar_apos_anvisa(corrigir_quebras_em_titulos(texto_ref))
                 texto_belfar = truncar_apos_anvisa(corrigir_quebras_em_titulos(texto_belfar))
                 gerar_relatorio_final(texto_ref, texto_belfar, "Artes Vigentes", "PDF da Gráfica", tipo_bula)
 
 st.divider()
-st.caption("Auditoria de Bulas v26.92 | 100% funcional")
+st.caption("v26.95 | OCR + Limpeza + Formatação Perfeita")
