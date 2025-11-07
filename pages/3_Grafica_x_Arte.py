@@ -1,4 +1,4 @@
-# 🔬 Auditoria de Bulas – v20 (Leitura Forçada de Colunas)
+# 🔬 Auditoria de Bulas – v21 (Leitura Forçada de Colunas - Versão Limpa)
 # Resolve o problema de colunas misturadas no PDF da Gráfica
 # VERSÃO LIMPA: Corrigidos erros de sintaxe (caracteres invisíveis \xa0)
 
@@ -43,7 +43,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [NOVO - v20] FUNÇÕES DE EXTRAÇÃO -----------------
+# ----------------- [NOVO - v21] FUNÇÕES DE EXTRAÇÃO -----------------
 
 def extrair_texto_pdf_colunas(arquivo_bytes):
     """
@@ -616,7 +616,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
     return texto_trabalho
 
-# ----------------- RELATÓRIO (CORRIGIDO - v20) -----------------
+# ----------------- RELATÓRIO (CORRIGIDO - v21) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     js_scroll_script = """
@@ -732,8 +732,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
                 
-                # --- AQUI ESTÁ A CORREÇÃO ---
-                # A linha abaixo usa 'expander_html_belfar', e NÃO 'html_bel_box'
+                # --- AQUI ESTÁ A CORREÇÃO (QUE JÁ ESTAVA NO SEU CÓDIGO v20) ---
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
                 
                 c1, c2 = st.columns(2)
@@ -822,7 +821,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v20] ---
+            # --- [MUDANÇA v21] ---
             # Extração da Referência (lógica simples/híbrida)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_grafica_pdf=False)
             
@@ -843,4 +842,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v20 | Leitura Forçada de Colunas")
+st.caption("Sistema de Auditoria de Bulas v21 | Leitura Forçada de Colunas (Limpo)")
