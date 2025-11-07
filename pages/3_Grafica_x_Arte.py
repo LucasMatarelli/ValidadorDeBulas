@@ -172,39 +172,116 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     return texto
 
-# ----------------- [NOVO - v29] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
+# --- [ATUALIZADA - v29.1] FUNÇÃO DE EXTRAÇÃO PRINCIPAL ---
+def extrair_texto(arquivo, tipo_arquivo: str, force_ocr: bool = False) -> Tuple[str, str]:
+    """
+    Função principal de extração.
+    v29.1: CORRIGIDO para aceitar o argumento 'force_ocr'
+    """
+    if arquivo is None:
+        return "", f"Arquivo {tipo_arquivo} não enviado."
 
-def extrair_pdf_ocr_colunas_v29(arquivo_bytes: bytes) -> str:
-    """
-    Força a extração de OCR em 2 colunas para QUALQUER PDF.
-    Usa --psm 3 (Auto Layout) para melhor detecção.
-    """
-    texto_total = ""
-    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR em {len(doc)} página(s) (pode ser lento)...")
-        for i, page in enumerate(doc):
-            rect = page.rect
-            margin_y = 20
-            # Define as duas colunas
-            rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
-            rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
+    try:
+        arquivo.seek(0)
+        texto = ""
+        arquivo_bytes = arquivo.read()
+
+        if tipo_arquivo == "pdf":
+            # --- MUDANÇA v29 ---
+            # SEMPRE usar OCR por colunas para TODOS os PDFs
+            texto = extrair_pdf_ocr_colunas_v29(arquivo_bytes)
+        
+        elif tipo_arquivo == "docx":
+            st.info("Extraindo texto de DOCX...")
+            doc = docx.Document(io.BytesIO(arquivo_bytes))
+            texto = "\n".join([p.text for p in doc.paragraphs])
+        
+        # --- [INÍCIO] Bloco de Limpeza (Filtros) ---
+        if texto:
+            # Filtros de lixo técnico da gráfica
+            padroes_ignorados = [
+                # Palavras-chave técnicas
+                r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
+                r"(?i)Cor[: ]", r"(?i)Frente/?Verso", r"(?i)Medida da bula",
+                r"(?i)Contato[: ]", r"(?i)Impressão[: ]", r"(?i)Tipologia da bula",
+                r"(?i)Ap\s*\d+gr", r"(?i)Artes", r"(?i)gm>>>", r"(?i)450 mm",
+                r"BUL\s*BELSPAN\s*COMPRIMIDO", r"BUL\d+V\d+", r"FRENTE:", r"VERSO:",
+                r"artes@belfat\.com\.br", r"\(\d+\)\s*\d+-\d+",
+                
+                # Lixo específico do OCR (visto nas imagens v23/v24/v25)
+                r"e\s*-+\s*\d+mm\s*>>>I\)", 
+                r"\d+ª\s*prova\s*-\s*\d+", 
+                r"\d+º\s*prova\s*-", 
+                r"^\s*\d+/\d+/\d+\s*$", 
+                r"(?i)n\s*Roman\s*U\)", 
+                r"(?i)lew\s*Roman\s*U\s*\]", 
+                r"KH\s*—\s*\d+", 
+                r"pp\s*\d+", 
+                r"^\s*an\s*$", 
+                r"^\s*man\s*$", 
+                r"^\s*contato\s*$",
+                r"^\s*\|\s*$",
+                r"\+\|",
+                r"^\s*a\s*\?\s*la\s*KH\s*\d+\s*r", # Lixo: a ? la KH 190 r
+                r"^mm\s+>>>", 
+                r"^\s*nm\s+A\s*$", 
+                r"^\s*TE\s*-\s*À\s*$", 
+                r"1º\s*PROVA\s*-\s*LA", 
+                
+                # Lixo da Imagem 8211c5.png
+                r"AMO\s+dm\s+JAM\s+Vmindrtoihko\s+amo\s+o",
+                r"\[E\s*O\s*\|\s*dj\s*jul",
+                r"\+\s*\|\s*hd\s*bl\s*O\s*mm\s*DS\s*AALPRA",
+                r"A\s*\+\s*med\s*FÃ\s*ias\s*A\s*KA\s*aõArA\s*\+\s*ima",
+                r"BUL\s+BELSPAN\s+COMPR",
+                r"^\s*m--*\s*$",
+            ]
             
-            # --- MUDANÇA v29: Removido config='--psm 6' ---
-            # Deixar o Tesseract usar o padrão (--psm 3) é melhor para auto-detectar layout
-            ocr_config = r'' 
+            # Aplicar filtros
+            linhas_originais = texto.split('\n')
+            linhas_filtradas = []
             
-            # OCR da Coluna 1
-            pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
-            img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
-            texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
+            for linha in linhas_originais:
+                linha_limpa = linha.strip()
+                ignorar_linha = False
+                for padrao in padroes_ignorados:
+                    if re.search(padrao, linha_limpa, re.IGNORECASE | re.MULTILINE):
+                        ignorar_linha = True
+                        break
+                if not ignorar_linha:
+                    linhas_filtradas.append(linha)
             
-            # OCR da Coluna 2
-            pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
-            img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
-            texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
+            texto = "\n".join(linhas_filtradas)
+
+            # Limpeza padrão de normalização
+            caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
+            for char in caracteres_invisiveis:
+                texto = texto.replace(char, '')
+
+            texto = texto.replace('\r\n', '\n').replace('\r', '\n')
+            texto = texto.replace('\u00A0', ' ')
             
-            texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
-    return texto_total
+            # Re-filtrar por rodapés padrão
+            linhas = texto.split('\n')
+            padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
+            linhas_filtradas_final = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
+            
+            texto = "\n".join(linhas_filtradas_final)
+            
+            # --- [NOVO v29] Aplicar melhoria de layout e correção de erros ---
+            texto = melhorar_layout_grafica(texto)
+
+            # Limpeza final de espaços
+            texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
+            texto = re.sub(r'[ \t]+', ' ', texto)
+            texto = texto.strip()
+        # --- [FIM] Bloco de Limpeza ---
+
+        return texto, None
+
+    except Exception as e:
+        st.error(f"Erro fatal em extrair_texto: {e}", icon="🚨")
+        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
 # --- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
 def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
