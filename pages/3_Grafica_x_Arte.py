@@ -1,11 +1,11 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v31 (Baseado no v26.9 do usuário)
+# Versão: v32 (Baseado no v26.9 do usuário)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v31: CORRIGE o bug 'obter_dados_secao' que não pegava conteúdo na mesma linha do título (caixas vazias).
-# v31: Mantém o OCR Forçado (psm 3) para AMBOS os PDFs.
-# v31: Mantém 'melhorar_layout_grafica' para corrigir e formatar.
-# v31: Mantém o Relatório Completo (mostra todas as seções).
-# v31: Mantém a Comparação Literal.
+# v32: CORRIGE o bug 'obter_dados_secao' que não pegava conteúdo na mesma linha do título (caixas vazias).
+# v32: Mantém o OCR Forçado (psm 3) para AMBOS os PDFs.
+# v32: Mantém 'melhorar_layout_grafica' para corrigir e formatar.
+# v32: Mantém o Relatório Completo (mostra todas as seções).
+# v32: Mantém a Comparação Literal.
 
 # --- IMPORTS ---
 
@@ -51,7 +51,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [ATUALIZADO - v31] CORRETOR E EMBELEZADOR DE OCR -----------------
+# ----------------- [ATUALIZADO - v32] CORRETOR E EMBELEZADOR DE OCR -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
@@ -75,7 +75,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         # Corrigir "MEDICAMENTO"
         r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO", # 0 -> O
         
-        # Correções da Imagem 827376.png e texto
+        # Correções da Imagem 827376.png e 917ed9.png
         r"(?i)\bJevido\b": "Devido",
         r"\"ertilidade\b": "Fertilidade",
         r"(?i)\bjperar\b": "operar",
@@ -93,6 +93,25 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\b“lorpromazina\b": "Clorpromazina",
         r"(?i)\bsindrome\b": "síndrome",
         r"(?i)\bJurticária-angioedema\b": "urticária-angioedema",
+        r"(?i)\bBelspan\s+or\b": "Belspan for",
+        r"(?i)\bocê\b": "você",
+        r"(?i)\basos\b": "casos",
+        r"(?i)\b1so\b": "isso",
+        r"(?i)\bmergência\b": "emergência",
+        r"(?i)\bjaracetamol\b": "paracetamol",
+        r"(?i)\bropifenazona\b": "propifenazona",
+        r"(?i)\bpode\s+ainda\s+er\b": "pode ainda ter",
+        r"(?i)\blesidratação\b": "desidratação",
+        r"(?i)\bespiratória\b": "respiratória",
+        r"(?i)\bolitraumatismo\b": "politraumatismo",
+        r"(?i)\beguindo\b": "seguindo",
+        r"(?i)\buidadoso\b": "cuidadoso",
+        r"(?i)\bituações\b": "situações",
+        r"(?i)\bressão\b": "pressão",
+        r"(?i)\bjortadores\b": "portadores",
+        r"(?i)\bjossuem\b": "possuem",
+        r"(?i)\braves\b": "graves",
+        r"(?i)\blérgica\b": "alérgica",
     }
     
     for padrao, correcao in correcoes.items():
@@ -384,7 +403,7 @@ def obter_aliases_secao() -> Dict[str, str]:
 def obter_secoes_ignorar_ortografia() -> List[str]:
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# --- [ATUALIZADA - v30] ---
+# --- [ATUALIZADA - v31] ---
 def obter_secoes_ignorar_comparacao() -> List[str]:
     # Removido "ONDE, COMO..." e "CUIDADOS DE..." como pedido
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
@@ -423,11 +442,10 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     return f"anchor-{prefix}-{norm_safe}"
 
 # ----------------- [CORRIGIDO - v31] MAPEAMENTO DE SEÇÕES -----------------
-
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
     """
-    v31: Não usa mais is_titulo_secao. Verifica CADA linha contra a lista de títulos.
-    Isso permite encontrar títulos que estão na mesma linha que o conteúdo.
+    v31: Verifica CADA linha e também linha[i] + linha[i+1] + linha[i+2] contra a lista de títulos.
+    Isso permite encontrar títulos de 1, 2 ou 3 linhas.
     """
     mapa = []
     linhas = texto_completo.split('\n')
@@ -440,61 +458,108 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
         if canonico in secoes_esperadas:
             if alias not in titulos_possiveis:
                 titulos_possiveis[alias] = canonico
+    
+    # Cache de normalização dos títulos esperados
+    titulos_norm_map = {norm: canon for norm, canon in 
+                        [(normalizar_titulo_para_comparacao(t), c) for t, c in titulos_possiveis.items()]}
+    titulos_norm_set = set(titulos_norm_map.keys())
 
-    for idx, linha in enumerate(linhas):
-        linha_limpa = linha.strip()
-        if not linha_limpa: # Pular linhas em branco
+    idx = 0
+    while idx < len(linhas):
+        linha_limpa_1 = linhas[idx].strip()
+        if not linha_limpa_1:
+            idx += 1
             continue
+        
+        linha_norm_1 = normalizar_titulo_para_comparacao(linha_limpa_1)
+        
+        # --- Check 2 linhas ---
+        linha_limpa_2 = ""
+        linha_norm_2 = ""
+        linha_combinada_2 = ""
+        if idx + 1 < len(linhas):
+            linha_limpa_2 = linhas[idx+1].strip()
+            if linha_limpa_2 and len(linha_limpa_2.split()) < 7: # Não juntar parágrafos
+                linha_combinada_2 = f"{linha_limpa_1} {linha_limpa_2}"
+                linha_norm_2 = normalizar_titulo_para_comparacao(linha_combinada_2)
 
-        linha_norm_comparacao = normalizar_titulo_para_comparacao(linha_limpa)
-        if not linha_norm_comparacao:
-            continue
+        # --- Check 3 linhas ---
+        linha_limpa_3 = ""
+        linha_norm_3 = ""
+        linha_combinada_3 = ""
+        if idx + 2 < len(linhas):
+            linha_limpa_3 = linhas[idx+2].strip()
+            if linha_limpa_2 and linha_limpa_3 and len(linha_limpa_3.split()) < 7: # Não juntar parágrafos
+                linha_combinada_3 = f"{linha_limpa_1} {linha_limpa_2} {linha_limpa_3}"
+                linha_norm_3 = normalizar_titulo_para_comparacao(linha_combinada_3)
 
         best_match_score = 0
         best_match_canonico = None
         best_match_titulo_real = ""
+        lines_consumed = 1
+        
+        # --- Prioridade de Match ---
+        # 1. Tentar match de 3 linhas (mais específico, ex: Seção 9)
+        if linha_norm_3:
+            match_3 = difflib.get_close_matches(linha_norm_3, titulos_norm_set, n=1, cutoff=0.96)
+            if match_3:
+                best_match_score = 99
+                best_match_canonico = titulos_norm_map[match_3[0]]
+                best_match_titulo_real = linha_combinada_3
+                lines_consumed = 3
 
-        for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-            titulo_possivel_norm = normalizar_titulo_para_comparacao(titulo_possivel)
-            
-            score = 0
-            # Tenta 2 modos:
-            # 1. A linha COMEÇA com o título (para "Arte Vigente")
-            if linha_norm_comparacao.startswith(titulo_possivel_norm):
-                # Extrai o título real da linha
-                # Pega o tamanho do título original (não normalizado) para cortar a string
-                match_real = re.match(re.escape(titulo_possivel), linha_limpa, re.IGNORECASE)
-                if match_real:
-                    score = 99 # Quase perfeito, 'startswith'
-                    titulo_real = match_real.group(0)
-                else:
-                    # Fallback se o regex falhar
-                    score = 98
-                    titulo_real = linha_limpa.split('?')[0] + '?' # Heurística
+        # 2. Tentar match de 2 linhas (se 3 falhar)
+        if linha_norm_2 and best_match_score < 98:
+            match_2 = difflib.get_close_matches(linha_norm_2, titulos_norm_set, n=1, cutoff=0.96)
+            if match_2:
+                best_match_score = 98
+                best_match_canonico = titulos_norm_map[match_2[0]]
+                best_match_titulo_real = linha_combinada_2
+                lines_consumed = 2
+
+        # 3. Tentar match de 1 linha (se 2 e 3 falharem)
+        if best_match_score < 96:
+            match_1 = difflib.get_close_matches(linha_norm_1, titulos_norm_set, n=1, cutoff=0.96)
+            if match_1:
+                best_match_score = 96
+                best_match_canonico = titulos_norm_map[match_1[0]]
+                best_match_titulo_real = linha_limpa_1
+                lines_consumed = 1
+        
+        # 4. Tentar 'startswith' (se tudo falhar, para conteúdo na mesma linha)
+        if best_match_score < 96:
+            for titulo_norm in titulos_norm_set:
+                if linha_norm_1.startswith(titulo_norm) and len(linha_norm_1) > len(titulo_norm) + 5:
+                    best_match_score = 97 # 'startswith' é bom
+                    best_match_canonico = titulos_norm_map[titulo_norm]
                     
-            # 2. A linha É o título (para "PDF da Gráfica")
-            else:
-                score = fuzz.token_set_ratio(titulo_possivel_norm, linha_norm_comparacao)
-                titulo_real = linha_limpa
+                    # Extrai o título real da linha (ex: "3. ... MEDICAMENTO?")
+                    match_real = None
+                    for t_orig in titulos_possiveis: # Procura o título original
+                        if normalizar_titulo_para_comparacao(t_orig) == titulo_norm:
+                            match_real = re.match(re.escape(t_orig), linha_limpa_1, re.IGNORECASE)
+                            if match_real:
+                                best_match_titulo_real = match_real.group(0)
+                                break
+                    if not match_real: # Fallback
+                         best_match_titulo_real = " ".join(linha_limpa_1.split()[:10])
+                    
+                    lines_consumed = 1
+                    break
 
-            if score > best_match_score:
-                best_match_score = score
-                best_match_canonico = titulo_canonico
-                # Se for um match 'startswith', salva SÓ o título
-                if score == 99 or score == 98:
-                    best_match_titulo_real = titulo_real
-                else: # Se for um match 'ratio', salva a linha inteira
-                    best_match_titulo_real = linha_limpa
-
-
-        if best_match_score >= 96: # Manter 96
+        # Adicionar ao mapa
+        if best_match_score >= 96:
             if not mapa or mapa[-1]['canonico'] != best_match_canonico:
                 mapa.append({
                     'canonico': best_match_canonico,
-                    'titulo_encontrado': best_match_titulo_real, # Salva o título real
+                    'titulo_encontrado': best_match_titulo_real,
                     'linha_inicio': idx,
-                    'score': best_match_score
+                    'score': best_match_score,
+                    'lines_consumed': lines_consumed # Salva quantas linhas o título usou
                 })
+            idx += lines_consumed
+        else:
+            idx += 1
 
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
@@ -514,6 +579,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
 
         titulo_encontrado = secao_mapa['titulo_encontrado'] # Título real (pode ser parcial)
         linha_inicio = secao_mapa['linha_inicio']
+        lines_consumed = secao_mapa.get('lines_consumed', 1)
         
         # --- [INÍCIO DA CORREÇÃO v31] ---
         # Pega a linha original onde o título foi encontrado
@@ -522,17 +588,14 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         # Encontra o conteúdo que está NA MESMA LINHA do título
         conteudo_primeira_linha = ""
         
-        # Procura o título que foi salvo no mapa
         match = re.search(re.escape(titulo_encontrado), linha_original_titulo, re.IGNORECASE)
-        if match:
-            # O conteúdo é o que vem DEPOIS do título
+        if match and lines_consumed == 1: # Só pega conteúdo da mesma linha se o título for de 1 linha
             idx_fim_titulo = match.end()
             conteudo_primeira_linha = linha_original_titulo[idx_fim_titulo:].strip()
-            # Remove pontuação inicial comum (ex: "...", ":")
             conteudo_primeira_linha = re.sub(r"^[.:\s]+", "", conteudo_primeira_linha)
         
         # O conteúdo restante começa na linha SEGUINTE
-        linha_inicio_conteudo = linha_inicio + 1
+        linha_inicio_conteudo = linha_inicio + lines_consumed
         # --- [FIM DA CORREÇÃO] ---
 
         prox_idx = None
@@ -558,6 +621,8 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
 
             if (j + 1) < len(linhas_texto):
                 linha_seguinte = linhas_texto[j + 1].strip()
+                if not linha_seguinte or len(linha_seguinte.split()) > 7: continue # Otimização
+
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
                 titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
 
@@ -786,7 +851,7 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     return texto_final
 
-# ----------------- [ATUALIZADO - v30] RELATÓRIO E EXPORTAÇÃO -----------------
+# ----------------- [ATUALIZADO - v31] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
     # Prepara os dados para o relatório
@@ -820,11 +885,18 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
 
-    # --- [MUDANÇA v30] ---
+    # --- [MUDANÇA v31] ---
     # Relatório por seção (mostra TUDO, idêntico ou não)
     st.warning(f"⚠️ **Relatório de Conteúdo por Seção:**")
     mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
+    
+    # Seções para NUNCA mostrar no expander (seu pedido)
+    secoes_para_nao_mostrar_expander = [
+        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"
+    ]
+    secoes_nao_mostrar_norm = [normalizar_titulo_para_comparacao(s) for s in secoes_para_nao_mostrar_expander]
+    
     ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
 
     expander_caixa_style = (
@@ -836,10 +908,9 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     for secao in secoes_esperadas:
         secao_canon_norm = normalizar_titulo_para_comparacao(secao)
         
-        # Se for "Seção não comparada"
-        if secao_canon_norm in ignorar_comparacao_norm:
-            with st.expander(f"📄 {secao} - ℹ️ (Seção não comparada)"):
-                st.info("Esta seção é ignorada na comparação de conteúdo por padrão.")
+        # Pula se for "ignorar" OU se for "não mostrar"
+        if (secao_canon_norm in ignorar_comparacao_norm or 
+            secao_canon_norm in secoes_nao_mostrar_norm):
             continue
             
         # Se estiver FALTANDO
@@ -886,7 +957,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             with c2:
                 st.markdown("**BELFAR:** (Clique na caixa para rolar)")
                 st.markdown(html_bel_box, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA v30] ---
+    # --- [FIM DA MUDANÇA v31] ---
     
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)}):**\n" + ", ".join(erros_ortograficos))
@@ -939,8 +1010,10 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         html_belfar=html_belfar_marcado
     )
 
-    b = relatório_html.encode('utf-8')
-    st.download_button("⬇️ Baixar relatório (HTML)", data=b, file_name="relatorio_auditoria_grafica_x_arte.html", mime="text/html", use_container_width=True)
+    # --- [MUDANÇA v31] ---
+    # Botão de download removido
+    # b = relatório_html.encode('utf-8')
+    # st.download_button("⬇️ Baixar relatório (HTML)", data=b, file_name="relatorio_auditoria_grafica_x_arte.html", mime="text/html", use_container_width=True)
 
 
 def gerar_relatorio_html_para_download(titulo: str, nome_ref: str, nome_belfar: str, data_ref: str, data_belfar: str, score: float, erros_ortograficos: List[str], secoes_faltantes: List[str], diferencas_conteudo: List[Dict], html_ref: str, html_belfar: str) -> str:
@@ -1004,15 +1077,15 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v30
+Gerado pelo sistema de Auditoria de Bulas — v31
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v30] INTERFACE PRINCIPAL -----------------
-st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v30)")
+# ----------------- [ATUALIZADA - v31] INTERFACE PRINCIPAL -----------------
+st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v31)")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
 
@@ -1030,11 +1103,11 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v30 - Forçando OCR)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v31 - Forçando OCR)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v30] ---
+            # --- [MUDANÇA v31] ---
             # Extração da Referência (SEMPRE OCR)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
@@ -1056,4 +1129,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v30 | OCR Forçado (psm 3) + Embelezador de Layout")
+st.caption("Sistema de Auditoria de Bulas v31 | OCR Forçado (psm 3) + Embelezador de Layout")
