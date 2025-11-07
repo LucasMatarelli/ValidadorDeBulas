@@ -581,6 +581,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 
 # ----------------- RELATÓRIO -----------------
+# ----------------- RELATÓRIO (FUNÇÃO CORRIGIDA) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
     js_scroll_script = """
@@ -655,21 +656,35 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
     
-    if diferencas_conteudo:
-        st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
-        
-        expander_caixa_style = (
-            "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
-            "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
-            "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
-        )
-        
-        for diff in diferencas_conteudo:
-            secao_canonico_raw = diff['secao'] 
-            titulo_display = diff.get('titulo_encontrado') or secao_canonico_raw
-            if not titulo_display:
-                 titulo_display = secao_canonico_raw
+    # --- [INÍCIO DA MUDANÇA v18.4] ---
+    st.warning(f"⚠️ **Relatório de Conteúdo por Seção:**")
+    
+    # Cria um lookup rápido das diferenças
+    mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
+    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
+    
+    expander_caixa_style = (
+        "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
+        "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
+        "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
+    )
 
+    for secao in secoes_esperadas:
+        # Normaliza para verificar se deve ignorar
+        secao_canon_norm = normalizar_titulo_para_comparacao(secao)
+        ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
+        
+        # Se a seção está na lista de ignorados
+        if secao_canon_norm in ignorar_comparacao_norm:
+            with st.expander(f"📄 {secao} - ℹ️ (Seção não comparada)"):
+                st.info("Esta seção (ex: Composição, Dizeres Legais) é ignorada na comparação de conteúdo por padrão.")
+            continue
+
+        # Se a seção está na lista de diferenças
+        if secao in mapa_diferencas:
+            diff = mapa_diferencas[secao]
+            titulo_display = diff.get('titulo_encontrado') or secao
+            
             with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
@@ -686,6 +701,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
                 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
+                
+                # (A correção do UnboundLocalError da última vez já está aqui)
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
                 
                 c1, c2 = st.columns(2)
@@ -695,9 +712,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 with c2:
                     st.markdown("**BELFAR:** (Clique na caixa para rolar)")
                     st.markdown(html_bel_box, unsafe_allow_html=True)
-    else:
-        st.success("✅ Conteúdo das seções está idêntico")
-
+        
+        # Se a seção NÃO está nas diferenças E NÃO está faltando
+        elif secao not in secoes_faltantes:
+            with st.expander(f"📄 {secao} - ✅ CONTEÚDO IDÊNTICO"):
+                st.success("O conteúdo desta seção é idêntico em ambos os documentos.")
+    
+    # O `else` original foi removido, pois agora o loop cuida de tudo
+    # --- [FIM DA MUDANÇA v18.4] ---
+    
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
     
@@ -747,7 +770,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
-
+        
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
