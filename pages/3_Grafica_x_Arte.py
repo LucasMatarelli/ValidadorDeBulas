@@ -138,8 +138,8 @@ def extrair_texto(arquivo, tipo):
     bytes_ = arquivo.read()
     if tipo == "pdf":
         texto = extrair_pdf_hibrido_colunas(bytes_)
-    else:  # docx
-        doc = docx.Document(io.BytesIO(bytes_))
+    else:  # pdf
+        doc = pdf.Document(io.BytesIO(bytes_))
         texto = "\n".join(p.text for p in doc.paragraphs)
 
     # ---- limpeza ----
