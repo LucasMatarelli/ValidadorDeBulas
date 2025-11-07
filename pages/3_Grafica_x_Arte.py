@@ -1,11 +1,11 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v30 (Baseado no v26.9 do usuário)
+# Versão: v31 (Baseado no v26.9 do usuário)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v30: CORRIGE o bug 'obter_dados_secao' que não pegava conteúdo na mesma linha do título (caixas vazias).
-# v30: Mantém o OCR Forçado (psm 3) para AMBOS os PDFs.
-# v30: Mantém 'melhorar_layout_grafica' para corrigir e formatar.
-# v30: Mantém o Relatório Completo (mostra todas as seções).
-# v30: Mantém a Comparação Literal.
+# v31: CORRIGE o bug 'obter_dados_secao' que não pegava conteúdo na mesma linha do título (caixas vazias).
+# v31: Mantém o OCR Forçado (psm 3) para AMBOS os PDFs.
+# v31: Mantém 'melhorar_layout_grafica' para corrigir e formatar.
+# v31: Mantém o Relatório Completo (mostra todas as seções).
+# v31: Mantém a Comparação Literal.
 
 # --- IMPORTS ---
 
@@ -51,7 +51,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [ATUALIZADO - v30] CORRETOR E EMBELEZADOR DE OCR -----------------
+# ----------------- [ATUALIZADO - v31] CORRETOR E EMBELEZADOR DE OCR -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
@@ -422,17 +422,13 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- MAPEAMENTO DE SEÇÕES -----------------
-def is_titulo_secao(linha: str) -> bool:
-    linha = linha.strip()
-    if len(linha) < 4: return False
-    if len(linha.split()) > 20: return False
-    if linha.endswith('.') or linha.endswith(':'): return False
-    if re.search(r'\>\s*\<', linha): return False
-    if len(linha) > 120: return False
-    return True
+# ----------------- [CORRIGIDO - v31] MAPEAMENTO DE SEÇÕES -----------------
 
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
+    """
+    v31: Não usa mais is_titulo_secao. Verifica CADA linha contra a lista de títulos.
+    Isso permite encontrar títulos que estão na mesma linha que o conteúdo.
+    """
     mapa = []
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
@@ -447,7 +443,7 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
 
     for idx, linha in enumerate(linhas):
         linha_limpa = linha.strip()
-        if not is_titulo_secao(linha_limpa):
+        if not linha_limpa: # Pular linhas em branco
             continue
 
         linha_norm_comparacao = normalizar_titulo_para_comparacao(linha_limpa)
@@ -456,18 +452,46 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
 
         best_match_score = 0
         best_match_canonico = None
+        best_match_titulo_real = ""
 
         for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-            score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), linha_norm_comparacao)
+            titulo_possivel_norm = normalizar_titulo_para_comparacao(titulo_possivel)
+            
+            score = 0
+            # Tenta 2 modos:
+            # 1. A linha COMEÇA com o título (para "Arte Vigente")
+            if linha_norm_comparacao.startswith(titulo_possivel_norm):
+                # Extrai o título real da linha
+                # Pega o tamanho do título original (não normalizado) para cortar a string
+                match_real = re.match(re.escape(titulo_possivel), linha_limpa, re.IGNORECASE)
+                if match_real:
+                    score = 99 # Quase perfeito, 'startswith'
+                    titulo_real = match_real.group(0)
+                else:
+                    # Fallback se o regex falhar
+                    score = 98
+                    titulo_real = linha_limpa.split('?')[0] + '?' # Heurística
+                    
+            # 2. A linha É o título (para "PDF da Gráfica")
+            else:
+                score = fuzz.token_set_ratio(titulo_possivel_norm, linha_norm_comparacao)
+                titulo_real = linha_limpa
+
             if score > best_match_score:
                 best_match_score = score
                 best_match_canonico = titulo_canonico
+                # Se for um match 'startswith', salva SÓ o título
+                if score == 99 or score == 98:
+                    best_match_titulo_real = titulo_real
+                else: # Se for um match 'ratio', salva a linha inteira
+                    best_match_titulo_real = linha_limpa
 
-        if best_match_score >= 96:
+
+        if best_match_score >= 96: # Manter 96
             if not mapa or mapa[-1]['canonico'] != best_match_canonico:
                 mapa.append({
                     'canonico': best_match_canonico,
-                    'titulo_encontrado': linha_limpa,
+                    'titulo_encontrado': best_match_titulo_real, # Salva o título real
                     'linha_inicio': idx,
                     'score': best_match_score
                 })
@@ -475,11 +499,11 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [CORRIGIDO - v30] MAPEAMENTO DE SEÇÃO ---
+# --- [CORRIGIDO - v31] MAPEAMENTO DE SEÇÃO ---
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
-    v30: CORRIGIDO para encontrar conteúdo na MESMA linha do título.
+    v31: CORRIGIDO para encontrar conteúdo na MESMA linha do título.
     """
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
@@ -488,17 +512,17 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         if secao_mapa['canonico'] != secao_canonico:
             continue
 
-        titulo_encontrado = secao_mapa['titulo_encontrado']
+        titulo_encontrado = secao_mapa['titulo_encontrado'] # Título real (pode ser parcial)
         linha_inicio = secao_mapa['linha_inicio']
         
-        # --- [INÍCIO DA CORREÇÃO v30] ---
+        # --- [INÍCIO DA CORREÇÃO v31] ---
         # Pega a linha original onde o título foi encontrado
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
         # Encontra o conteúdo que está NA MESMA LINHA do título
         conteudo_primeira_linha = ""
         
-        # Procura o título exato na linha (case-insensitive)
+        # Procura o título que foi salvo no mapa
         match = re.search(re.escape(titulo_encontrado), linha_original_titulo, re.IGNORECASE)
         if match:
             # O conteúdo é o que vem DEPOIS do título
@@ -521,21 +545,17 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
             encontrou_titulo = False
 
             for titulo_oficial_norm in titulos_norm_set:
-                # Causa 1: O título está na mesma linha que o conteúdo (Problema da Referência)
                 if linha_atual_norm.startswith(titulo_oficial_norm) and len(linha_atual_norm) > len(titulo_oficial_norm) + 5:
                      encontrou_titulo = True
                      break
-                
-                # Causa 2: O título está sozinho (Fuzzy match)
                 if fuzz.token_set_ratio(titulo_oficial_norm, linha_atual_norm) >= 96:
                     encontrou_titulo = True
                     break
             
             if encontrou_titulo:
-                prox_idx = j # Encontrou um título
-                break 
+                prox_idx = j
+                break
 
-            # Lógica de 2 linhas (mantida)
             if (j + 1) < len(linhas_texto):
                 linha_seguinte = linhas_texto[j + 1].strip()
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
@@ -550,7 +570,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
         
-        # --- [INÍCIO DA CORREÇÃO v30] ---
+        # --- [INÍCIO DA CORREÇÃO v31] ---
         # Pega as linhas DEPOIS da linha do título
         conteudo_restante = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         
