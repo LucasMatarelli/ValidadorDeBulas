@@ -1,13 +1,13 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v27 (Solução Definitiva)
+# Versão: v28 (Solução Definitiva)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v27: Re-introduz "Forçar OCR" (essencial para PDFs de imagem).
-# v27: OCR forçado usa --psm 6 para eliminar lixo de layout.
-# v27: Corretor de OCR agressivo (Jevido->Devido, 3elspan->Belspan, etc.).
-# v27: Filtros de lixo atualizados (a ? la KH 190 r, AMO dm JAM, etc.).
-# v27: Relatório MOSTRA TODAS as seções (idênticas ou não) lado a lado.
-# v27: Seção "5. ONDE, COMO..." não é mais ignorada.
-# v27: Mantém comparação literal (sensível a pontuação) e export HTML.
+# v28: Re-introduz "Forçar OCR" (essencial para PDFs de imagem).
+# v28: OCR forçado usa --psm 6 para eliminar lixo de layout.
+# v28: Corretor de OCR agressivo (Jevido->Devido, 3elspan->Belspan, etc.).
+# v28: Filtros de lixo atualizados (a ? la KH 190 r, AMO dm JAM, etc.).
+# v28: Relatório MOSTRA TODAS as seções (idênticas ou não) lado a lado.
+# v28: Seção "5. ONDE, COMO..." não é mais ignorada.
+# v28: Mantém comparação literal (sensível a pontuação) e export HTML.
 
 # --- IMPORTS ---
 
@@ -54,7 +54,7 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 
-# ----------------- [ATUALIZADO - v27] CORRETOR DE OCR -----------------
+# ----------------- [ATUALIZADO - v28] CORRETOR E EMBELEZADOR DE OCR -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
@@ -78,7 +78,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         # Corrigir "MEDICAMENTO"
         r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO", # 0 -> O
         
-        # Correções da Imagem 827376.png
+        # Correções da Imagem 827376.png e texto
         r"(?i)\bJevido\b": "Devido",
         r"\"ertilidade\b": "Fertilidade",
         r"(?i)\bjperar\b": "operar",
@@ -87,17 +87,85 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\brereditários\b": "hereditários",
         r"(?i)\bralactosemia\b": "galactosemia",
         r"(?i)\bjacientes\b": "pacientes",
-        
-        # Outros
         r"(?i)\bmm\s+Cada\b": "Cada",
         r"(?i)\bque\s+faz\b": "o que faz",
         r"(?i)\ba\s+dipirona\b": "à dipirona",
         r"(?i)\bà\s+probabilidade\b": "à probabilidade",
         r"(?i)\bmm\s+Anticolinérgicos\b": "Anticolinérgicos",
+        r"(?i)\b“ompensarem\b": "compensarem",
+        r"(?i)\b“lorpromazina\b": "Clorpromazina",
     }
     
     for padrao, correcao in correcoes.items():
         texto = re.sub(padrao, correcao, texto)
+    return texto
+
+def melhorar_layout_grafica(texto: str) -> str:
+    """
+    Heurísticas para melhorar a formatação resultante do OCR:
+    - junta linhas cortadas
+    - corrige ruídos comuns
+    - normaliza títulos e unidades
+    """
+    if not texto or not isinstance(texto, str):
+        return ""
+
+    # 1. Normalizações básicas
+    texto = texto.replace('\r\n', '\n').replace('\r', '\n')
+    texto = texto.replace('\t', ' ')
+    texto = re.sub(r'\u00A0', ' ', texto)
+
+    # 2. Corrigir hífen de quebra (hifenização)
+    texto = re.sub(r"(\w+)-\n(\w+)", r"\1\2", texto)
+
+    # 3. Corrigir quebras de linha indevidas (Juntar parágrafos)
+    # Esta é a lógica principal para "embelezar" o layout.
+    linhas = texto.split('\n')
+    novas_linhas = []
+    if not linhas:
+        return ""
+    
+    # Adiciona a primeira linha (se não for lixo)
+    if linhas[0].strip():
+        novas_linhas.append(linhas[0])
+    
+    for i in range(1, len(linhas)):
+        linha_anterior = novas_linhas[-1].strip() if novas_linhas else ""
+        linha_atual = linhas[i].strip()
+
+        if not linha_atual:
+            if linha_anterior: # Adiciona no máximo uma linha vazia
+                novas_linhas.append("") 
+            continue
+        
+        # Condições para NÃO juntar:
+        # 1. Linha anterior é vazia (início de um novo bloco)
+        # 2. Linha anterior termina com pontuação final
+        # 3. Linha atual parece um título (começa com maiúscula ou número)
+        # 4. Linha anterior é muito curta (provavelmente um título incompleto)
+        if (not linha_anterior or 
+            linha_anterior.endswith(('.', '?', '!', ':', '•')) or
+            linha_atual[0].isupper() or
+            linha_atual[0].isdigit() or
+            len(linha_anterior.split()) < 3):
+            
+            novas_linhas.append(linhas[i]) # Começa uma nova linha
+        else:
+            # Junta a linha atual na anterior
+            novas_linhas[-1] = novas_linhas[-1] + " " + linhas[i]
+    
+    texto = "\n".join(novas_linhas)
+
+    # 4. Corrigir padrões OCR (alguns da v26.9)
+    texto = re.sub(r"\bJ[O0]\s*mg\b", "10 mg", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\bJO\s*mg\b", "10 mg", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\s+([,;:\.\?\!%°])", r"\1", texto) # Remove espaço ANTES de pontuação
+
+    # 5. Limpeza final
+    texto = texto.strip()
+    texto = re.sub(r'\n{3,}', '\n\n', texto)
+    texto = re.sub(r'[ \t]{2,}', ' ', texto) # Limpa espaços duplos
+    
     return texto
 
 # ----------------- [NOVO - v27] LÓGICA DE EXTRAÇÃO SEPARADA -----------------
@@ -153,7 +221,7 @@ def extrair_pdf_ocr_colunas(arquivo_bytes: bytes) -> str:
             texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
     return texto_total
 
-# ----------------- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
+# --- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
 def extrair_texto(arquivo, tipo_arquivo: str, force_ocr: bool = False) -> Tuple[str, str]:
     """
     Função principal de extração.
@@ -245,7 +313,6 @@ def extrair_texto(arquivo, tipo_arquivo: str, force_ocr: bool = False) -> Tuple[
 
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
-            texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
             # Re-filtrar por rodapés padrão
             linhas = texto.split('\n')
@@ -253,14 +320,19 @@ def extrair_texto(arquivo, tipo_arquivo: str, force_ocr: bool = False) -> Tuple[
             linhas_filtradas_final = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             
             texto = "\n".join(linhas_filtradas_final)
+            
+            # --- [NOVO v28] Aplicar melhoria de layout DEPOIS dos filtros, ANTES da correção
+            if force_ocr:
+                texto = melhorar_layout_grafica(texto)
+
+            # Corrigir erros comuns de OCR antes de retornar
+            texto = corrigir_erros_ocr_comuns(texto)
+
+            # Limpeza final de espaços
             texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
         # --- [FIM] Bloco de Limpeza ---
-
-        # --- [NOVO v27] ---
-        # Corrigir erros comuns de OCR antes de retornar
-        texto = corrigir_erros_ocr_comuns(texto)
 
         return texto, None
 
@@ -338,7 +410,7 @@ def obter_aliases_secao() -> Dict[str, str]:
 def obter_secoes_ignorar_ortografia() -> List[str]:
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# --- [ATUALIZADA - v27] ---
+# --- [ATUALIZADA - v28] ---
 def obter_secoes_ignorar_comparacao() -> List[str]:
     # Removido "ONDE, COMO..." e "CUIDADOS DE..." como pedido
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
@@ -682,7 +754,7 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     return texto_final
 
-# ----------------- [ATUALIZADO - v27] RELATÓRIO E EXPORTAÇÃO -----------------
+# ----------------- [ATUALIZADO - v28] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
     # Prepara os dados para o relatório
@@ -716,7 +788,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
 
-    # --- [MUDANÇA v27] ---
+    # --- [MUDANÇA v28] ---
     # Relatório por seção (mostra TUDO, idêntico ou não)
     st.warning(f"⚠️ **Relatório de Conteúdo por Seção:**")
     mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
@@ -782,7 +854,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             with c2:
                 st.markdown("**BELFAR:** (Clique na caixa para rolar)")
                 st.markdown(html_bel_box, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA v27] ---
+    # --- [FIM DA MUDANÇA v28] ---
     
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)}):**\n" + ", ".join(erros_ortograficos))
@@ -900,15 +972,15 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v27
+Gerado pelo sistema de Auditoria de Bulas — v28
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v27] INTERFACE PRINCIPAL -----------------
-st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v27)")
+# ----------------- [ATUALIZADA - v28] INTERFACE PRINCIPAL -----------------
+st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v28)")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
 
@@ -919,21 +991,26 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("📄 Arte Vigente (Referência)")
     pdf_ref = st.file_uploader("Envie o PDF ou DOCX de referência", type=["pdf", "docx"], key="ref")
+    # --- [NOVO v28] Checkbox para forçar OCR ---
+    force_ocr_ref = st.checkbox("Forçar OCR (use se a Arte Vigente for uma imagem)", key="force_ocr_ref", value=False)
+
+
 with col2:
     st.subheader("📄 PDF da Gráfica (com colunas)")
     pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
-    # --- [NOVO v27] Checkbox para forçar OCR ---
-    force_ocr_belfar = st.checkbox("Forçar OCR (use se o PDF for uma imagem ou 'em curva')", key="force_ocr")
+    # --- [NOVO v28] Checkbox para forçar OCR ---
+    force_ocr_belfar = st.checkbox("Forçar OCR (use se o PDF for uma imagem ou 'em curva')", key="force_ocr_belfar", value=True)
+
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v27 - Híbrido de Colunas)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v28 - Híbrido de Colunas)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v27] ---
-            # Extração da Referência (sempre como texto)
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, force_ocr=False)
+            # --- [MUDANÇA v28] ---
+            # Extração da Referência (usa o checkbox para decidir)
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, force_ocr=force_ocr_ref)
             
             # Extração da Gráfica (usa o checkbox para decidir)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', force_ocr=force_ocr_belfar)
@@ -953,4 +1030,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v27 | Forçar OCR + Comparação Universal")
+st.caption("Sistema de Auditoria de Bulas v28 | Forçar OCR + Comparação Universal + Embelezador de Layout")
