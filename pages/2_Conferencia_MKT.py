@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.11 (Consolidada):
-# 1. (v26.8) Aplica 'truncar_apos_anvisa' em AMBOS os arquivos.
-# 2. (v26.9) Ignora comparação de conteúdo e ortografia de [APRESENTAÇÕES, COMPOSIÇÃO, DIZERES LEGAIS].
-# 3. (v26.10) Mantém a numeração dos títulos (ex: "1. TÍTULO") para uma comparação mais rigorosa.
-# 4. (v26.11) Corrige o filtro de ruído 'BUL_CLORIDRATO_DE_NA 190' para 'BUL_CLORIDRATO_DE_NA\s+190.*'.
+# Versão v26.17 (Consolidada)
+# 1. Ignora comparação de conteúdo e ortografia de [APRESENTAÇÕES, COMPOSIÇÃO, DIZERES LEGAIS].
+# 2. Ignora numeração de títulos na COMPARAÇÃO (ex: "1. TÍTULO" == "TÍTULO").
+# 3. (v26.16) Filtro de ruído "inline" para remover "BUL_CLORIDRATO..." do meio do texto.
+# 4. (v26.14) Função de layout (formatar_html_para_leitura) melhorada para evitar textos "grudados".
 
 # --- IMPORTS ---
 import re
@@ -31,7 +31,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v22.0 - Layout Bonito) -----------------
+# ----------------- EXTRAÇÃO (v26.16 - Filtro Inline) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
@@ -49,7 +49,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 if is_marketing_pdf:
                     # Lógica de 2 colunas SÓ para o PDF do Marketing
-                    # Usamos 'sort=True' DENTRO de cada clipe
                     for page in doc:
                         rect = page.rect
                         clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
@@ -101,7 +100,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
             # Padrão 2: Remove FRAGMENTOS de ruído de DENTRO das linhas
             padrao_ruido_inline = re.compile(
-                # (v26.16) Regex mais permissivo (espaço opcional \s*)
                 r'BUL_CLORIDRATO_DE_NA\s*190' 
                 r'|AFAZOLINA_BUL\d+V\d+.*?(New\s+Roman|mm)?' 
                 r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
@@ -121,9 +119,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     continue # Pula esta linha
 
                 # 2. Remove ruído DE DENTRO da linha
-                # Substitui o ruído por um espaço para não "grudar" palavras
                 linha_limpa = padrao_ruido_inline.sub(' ', linha_strip)
-                # Remove espaços duplos que o ".sub" possa ter deixado
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_limpa).strip()
                 
                 # 3. Adiciona a linha limpa (se não estiver vazia)
@@ -159,28 +155,19 @@ def truncar_apos_anvisa(texto):
         return texto
 
     # Pega a posição FINAL do match (grupo 1)
-    # Ex: "...pela Anvisa em 05 / 02 / 2024" <-- Posição é aqui
     cut_off_position = match.end(1) 
     
     # Agora, verifica se há um ponto final logo após
-    # Procura por um ponto opcional com espaço após a data (ex: " . ")
-    # Usa a posição final (cut_off_position) como ponto de partida
     pos_match = re.search(r'^\s*\.', texto[cut_off_position:], re.IGNORECASE)
     
     if pos_match: 
-        # Se encontrar um ponto (ex: " . "), atualiza a posição de corte
-        # para DEPOIS do ponto, incluindo-o.
         cut_off_position += pos_match.end()
 
-    # Retorna o texto desde o início ATÉ essa posição de corte final.
-    # Ex: "...pela Anvisa em 05 / 02 / 2024 ."
-    # Todo o lixo (ex: "4 FR ML 60...") é removido.
     return texto[:cut_off_position]
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
     
-    # Lista de seções exatamente como pedida pelo usuário (numeração híbrida)
     secoes = {
         "Paciente": [
             "APRESENTAÇÕES", "COMPOSIÇÃO", "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
@@ -232,11 +219,11 @@ def obter_aliases_secao():
     }
 
 def obter_secoes_ignorar_comparacao():
-    # (v26.9) - Retorna a lista de seções que NÃO devem ter o conteúdo comparado
+    # (v26.9) Retorna a lista de seções que NÃO devem ter o conteúdo comparado
     return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
 def obter_secoes_ignorar_ortografia():
-    # (v26.9) - Seções que não passam pelo corretor ortográfico
+    # (v26.9) Seções que não passam pelo corretor ortográfico
     return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
 # ----------------- NORMALIZAÇÃO -----------------
@@ -331,7 +318,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if canonico in secoes_esperadas:
             titulos_possiveis[alias] = canonico # Key: "INDICAÇÕES", Value: "1. INDICAÇÕES"
             
-    # Compara a versão normalizada (COM NÚMERO, v26.10)
+    # (v26.15) Compara a versão normalizada e SEM NÚMERO
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
 
     limiar_score = 85  # Reduzido de 95 para 85 para maior tolerância
@@ -342,7 +329,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if not is_titulo_secao(linha_limpa):
             continue
         
-        # Compara a linha normalizada (COM NÚMERO, v26.10)
+        # (v26.15) Compara a linha normalizada e SEM NÚMERO
         norm_linha_1 = normalizar_titulo_para_comparacao(linha_limpa)
         best_score = 0
         best_canonico = None
@@ -405,7 +392,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_faltantes = []
     diferencas_titulos = []
     
-    # Cria uma lista abrangente para TODAS as seções (idênticas, diferentes, faltantes)
     relatorio_comparacao_completo = []
     similaridade_geral = []
     
@@ -420,8 +406,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     for secao in secoes_esperadas:
         encontrou_ref, _, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref)
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar)
-
-        # Lógica para popular o relatório completo
         
         if not encontrou_belfar:
             secoes_faltantes.append(secao)
@@ -436,7 +420,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         if encontrou_ref and encontrou_belfar:
             # (v26.9) PULA A COMPARAÇÃO se a seção estiver na lista de ignorar
             if secao.upper() in secoes_ignorar_upper: 
-                # Mesmo pulando, adiciona como "idêntica" (para não poluir o relatório)
                 relatorio_comparacao_completo.append({
                     'secao': secao, 
                     'status': 'identica', 
@@ -471,11 +454,10 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     for secao_canonico, titulo_ref in titulos_ref_encontrados.items():
         if secao_canonico in titulos_belfar_encontrados:
             titulo_belfar = titulos_belfar_encontrados[secao_canonico]
-            # (v26.10) Compara os títulos normalizados (que agora incluem os números)
+            # (v26.15) Compara os títulos normalizados SEM NÚMERO
             if normalizar_titulo_para_comparacao(titulo_ref) != normalizar_titulo_para_comparacao(titulo_belfar):
                 diferencas_titulos.append({'secao_esperada': secao_canonico, 'titulo_encontrado': titulo_belfar})
 
-    # Retorna o relatório completo
     return secoes_faltantes, relatorio_comparacao_completo, similaridade_geral, diferencas_titulos
 
 
@@ -494,7 +476,6 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         linhas_texto = texto_para_checar.split('\n')
 
         for secao_nome in secoes_todas:
-            # Compara usando o nome canônico correto (ex: "COMPOSIÇÃO")
             # (v26.9) PULA A CHECAGEM se a seção estiver na lista de ignorar
             if secao_nome.upper() in [s.upper() for s in secoes_ignorar]:
                 continue
@@ -588,27 +569,22 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
     # 1. Marca Amarelo (Divergências)
     if secoes_problema_lista_dicionarios:
         for diff in secoes_problema_lista_dicionarios:
-            # Só marca se for 'diferente'
             if diff['status'] != 'diferente':
                 continue
                 
             conteudo_ref = diff['conteudo_ref']
             conteudo_belfar = diff['conteudo_belfar']
-            
             conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
             
             if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
                 conteudo_marcado = marcar_diferencas_palavra_por_palavra(
-                    conteudo_ref,  
-                    conteudo_belfar,  
-                    eh_referencia
+                    conteudo_ref, conteudo_belfar, eh_referencia
                 )
                 texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_marcado, 1)
 
     # 2. Marca Rosa (Ortografia)
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
-            # Regex que ignora marcações HTML (não marca dentro de tags)
             pattern = r'\b(' + re.escape(erro) + r')\b(?![^<]*?>)'
             texto_trabalho = re.sub(
                 pattern,
@@ -617,18 +593,12 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 flags=re.IGNORECASE
             )
             
-    # --- CORREÇÃO MARCAÇÃO AZUL (v26.7) ---
-    # 3. Marca Azul (ANVISA) POR ÚLTIMO, para ter prioridade visual.
-    #    Regex que aceita espaços na data (ex: 05 / 02 / 2024)
+    # 3. Marca Azul (ANVISA) POR ÚLTIMO
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     
-    # Esta função é chamada pelo re.sub. Ela limpa marcas antigas (amarelo/rosa)
-    # da frase da ANVISA e aplica a marca azul.
     def remove_marks_da_data(match):
         frase_anvisa = match.group(1)
-        # Limpa qualquer tag <mark...> ou </mark> de dentro da frase
         frase_limpa = re.sub(r'<mark.*?>|</mark>', '', frase_anvisa)
-        # Retorna a frase limpa dentro da marcação azul
         return f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_limpa}</mark>"
 
     texto_trabalho = re.sub(
@@ -638,7 +608,6 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
         count=1, # Marca só a primeira ocorrência
         flags=re.IGNORECASE
     )
-    # --- FIM DA CORREÇÃO ---
             
     return texto_trabalho
 
@@ -647,21 +616,17 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     
-    # Regex que aceita espaços na data (ex: 05 / 02 / 2024)
-    # Captura 1: frase inteira, Captura 2: só a data
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     
     match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
     match_belfar = re.search(regex_anvisa, texto_belfar.lower()) if texto_belfar else None
     
-    # Pega o grupo 2 (só a data)
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
     texto_ref_safe = texto_ref or ""
     texto_belfar_safe = texto_belfar or ""
 
-    # Captura o 'relatorio_comparacao_completo'
     secoes_faltantes, relatorio_comparacao_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref_safe, texto_belfar_safe, tipo_bula)
     
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar_safe, texto_ref_safe, tipo_bula)
@@ -680,8 +645,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
     
-# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.12) ---
-# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.14) ---
+    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.14) ---
     def formatar_html_para_leitura(html_content):
         """
         Formata o texto "fluído" (sort=True) para um HTML "bonito".
@@ -698,7 +662,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # 2. Adiciona quebras ANTES e DEPOIS de todos os títulos
         
         # Lista de Títulos (ALL CAPS e Mistos, sem números)
-        # Inclui todos os títulos de seção conhecidos para garantir a quebra.
         titulos_lista = [
             "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
             "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
@@ -732,7 +695,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             # Substitui por: PARÁGRAFO, <strong>Título</strong>, PARÁGRAFO
             r'[[PARAGRAPH]]<strong>\2</strong>[[PARAGRAPH]]',
             html_content,
-            flags=re.IGNORECASE # Ignora caso (embora a lista esteja em maiúsculas)
+            flags=re.IGNORECASE 
         )
         
         # Substitui Padrão 2 (Títulos Numerados)
@@ -753,7 +716,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         )
 
         # 4. Remove todas as OUTRAS quebras de linha (fluidez)
-        #    Esta é a linha que junta o texto de parágrafos comuns.
         html_content = html_content.replace('\n', ' ')
 
         # 5. Restaura os marcadores
@@ -765,60 +727,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         
         return html_content
     # --- FIM DA CORREÇÃO DE LAYOUT ---
-        
-        # 1. Preserva parágrafos reais (linhas em branco) com um marcador
-        html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
-        
-        # --- Regras de Quebra de Título (v26.12) ---
-        # Estas regras localizam um título (ex: "1. TÍTULO") e forçam
-        # quebras de parágrafo ANTES e DEPOIS dele.
-        
-        # 2. Títulos ALL CAPS (ex: COMPOSIÇÃO, APRESENTAÇÕES)
-        # Procura por: \n + TÍTULO EM MAIÚSCULO + \n
-        html_content = re.sub(
-            r'(\n)([A-Z\s]{4,100})(\n)',
-            r'[[PARAGRAPH]]\2[[PARAGRAPH]]',
-            html_content
-        )
-        
-        # 3. Títulos Numerados (ex: "1. PARA QUE...", "9. O QUE...")
-        # Procura por: \n + "1. TÍTULO DA LINHA" + \n
-        # O [^\n]* garante que ele pegue a linha inteira até o \n
-        html_content = re.sub(
-            r'(\n)(\d+\.\s+[A-Z][^\n]*)(\n)',  
-            r'[[PARAGRAPH]]\2[[PARAGRAPH]]',   
-            html_content
-        )
-        
-        # 4. Títulos Finais (ex: "DIZERES LEGAIS")
-        titulos_finais_lista = ["DIZERES LEGAIS", "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE"]
-        titulos_finais_regex = "|".join(titulos_finais_lista)
-        
-        # Procura por: \n + "TÍTULO DA LISTA" + \n
-        html_content = re.sub(
-            rf'(\n)({titulos_finais_regex}[^\n]*)(\n)',
-            r'[[PARAGRAPH]]\2[[PARAGRAPH]]',
-            html_content
-        )
-        
-        # 5. Adiciona quebras ANTES de listas
-        # Ex: \n– Reações... ou \n- Reações...
-        html_content = re.sub(
-            r'(\n)(\s*[-–•*])', # \n seguido de espaço e um marcador
-            r'[[LIST_ITEM]]\2',
-            html_content
-        )
-
-        # 6. Remove todas as OUTRAS quebras de linha (que são de "fluidez")
-        html_content = html_content.replace('\n', ' ')
-
-        # 7. Restaura os marcadores
-        html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
-        html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
-        
-        return html_content
-    # --- FIM DA CORREÇÃO DE LAYOUT ---
-    # --- FIM DA CORREÇÃO DE LAYOUT ---
 
     # Mostra primeiro as seções faltantes
     if secoes_faltantes:
@@ -829,7 +737,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.markdown("---")
     st.subheader("Análise Detalhada Seção por Seção")
     
-    # Define o estilo da caixa do expander
     expander_caixa_style = (
         "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
         "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
@@ -844,12 +751,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         conteudo_ref_str = item.get('conteudo_ref') or ""
         conteudo_belfar_str = item.get('conteudo_belfar') or ""
         
-        # (v26.9) Verifica se esta seção deve ser ignorada
         is_ignored_section = secao_nome.upper() in [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
         if status == 'diferente':
             with st.expander(f"📄 {secao_nome} - ❌ CONTEÚDO DIVERGENTE"):
-                # Marca as diferenças
                 html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=True
                 )
@@ -857,7 +762,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
                 
-                # Formata para leitura
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
@@ -870,13 +774,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
         
         elif status == 'identica':
-            # (v26.9) Adiciona um sufixo visual se a seção foi ignorada
             expander_title = f"📄 {secao_nome} - ✅ CONTEÚDO IDÊNTICO"
             if is_ignored_section:
                 expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
 
             with st.expander(expander_title):
-                # Não precisa marcar diferenças, apenas formata
                 expander_html_ref = formatar_html_para_leitura(conteudo_ref_str)
                 expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str)
 
@@ -888,13 +790,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     st.markdown("**Arquivo MKT:**")
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
 
-        # Seções 'faltantes' já foram tratadas no 'st.error' acima.
-
-
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
 
-    # Conta quantas seções são diferentes
     diferencas_conteudo_count = sum(1 for item in relatorio_comparacao_completo if item['status'] == 'diferente')
 
     if not any([secoes_faltantes, diferencas_conteudo_count > 0, diferencas_titulos]) and len(erros_ortograficos) < 5:
@@ -903,7 +801,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("Visualização Lado a Lado com Destaques")
 
-    # 1. Estilo da Legenda
     legend_style = (
         "font-size: 14px; "
         "background-color: #f0f2f6; "
@@ -922,16 +819,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
-    # Passa o 'relatorio_comparacao_completo' para a função de marcação
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # Aplica a formatação v26.0
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
 
 
-    # 2. Estilo da Caixa de Visualização
     caixa_style = (
         "max-height: 700px; "
         "overflow-y: auto; "
@@ -947,7 +841,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "word-break: break-word; "
     )
     
-    # 3. Estilo dos Títulos das Colunas
     title_style = (
         "font-size: 1.25rem; "
         "font-weight: 600; "
@@ -990,24 +883,19 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             # Extrai o texto da Anvisa (1 coluna, com sort)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
-            # --- CORREÇÃO (v26.8) ---
-            # Aplica o truncamento também ao arquivo ANVISA (ref)
             if not erro_ref:
-                texto_ref = corrigir_quebras_em_titulos(texto_ref) # Consistência
+                texto_ref = corrigir_quebras_em_titulos(texto_ref) 
                 texto_ref = truncar_apos_anvisa(texto_ref)
-            # --- FIM DA CORREÇÃO ---
             
             # Extrai o texto do Marketing (2 colunas, com sort em cada)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
             if not erro_belfar:
-                # Aplica correção de títulos quebrados ANTES de truncar e mapear
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
-                # Garante que o truncamento (v26.7) está sendo chamado
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigido 'erro_bfalar'
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") 
             elif not texto_ref or not texto_belfar:
                  st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
@@ -1016,4 +904,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.11 | Ignora Seções MKT + Títulos Numerados + Filtro Ruído")
+st.caption("Sistema de Auditoria de Bulas v26.17 | Filtro Inline Corrigido + Layout Melhorado")
