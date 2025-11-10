@@ -124,6 +124,7 @@ def melhorar_layout_grafica(texto: str) -> str:
     - junta linhas cortadas
     - corrige ruídos comuns
     - normaliza títulos e unidades
+    v33: Lógica de junção mais conservadora para preservar a estrutura do PDF
     """
     if not texto or not isinstance(texto, str):
         return ""
@@ -136,21 +137,47 @@ def melhorar_layout_grafica(texto: str) -> str:
     texto = texto.replace('\t', ' ')
     texto = re.sub(r'\u00A0', ' ', texto)
 
-    # 3. Corrigir hífen de quebra (hifenização)
-    texto = re.sub(r"(\w+)-\n(\w+)", r"\1\2", texto)
+    # 3. Corrigir hífen de quebra (hifenização) - MAIS ESPECÍFICO
+    texto = re.sub(r"(\w+)-\s*\n\s*(\w+)", r"\1\2", texto)
     
     # 4. Remover lixo de OCR (pontos de formatação, etc.)
-    texto = re.sub(r'(\.|\s){5,}', ' ', texto) # Remove '.....'
-    texto = re.sub(r'[«»”ÉÀ“"”]', '', texto) # Remove caracteres de citação estranhos
-    texto = re.sub(r'\bBEE\s\*\b', '', texto) # Remove 'BEE *'
-    texto = re.sub(r'\b(mm|mma)\b', '', texto) # Remove 'mm' 'mma' soltos
+    texto = re.sub(r'(\.|\s){5,}', ' ', texto)
+    texto = re.sub(r'[«»"ÉÀ"""]', '', texto)
+    texto = re.sub(r'\bBEE\s\*\b', '', texto)
+    texto = re.sub(r'\b(mm|mma)\b', '', texto, flags=re.IGNORECASE)
 
-    # 5. Corrigir quebras de linha indevidas (Juntar parágrafos)
+    # 5. Lógica CONSERVADORA de junção de linhas
     linhas = texto.split('\n')
     novas_linhas = []
+    
     if not linhas:
         return ""
     
+    # Padrões de títulos que NUNCA devem ser juntados
+    padroes_titulo = [
+        r'^\d+\.\s+[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ]',  # Ex: "1. PARA QUE"
+        r'^[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ]{3,}',       # Ex: "APRESENTAÇÕES"
+        r'^COMPOSIÇÃO$',
+        r'^DIZERES LEGAIS$',
+        r'^USO\s+(ORAL|ADULTO)',
+        r'^Belspan$',
+        r'^butilbrometo',
+    ]
+    
+    def eh_titulo(linha: str) -> bool:
+        """Verifica se a linha é um título que não deve ser juntado"""
+        linha_limpa = linha.strip()
+        if not linha_limpa:
+            return False
+        for padrao in padroes_titulo:
+            if re.match(padrao, linha_limpa):
+                return True
+        # Título se for tudo maiúsculo e tiver mais de 5 caracteres
+        if linha_limpa.isupper() and len(linha_limpa) > 5:
+            return True
+        return False
+    
+    # Adiciona primeira linha
     if linhas[0].strip():
         novas_linhas.append(linhas[0])
     
@@ -158,34 +185,52 @@ def melhorar_layout_grafica(texto: str) -> str:
         linha_anterior = novas_linhas[-1].strip() if novas_linhas else ""
         linha_atual = linhas[i].strip()
 
+        # Se a linha atual está vazia
         if not linha_atual:
-            if linha_anterior: # Adiciona no máximo uma linha vazia
-                novas_linhas.append("") 
+            # Adiciona no máximo UMA linha vazia
+            if linha_anterior and (not novas_linhas or novas_linhas[-1] != ""):
+                novas_linhas.append("")
             continue
         
-        # Condições para NÃO juntar:
+        # NUNCA juntar se:
+        # 1. Linha anterior está vazia
+        # 2. Linha anterior termina com pontuação forte
+        # 3. Linha atual é um título
+        # 4. Linha atual começa com letra maiúscula seguida de palavra curta (possível título)
+        # 5. Linha anterior é muito curta (< 40 caracteres) - provavelmente título/subtítulo
+        # 6. Linha atual começa com número ou bullet point
+        
         if (not linha_anterior or 
-            linha_anterior.endswith(('.', '?', '!', ':', '•')) or
-            linha_atual[0].isupper() or
-            linha_atual[0].isdigit() or
-            len(linha_anterior.split()) < 3): # Linha anterior é muito curta (ex: "USO ORAL")
+            linha_anterior.endswith(('.', '?', '!', ':', ';')) or
+            eh_titulo(linha_atual) or
+            eh_titulo(linha_anterior) or
+            len(linha_anterior) < 40 or
+            re.match(r'^\d+[\.\)\-]', linha_atual) or
+            re.match(r'^[•\-\*]', linha_atual) or
+            linha_atual[0].isupper() and len(linha_atual.split()) <= 4):
             
-            novas_linhas.append(linhas[i]) # Começa uma nova linha
+            novas_linhas.append(linhas[i])
         else:
-            # Junta a linha atual na anterior
-            novas_linhas[-1] = novas_linhas[-1] + " " + linhas[i]
+            # Só junta se a linha anterior NÃO terminar com :
+            # E se ambas as linhas tiverem mais de 3 palavras
+            if (not linha_anterior.endswith(':') and 
+                len(linha_anterior.split()) >= 3 and 
+                len(linha_atual.split()) >= 3):
+                novas_linhas[-1] = novas_linhas[-1] + " " + linhas[i]
+            else:
+                novas_linhas.append(linhas[i])
     
     texto = "\n".join(novas_linhas)
 
-    # 6. Corrigir padrões OCR (alguns da v26.9)
+    # 6. Corrigir padrões OCR específicos
     texto = re.sub(r"\bJ[O0]\s*mg\b", "10 mg", texto, flags=re.IGNORECASE)
     texto = re.sub(r"\bJO\s*mg\b", "10 mg", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"\s+([,;:\.\?\!%°])", r"\1", texto) # Remove espaço ANTES de pontuação
+    texto = re.sub(r"\s+([,;:\.\?\!%°])", r"\1", texto)
 
-    # 7. Limpeza final
+    # 7. Limpeza final - MAIS CONSERVADORA
     texto = texto.strip()
-    texto = re.sub(r'\n{3,}', '\n\n', texto)
-    texto = re.sub(r'[ \t]{2,}', ' ', texto) # Limpa espaços duplos
+    texto = re.sub(r'\n{4,}', '\n\n\n', texto)  # Permite até 3 quebras
+    texto = re.sub(r'[ \t]{2,}', ' ', texto)
     
     return texto
 
