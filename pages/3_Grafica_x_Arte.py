@@ -56,7 +56,7 @@ nlp = carregar_modelo_spacy()
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
-    v33: Expandido com mais correções baseadas no PDF real
+    v33: Expandido com correções completas baseadas no PDF real
     """
     if not texto:
         return ""
@@ -67,7 +67,46 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bBeifar\b": "Belfar",
         r"(?i)\b3elspan\b": "Belspan",
         
-        # Correções de palavras comuns
+        # Correções de palavras comuns com letra inicial faltando
+        r"(?i)\barto\b": "parto",
+        r"(?i)\bausar\b": "causar",
+        r"(?i)\bcações\b": "reações",
+        r"(?i)\becomendada\b": "recomendada",
+        r"(?i)\becomentada\b": "recomendada",
+        r"(?i)\beduzir\b": "reduzir",
+        r"(?i)\belacionados\b": "relacionados",
+        r"(?i)\bidministrado\b": "administrado",
+        r"(?i)\bidminitração\b": "administração",
+        r"(?i)\biparelho\b": "aparelho",
+        r"(?i)\bitilizaram\b": "utilizaram",
+        r"(?i)\bjangramento\b": "sangramento",
+        r"(?i)\bjerivados\b": "derivados",
+        r"(?i)\bjode\b": "pode",
+        r"(?i)\bjucimadura\b": "queimadura",
+        r"(?i)\bjupropiona\b": "bupropiona",
+        r"(?i)\blentro\b": "dentro",
+        r"(?i)\blorpromazina\b": "clorpromazina",
+        r"(?i)\bloses\b": "doses",
+        r"(?i)\bmecicamentos\b": "medicamentos",
+        r"(?i)\bnais\b": "mais",
+        r"(?i)\bnedicamentos\b": "medicamentos",
+        r"(?i)\bnonitorados\b": "monitorados",
+        r"(?i)\bnterações\b": "interações",
+        r"(?i)\bntiplaquetário\b": "antiplaquetário",
+        r"(?i)\bompensarem\b": "compensarem",
+        r"(?i)\bomprimido\b": "comprimido",
+        r"(?i)\bontém\b": "contém",
+        r"(?i)\bquivalentes\b": "equivalentes",
+        r"(?i)\bratamento\b": "tratamento",
+        r"(?i)\brave\b": "grave",
+        r"(?i)\bravidez\b": "gravidez",
+        r"(?i)\breas\b": "áreas",
+        r"(?i)\brincipalmente\b": "principalmente",
+        r"(?i)\broblemas\b": "problemas",
+        r"(?i)\brávidas\b": "grávidas",
+        r"(?i)\bslaucoma\b": "glaucoma",
+        
+        # Correções de palavras específicas
         r"(?i)\bmecicamento\b": "medicamento",
         r"(?i)\bmedicament0\b": "medicamento",
         r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO",
@@ -84,7 +123,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bCOMPOSIÇAO\b": "COMPOSIÇÃO",
         r"(?i)^mm\s+COMPOSIÇÃO": "COMPOSIÇÃO",
         
-        # Palavras com letras trocadas
+        # Outras palavras com letras trocadas
         r"(?i)\bJevido\b": "Devido",
         r"\"ertilidade\b": "Fertilidade",
         r"(?i)\bjperar\b": "operar",
