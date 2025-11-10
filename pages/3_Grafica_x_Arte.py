@@ -130,6 +130,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\)\s*s\s*pacientes\b": "Os pacientes",
         r"(?i)\belacionados\b": "relacionados",
         r"(?i)\brincipalmente\b": "principalmente",
+        r"(?i)\bALGUM\s+USAR\b": "ALGUÉM USAR", # Correção Seção 9
     }
     
     for padrao, correcao in correcoes.items():
@@ -614,11 +615,11 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [CORRIGIDO - v32] MAPEAMENTO DE SEÇÃO ---
+# --- [CORRIGIDO - v33] MAPEAMENTO DE SEÇÃO ---
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
-    v32: CORRIGIDO para encontrar conteúdo na MESMA linha do título.
+    v33: CORRIGIDO para encontrar conteúdo na MESMA linha do título.
     """
     titulos_lista = obter_secoes_por_tipo(tipo_bula)
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
@@ -631,7 +632,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         linha_inicio = secao_mapa['linha_inicio']
         lines_consumed = secao_mapa.get('lines_consumed', 1)
         
-        # --- [INÍCIO DA CORREÇÃO v32] ---
+        # --- [INÍCIO DA CORREÇÃO v33] ---
         # Pega a linha original onde o título foi encontrado
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
@@ -685,7 +686,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
         
-        # --- [INÍCIO DA CORREÇÃO v32] ---
+        # --- [INÍCIO DA CORREÇÃO v33] ---
         # Pega as linhas DEPOIS da linha do título
         conteudo_restante = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         
@@ -1174,9 +1175,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arte Vigente (Referência)", "PDF da Gráfica", tipo_bula_selecionado)
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arte Vigente", "PDF da Gráfica", tipo_bula_selecionado) # <--- MUDANÇA v33
     else:
-        st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
+        st.warning("⚠️ Por favor, envie ambos os arquivos (Arte Vigente e PDF da Gráfica) para iniciar a auditoria.")
 
 st.divider()
 st.caption("Sistema de Auditoria de Bulas v33 | OCR Híbrido (psm 6) + Embelezador de Layout")
