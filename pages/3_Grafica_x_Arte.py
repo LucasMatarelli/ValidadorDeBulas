@@ -1054,7 +1054,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Referência: {data_ref}\n - BELFAR: {data_belfar}")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Arte Vigente: {data_ref}\n - PDF da Gráfica: {data_belfar}")
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
@@ -1270,11 +1270,11 @@ tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), 
 
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arte Vigente (Referência)")
+    st.subheader("📄 Arte Vigente")
     pdf_ref = st.file_uploader("Envie o PDF ou DOCX de referência", type=["pdf", "docx"], key="ref")
 
 with col2:
-    st.subheader("📄 PDF da Gráfica (com colunas)")
+    st.subheader("📄 PDF da Gráfica")
     pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
@@ -1300,7 +1300,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arte Vigente (Referência)", "PDF da Gráfica", tipo_bula_selecionado)
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arte Vigente", "PDF da Gráfica", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
