@@ -659,11 +659,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
     
-    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.0) ---
+# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.12) ---
     def formatar_html_para_leitura(html_content):
         """
         Formata o texto "fluído" (sort=True) para um HTML "bonito".
-        Insere quebras de parágrafo ANTES de títulos e listas.
+        (v26.12) - Adiciona quebras DEPOIS dos títulos para evitar "texto grudado".
         """
         if html_content is None:
             return ""
@@ -671,27 +671,35 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # 1. Preserva parágrafos reais (linhas em branco) com um marcador
         html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
         
-        # 2. Adiciona quebras ANTES de títulos ALL CAPS (que estão em sua própria linha)
-        # Ex: \nUSO ORAL\n ou \nCOMPOSIÇÃO\n
+        # --- Regras de Quebra de Título (v26.12) ---
+        # Estas regras localizam um título (ex: "1. TÍTULO") e forçam
+        # quebras de parágrafo ANTES e DEPOIS dele.
+        
+        # 2. Títulos ALL CAPS (ex: COMPOSIÇÃO, APRESENTAÇÕES)
+        # Procura por: \n + TÍTULO EM MAIÚSCULO + \n
         html_content = re.sub(
-            r'\n([A-Z\s]{4,100})\n',
-            r'[[PARAGRAPH]]\1[[PARAGRAPH]]',
+            r'(\n)([A-Z\s]{4,100})(\n)',
+            r'[[PARAGRAPH]]\2[[PARAGRAPH]]',
             html_content
         )
         
-        # 3. Adiciona quebras ANTES de títulos numerados (ex: "1. PARA...", "9. O QUE...")
-        # Procura por \n, seguido de "d. " e uma letra maiúscula
+        # 3. Títulos Numerados (ex: "1. PARA QUE...", "9. O QUE...")
+        # Procura por: \n + "1. TÍTULO DA LINHA" + \n
+        # O [^\n]* garante que ele pegue a linha inteira até o \n
         html_content = re.sub(
-            r'(\n)(\d+\.\s+[A-Z])',  
-            r'[[PARAGRAPH]]\2',     
+            r'(\n)(\d+\.\s+[A-Z][^\n]*)(\n)',  
+            r'[[PARAGRAPH]]\2[[PARAGRAPH]]',   
             html_content
         )
         
-        # 4. Adiciona quebras ANTES de Títulos Finais (ex: "DIZERES LEGAIS")
-        titulos_finais = "|".join(["DIZERES LEGAIS", "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE"])
+        # 4. Títulos Finais (ex: "DIZERES LEGAIS")
+        titulos_finais_lista = ["DIZERES LEGAIS", "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE"]
+        titulos_finais_regex = "|".join(titulos_finais_lista)
+        
+        # Procura por: \n + "TÍTULO DA LISTA" + \n
         html_content = re.sub(
-            rf'(\n)({titulos_finais})',
-            r'[[PARAGRAPH]]\2',
+            rf'(\n)({titulos_finais_regex}[^\n]*)(\n)',
+            r'[[PARAGRAPH]]\2[[PARAGRAPH]]',
             html_content
         )
         
@@ -703,7 +711,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             html_content
         )
 
-        # 6. Remove todas as outras quebras de linha (que são de "fluidez")
+        # 6. Remove todas as OUTRAS quebras de linha (que são de "fluidez")
         html_content = html_content.replace('\n', ' ')
 
         # 7. Restaura os marcadores
@@ -711,6 +719,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
         
         return html_content
+    # --- FIM DA CORREÇÃO DE LAYOUT ---
     # --- FIM DA CORREÇÃO DE LAYOUT ---
 
     # Mostra primeiro as seções faltantes
