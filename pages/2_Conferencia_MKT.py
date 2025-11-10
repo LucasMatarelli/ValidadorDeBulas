@@ -94,6 +94,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
                 r'|BUL_CLORIDRATO_DE_A.*'
                 r'|AMBROXOL_BUL\d+V\d+.*'
+                r'|AFAZOLINA_BUL\d+V\d+.*'
                 r'|es New Roman.*'
                 r'|rpo \d+.*'
                 r'|olL: Times New Roman.*'
