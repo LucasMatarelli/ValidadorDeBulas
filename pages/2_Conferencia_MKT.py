@@ -212,12 +212,12 @@ def obter_aliases_secao():
     }
 
 def obter_secoes_ignorar_ortografia():
-    # Usa os nomes canônicos corretos (sem número)
-    return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
+    # (v26.9) - Seções que não passam pelo corretor ortográfico
+    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
 def obter_secoes_ignorar_comparacao():
-    # Retorna uma lista vazia para forçar a comparação de TODAS as seções.
-    return []
+    # (v26.9) - Retorna a lista de seções que NÃO devem ter o conteúdo comparado
+    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
