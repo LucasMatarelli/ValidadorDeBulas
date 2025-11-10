@@ -642,83 +642,83 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
 def formatar_html_para_leitura(html_content):
-        """
-        Formata o texto "fluído" (sort=True) para um HTML "bonito".
-        (v26.23) - Regras de regex quebram em partes menores e usam [\s\S]
-        para formatar títulos, mesmo se houver ruído ou quebras de linha.
-        """
-        if html_content is None:
-            return ""
+    """
+    Formata o texto "fluído" (sort=True) para um HTML "bonito".
+    (v26.23) - Regras de regex quebram em partes menores e usam [\s\S]
+    para formatar títulos, mesmo se houver ruído ou quebras de linha.
+    """
+    if html_content is None:
+        return ""
+    
+    html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
+    
+    titulos_lista = [
+        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
+        "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
         
-        html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
+        # --- MUDANÇAS ABAIXO (para bater com os títulos exatos) ---
         
-        titulos_lista = [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
-            "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
-            
-            # --- MUDANÇAS ABAIXO (para bater com os títulos exatos) ---
-            
-            # Seção 9 (permite ruído como 'mm')
-            r"(9\.\s*O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA[\s\S]*?DESTE MEDICAMENTO\?)",
-            r"(O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA[\s\S]*?DESTE MEDICAMENTO\?)",
-            
-            # Seção 8 (com espaço)
-            r"(8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
-            r"(QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
-
-            # Seção 7 (sem espaço)
-            r"(7\.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?)",
-            r"(O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?)",
-
-            # Seção 6 (com espaço)
-            r"(6\.\s*COMO DEVO USAR ESTE MEDICAMENTO\?)",
-            r"(COMO DEVO USAR ESTE MEDICAMENTO\?)",
-
-            # Seção 5 (com espaço)
-            r"(5\.\s*ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?)",
-            r"(ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?)",
-
-            # Seção 4 (sem espaço)
-            r"(4\.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?)",
-            r"(O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?)",
-
-            # Seção 3 (sem espaço)
-            r"(3\.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
-            r"(QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
-            
-            # Seção 2 (sem espaço)
-            r"(2\.COMO ESTE MEDICAMENTO FUNCIONA\?)",
-            r"(COMO ESTE MEDICAMENTO FUNCIONA\?)",
-
-            # Seção 1 (sem espaço)
-            r"(1\.PARA QUE ESTE MEDICAMENTO É INDICADO\?)",
-            r"(PARA QUE ESTE MEDICAMENTO É INDICADO\?)"
-        ]
+        # Seção 9 (permite ruído como 'mm')
+        r"(9\.\s*O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA[\s\S]*?DESTE MEDICAMENTO\?)",
+        r"(O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA[\s\S]*?DESTE MEDICAMENTO\?)",
         
-        regex_titulos = r'(' + '|'.join(titulos_lista) + r')'
+        # Seção 8 (com espaço)
+        r"(8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
+        r"(QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
 
-        html_content = re.sub(
-            regex_titulos,
-            r'[[PARAGRAPH]]<strong>\1</strong>', 
-            html_content,
-            flags=re.IGNORECASE
-        )
+        # Seção 7 (sem espaço)
+        r"(7\.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?)",
+        r"(O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?)",
 
-        html_content = re.sub(
-            r'(\n)(\s*[-–•*])',
-            r'[[LIST_ITEM]]\2',
-            html_content
-        )
+        # Seção 6 (com espaço)
+        r"(6\.\s*COMO DEVO USAR ESTE MEDICAMENTO\?)",
+        r"(COMO DEVO USAR ESTE MEDICAMENTO\?)",
 
-        html_content = html_content.replace('\n', ' ')
+        # Seção 5 (com espaço)
+        r"(5\.\s*ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?)",
+        r"(ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?)",
 
-        html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
-        html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
+        # Seção 4 (sem espaço)
+        r"(4\.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?)",
+        r"(O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?)",
+
+        # Seção 3 (sem espaço)
+        r"(3\.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
+        r"(QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
         
-        html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
-        html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
-        
-        return html_content
+        # Seção 2 (sem espaço)
+        r"(2\.COMO ESTE MEDICAMENTO FUNCIONA\?)",
+        r"(COMO ESTE MEDICAMENTO FUNCIONA\?)",
+
+        # Seção 1 (sem espaço)
+        r"(1\.PARA QUE ESTE MEDICAMENTO É INDICADO\?)",
+        r"(PARA QUE ESTE MEDICAMENTO É INDICADO\?)"
+    ]
+    
+    regex_titulos = r'(' + '|'.join(titulos_lista) + r')'
+
+    html_content = re.sub(
+        regex_titulos,
+        r'[[PARAGRAPH]]<strong>\1</strong>', 
+        html_content,
+        flags=re.IGNORECASE
+    )
+
+    html_content = re.sub(
+        r'(\n)(\s*[-–•*])',
+        r'[[LIST_ITEM]]\2',
+        html_content
+    )
+
+    html_content = html_content.replace('\n', ' ')
+
+    html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
+    html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
+    
+    html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
+    html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
+    
+    return html_content
 
     expander_caixa_style = (
         "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
