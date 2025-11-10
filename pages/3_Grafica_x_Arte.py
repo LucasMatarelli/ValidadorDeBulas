@@ -1261,7 +1261,7 @@ Gerado pelo sistema de Auditoria de Bulas — v31
     return html_page
 
 # ----------------- [ATUALIZADA - v31] INTERFACE PRINCIPAL -----------------
-st.title("🔬 Auditoria de Bulas — Gráfica x Arte")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
 
