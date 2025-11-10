@@ -52,30 +52,39 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- [ATUALIZADO - v32] CORRETOR E EMBELEZADOR DE OCR -----------------
+# ----------------- [NOVO - v33] CORRETOR DE ERROS OCR EXPANDIDO -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
+    v33: Expandido com mais correções baseadas no PDF real
     """
     if not texto:
         return ""
     
     correcoes = {
-        # Corrigir "Belfar"
+        # Correções de palavras compostas e nomes
         r"(?i)\b(3|1)lfar\b": "Belfar",
         r"(?i)\bBeifar\b": "Belfar",
         r"(?i)\b3elspan\b": "Belspan",
-        # Corrigir "USO"
-        r"(?i)\bmm\s+USO\b": "USO",
-        r"(?i)\bmma\b": "USO",
-        # Corrigir "NÃO"
-        r"(?i)\bNAO\b": "NÃO",
-        # Corrigir "COMPOSIÇÃO"
-        r"(?i)\bCOMPOSIÇAO\b": "COMPOSIÇÃO",
-        r"(?i)\bmm\s+COMPOSIÇÃO\b": "COMPOSIÇÃO",
-        # Corrigir "MEDICAMENTO"
-        r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO", # 0 -> O
         
-        # Correções da Imagem 827376.png e 917ed9.png
+        # Correções de palavras comuns
+        r"(?i)\bmecicamento\b": "medicamento",
+        r"(?i)\bmedicament0\b": "medicamento",
+        r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO",
+        
+        # USO
+        r"(?i)^mm\s+USO\b": "USO",
+        r"(?i)^mma\s+USO\b": "USO",
+        r"\bUSO\s+USO\b": "USO",
+        
+        # NÃO
+        r"(?i)\bNAO\b": "NÃO",
+        
+        # COMPOSIÇÃO
+        r"(?i)\bCOMPOSIÇAO\b": "COMPOSIÇÃO",
+        r"(?i)^mm\s+COMPOSIÇÃO": "COMPOSIÇÃO",
+        
+        # Palavras com letras trocadas
         r"(?i)\bJevido\b": "Devido",
         r"\"ertilidade\b": "Fertilidade",
         r"(?i)\bjperar\b": "operar",
@@ -84,13 +93,13 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\brereditários\b": "hereditários",
         r"(?i)\bralactosemia\b": "galactosemia",
         r"(?i)\bjacientes\b": "pacientes",
-        r"(?i)\bmm\s+Cada\b": "Cada",
+        r"(?i)^mm\s+Cada\b": "Cada",
         r"(?i)\bque\s+faz\b": "o que faz",
         r"(?i)\ba\s+dipirona\b": "à dipirona",
         r"(?i)\bà\s+probabilidade\b": "à probabilidade",
-        r"(?i)\bmm\s+Anticolinérgicos\b": "Anticolinérgicos",
-        r"(?i)\b“ompensarem\b": "compensarem",
-        r"(?i)\b“lorpromazina\b": "Clorpromazina",
+        r"(?i)^mm\s+Anticolinérgicos": "Anticolinérgicos",
+        r"(?i)\b\"ompensarem\b": "compensarem",
+        r"(?i)\b\"lorpromazina\b": "Clorpromazina",
         r"(?i)\bsindrome\b": "síndrome",
         r"(?i)\bJurticária-angioedema\b": "urticária-angioedema",
         r"(?i)\bBelspan\s+or\b": "Belspan for",
@@ -112,128 +121,146 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bjossuem\b": "possuem",
         r"(?i)\braves\b": "graves",
         r"(?i)\blérgica\b": "alérgica",
+        
+        # Correções de caracteres especiais/lixo
+        r"\bc\.t\s+": "",
+        r"\bciirereeas\s+": "",
+        r"\bq\.s\.p\s+\"?si\s+": "q.s.p. ",
+        r"\"\"": "",
+        r"Too\s+\"": "",
+        r"raio\s+ra\s+m——": "",
+        r"\bHM\s+": "",
+        r"\bTR\"?\s+": "",
+        r"\bBRR\s+": "",
+        r"\|": "",
+        
+        # Correções de números
+        r"(?i)\bJ[O0]\s*mg\b": "10 mg",
+        r"(?i)\bJO\s*mg\b": "10 mg",
+        
+        # Correções de pontuação
+        r"\s+([,;:\.\?\!%°])": r"\1",
+        r"(\()\s+": r"\1",
+        r"\s+(\))": r"\1",
     }
     
     for padrao, correcao in correcoes.items():
-        texto = re.sub(padrao, correcao, texto)
+        texto = re.sub(padrao, correcao, texto, flags=re.MULTILINE)
+    
     return texto
 
+
+# ----------------- [NOVO - v33] LIMPEZA ULTRA CONSERVADORA -----------------
 def melhorar_layout_grafica(texto: str) -> str:
     """
-    Heurísticas para melhorar a formatação resultante do OCR:
-    - junta linhas cortadas
-    - corrige ruídos comuns
-    - normaliza títulos e unidades
-    v33: Lógica de junção mais conservadora para preservar a estrutura do PDF
+    v33: Limpeza MÍNIMA - preserva ao máximo a estrutura do OCR
+    Apenas remove lixo óbvio e normaliza espaçamento
     """
     if not texto or not isinstance(texto, str):
         return ""
 
-    # 1. Aplicar correções de palavras primeiro
+    # 1. Aplicar correções de palavras PRIMEIRO
     texto = corrigir_erros_ocr_comuns(texto)
 
-    # 2. Normalizações básicas
+    # 2. Normalizações básicas de quebras
     texto = texto.replace('\r\n', '\n').replace('\r', '\n')
     texto = texto.replace('\t', ' ')
     texto = re.sub(r'\u00A0', ' ', texto)
 
-    # 3. Corrigir hífen de quebra (hifenização) - MAIS ESPECÍFICO
+    # 3. Corrigir hífen de quebra APENAS (palavra-\npalavra -> palavrapalavra)
     texto = re.sub(r"(\w+)-\s*\n\s*(\w+)", r"\1\2", texto)
     
-    # 4. Remover lixo de OCR (pontos de formatação, etc.)
-    texto = re.sub(r'(\.|\s){5,}', ' ', texto)
-    texto = re.sub(r'[«»"ÉÀ"""]', '', texto)
-    texto = re.sub(r'\bBEE\s\*\b', '', texto)
-    texto = re.sub(r'\b(mm|mma)\b', '', texto, flags=re.IGNORECASE)
-
-    # 5. Lógica CONSERVADORA de junção de linhas
+    # 4. Remover lixo de OCR óbvio
+    texto = re.sub(r'(\.|\s){7,}', ' ', texto)  # Muitos pontos/espaços
+    texto = re.sub(r'[«»"""ÉÀ]', '', texto)  # Caracteres estranhos
+    texto = re.sub(r'\bBEE\s*\*\b', '', texto, flags=re.IGNORECASE)
+    
+    # 5. Remover linhas de lixo técnico
     linhas = texto.split('\n')
-    novas_linhas = []
+    linhas_limpas = []
     
-    if not linhas:
-        return ""
-    
-    # Padrões de títulos que NUNCA devem ser juntados
-    padroes_titulo = [
-        r'^\d+\.\s+[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ]',  # Ex: "1. PARA QUE"
-        r'^[A-ZÁÀÂÃÉÊÍÓÔÕÚÇ]{3,}',       # Ex: "APRESENTAÇÕES"
-        r'^COMPOSIÇÃO$',
-        r'^DIZERES LEGAIS$',
-        r'^USO\s+(ORAL|ADULTO)',
-        r'^Belspan$',
-        r'^butilbrometo',
+    padroes_lixo_linha_completa = [
+        r'^mm\s*$',
+        r'^mma\s*$',
+        r'^Too\s*$',
+        r'^raio\s+ra\s+m-+\s*$',
+        r'^HM\s*$',
+        r'^TR\s*$',
+        r'^BRR\s*$',
+        r'^\s*\|\s*$',
+        r'^\s*-{5,}\s*$',
+        r'^\s*\d+\s*$',  # Linha só com número
     ]
     
-    def eh_titulo(linha: str) -> bool:
-        """Verifica se a linha é um título que não deve ser juntado"""
+    for linha in linhas:
         linha_limpa = linha.strip()
+        
+        # Pula linha vazia
         if not linha_limpa:
-            return False
-        for padrao in padroes_titulo:
-            if re.match(padrao, linha_limpa):
-                return True
-        # Título se for tudo maiúsculo e tiver mais de 5 caracteres
-        if linha_limpa.isupper() and len(linha_limpa) > 5:
-            return True
-        return False
-    
-    # Adiciona primeira linha
-    if linhas[0].strip():
-        novas_linhas.append(linhas[0])
-    
-    for i in range(1, len(linhas)):
-        linha_anterior = novas_linhas[-1].strip() if novas_linhas else ""
-        linha_atual = linhas[i].strip()
-
-        # Se a linha atual está vazia
-        if not linha_atual:
-            # Adiciona no máximo UMA linha vazia
-            if linha_anterior and (not novas_linhas or novas_linhas[-1] != ""):
-                novas_linhas.append("")
+            linhas_limpas.append("")
             continue
         
-        # NUNCA juntar se:
-        # 1. Linha anterior está vazia
-        # 2. Linha anterior termina com pontuação forte
-        # 3. Linha atual é um título
-        # 4. Linha atual começa com letra maiúscula seguida de palavra curta (possível título)
-        # 5. Linha anterior é muito curta (< 40 caracteres) - provavelmente título/subtítulo
-        # 6. Linha atual começa com número ou bullet point
+        # Checa se é lixo
+        eh_lixo = False
+        for padrao_lixo in padroes_lixo_linha_completa:
+            if re.match(padrao_lixo, linha_limpa, re.IGNORECASE):
+                eh_lixo = True
+                break
         
-        if (not linha_anterior or 
-            linha_anterior.endswith(('.', '?', '!', ':', ';')) or
-            eh_titulo(linha_atual) or
-            eh_titulo(linha_anterior) or
-            len(linha_anterior) < 40 or
-            re.match(r'^\d+[\.\)\-]', linha_atual) or
-            re.match(r'^[•\-\*]', linha_atual) or
-            linha_atual[0].isupper() and len(linha_atual.split()) <= 4):
+        if not eh_lixo:
+            linhas_limpas.append(linha)
+    
+    texto = "\n".join(linhas_limpas)
+
+    # 6. NÃO JUNTAR LINHAS - preservar estrutura original
+    # Apenas limpar múltiplas quebras excessivas (mais de 3)
+    texto = re.sub(r'\n{4,}', '\n\n\n', texto)
+    
+    # 7. Limpar espaços múltiplos DENTRO das linhas
+    linhas_final = []
+    for linha in texto.split('\n'):
+        linha = re.sub(r'[ \t]{2,}', ' ', linha)
+        linhas_final.append(linha.strip())
+    
+    texto = "\n".join(linhas_final)
+    
+    return texto.strip()
+
+
+# ----------------- [ATUALIZADO - v33] OCR COM MELHOR CONFIGURAÇÃO -----------------
+def extrair_pdf_ocr_colunas_v32(arquivo_bytes: bytes) -> str:
+    """
+    v33: OCR otimizado com configurações para melhor precisão
+    """
+    texto_total = ""
+    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+        st.info(f"Forçando OCR em {len(doc)} página(s)...")
+        for i, page in enumerate(doc):
+            rect = page.rect
+            margin_y = 20
             
-            novas_linhas.append(linhas[i])
-        else:
-            # Só junta se a linha anterior NÃO terminar com :
-            # E se ambas as linhas tiverem mais de 3 palavras
-            if (not linha_anterior.endswith(':') and 
-                len(linha_anterior.split()) >= 3 and 
-                len(linha_atual.split()) >= 3):
-                novas_linhas[-1] = novas_linhas[-1] + " " + linhas[i]
-            else:
-                novas_linhas.append(linhas[i])
+            # Define as duas colunas
+            rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
+            rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
+            
+            # Configuração OCR otimizada para português
+            # --psm 6: Assume um bloco uniforme de texto
+            # --oem 3: Usa LSTM + Legacy (melhor precisão)
+            ocr_config = r'--psm 6 --oem 3 -c preserve_interword_spaces=1'
+            
+            # OCR da Coluna 1
+            pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
+            img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
+            texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
+            
+            # OCR da Coluna 2
+            pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
+            img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
+            texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
+            
+            texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
     
-    texto = "\n".join(novas_linhas)
-
-    # 6. Corrigir padrões OCR específicos
-    texto = re.sub(r"\bJ[O0]\s*mg\b", "10 mg", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"\bJO\s*mg\b", "10 mg", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"\s+([,;:\.\?\!%°])", r"\1", texto)
-
-    # 7. Limpeza final - MAIS CONSERVADORA
-    texto = texto.strip()
-    texto = re.sub(r'\n{4,}', '\n\n\n', texto)  # Permite até 3 quebras
-    texto = re.sub(r'[ \t]{2,}', ' ', texto)
-    
-    return texto
-
+    return texto_total
 # ----------------- [NOVO - v32] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
 def extrair_pdf_ocr_colunas_v32(arquivo_bytes: bytes) -> str:
     """
