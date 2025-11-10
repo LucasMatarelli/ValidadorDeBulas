@@ -584,3 +584,289 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 pattern,
                 r"<mark style='background-color: #FFDDC1; padding: 2px;'>\1</mark>",
                 texto_trabalho,
+                flags=re.IGNORECASE
+            )
+            
+    # 3. Marca Azul (ANVISA) POR ÚLTIMO
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
+    
+    def remove_marks_da_data(match):
+        frase_anvisa = match.group(1)
+        frase_limpa = re.sub(r'<mark.*?>|</mark>', '', frase_anvisa)
+        return f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_limpa}</mark>"
+
+    texto_trabalho = re.sub(
+        regex_anvisa,
+        remove_marks_da_data,
+        texto_trabalho,
+        count=1,
+        flags=re.IGNORECASE
+    )
+            
+    return texto_trabalho
+
+
+# ----------------- RELATÓRIO -----------------
+def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
+    st.header("Relatório de Auditoria Inteligente")
+    
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
+    
+    match_ref = re.search(regex_anvisa, texto_ref.lower()) if texto_ref else None
+    match_belfar = re.search(regex_anvisa, texto_belfar.lower()) if texto_belfar else None
+    
+    data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
+    data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
+
+    texto_ref_safe = texto_ref or ""
+    texto_belfar_safe = texto_belfar or ""
+
+    secoes_faltantes, relatorio_comparacao_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref_safe, texto_belfar_safe, tipo_bula)
+    
+    erros_ortograficos = checar_ortografia_inteligente(texto_belfar_safe, texto_ref_safe, tipo_bula)
+    score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
+
+    st.subheader("Dashboard de Veredito")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
+    col2.metric("Erros Ortográficos", len(erros_ortograficos))
+    col3.metric("Data ANVISA (Arquivo ANVISA)", data_ref)
+    col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
+
+    st.divider()
+    st.subheader("Detalhes dos Problemas Encontrados")
+    
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
+    
+    
+    def formatar_html_para_leitura(html_content):
+        """
+        Formata o texto "fluído" (sort=True) para um HTML "bonito".
+        (v26.23) - Regras de regex quebram em partes menores e usam [\s\S]
+        para formatar títulos, mesmo se houver ruído ou quebras de linha.
+        """
+        if html_content is None:
+            return ""
+        
+        html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
+        
+        titulos_lista = [
+            "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
+            "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
+            
+            r"(9\.\s*O QUE FAZER SE ALGUEM[\s\S]*?DESTE MEDICAMENTO\?)",
+            r"(O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR[\s\S]*?DESTE MEDICAMENTO\?)",
+            r"(8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO[\s\S]*?ME CAUSAR\?)",
+            r"(QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
+            r"(7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER[\s\S]*?DESTE MEDICAMENTO\?)",
+            r"(O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?)",
+            r"(6\.\s*COMO DEVO USAR ESTE MEDICAMENTO\?)",
+            r"(COMO DEVO USAR ESTE MEDICAMENTO\?)",
+            r"(5\.\s*ONDE, COMO E POR QUANTO TEMPO[\s\S]*?GUARDAR ESTE MEDICAMENTO\?)",
+            r"(ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?)",
+            r"(4\.\s*O QUE DEVO SABER ANTES[\s\S]*?USAR ESTE MEDICAMENTO\?)",
+            r"(O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?)",
+            r"(3\.\s*QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
+            r"(QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
+            r"(2\.\s*COMO ESTE MEDICAMENTO FUNCIONA\?)",
+            r"(COMO ESTE MEDICAMENTO FUNCIONA\?)",
+            r"(1\.\s*PARA QUE ESTE MEDICAMENTO[\s\S]*?É INDICADO\?)",
+            r"(PARA QUE ESTE MEDICAMENTO É INDICADO\?)"
+        ]
+        
+        regex_titulos = r'(' + '|'.join(titulos_lista) + r')'
+
+        html_content = re.sub(
+            regex_titulos,
+            r'[[PARAGRAPH]]<strong>\1</strong>', 
+            html_content,
+            flags=re.IGNORECASE
+        )
+
+        html_content = re.sub(
+            r'(\n)(\s*[-–•*])',
+            r'[[LIST_ITEM]]\2',
+            html_content
+        )
+
+        html_content = html_content.replace('\n', ' ')
+
+        html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
+        html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
+        
+        html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
+        html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
+        
+        return html_content
+
+    expander_caixa_style = (
+        "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
+        "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
+        "font-family: 'Georgia', 'Times New Roman', serif; text-align: left;"
+        "overflow-wrap: break-word; word-break: break-word;"
+    )
+
+    if secoes_faltantes:
+        st.error(f"🚨 **Seções faltantes na bula Arquivo MKT ({len(secoes_faltantes)})**:\n" + "\n".join([f"  - {s}" for s in secoes_faltantes]))
+    else:
+        st.success("✅ Todas as seções obrigatórias estão presentes")
+    
+    st.markdown("---")
+    st.subheader("Análise Detalhada Seção por Seção")
+
+    for item in relatorio_comparacao_completo:
+        secao_nome = item['secao']
+        status = item['status']
+        conteudo_ref_str = item.get('conteudo_ref') or ""
+        conteudo_belfar_str = item.get('conteudo_belfar') or ""
+        
+        is_ignored_section = secao_nome.upper() in [s.upper() for s in obter_secoes_ignorar_comparacao()]
+
+        if status == 'diferente':
+            with st.expander(f"📄 {secao_nome} - ❌ CONTEÚDO DIVERGENTE"):
+                html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
+                    conteudo_ref_str, conteudo_belfar_str, eh_referencia=True
+                )
+                html_belfar_bruto_expander = marcar_diferencas_palavra_por_palavra(
+                    conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
+                )
+                
+                expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
+                expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Arquivo ANVISA:**")
+                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
+                with c2:
+                    st.markdown("**Arquivo MKT:**")
+                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
+        
+        elif status == 'identica':
+            expander_title = f"📄 {secao_nome} - ✅ CONTEÚDO IDÊNTICO"
+            if is_ignored_section:
+                expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
+
+            with st.expander(expander_title):
+                expander_html_ref = formatar_html_para_leitura(conteudo_ref_str)
+                expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str)
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Arquivo ANVISA:**")
+                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
+                with c2:
+                    st.markdown("**Arquivo MKT:**")
+                    st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
+
+    if erros_ortograficos:
+        st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
+
+    diferencas_conteudo_count = sum(1 for item in relatorio_comparacao_completo if item['status'] == 'diferente')
+
+    if not any([secoes_faltantes, diferencas_conteudo_count > 0, diferencas_titulos]) and len(erros_ortograficos) < 5:
+        st.success("🎉 **Bula aprovada!** Nenhum problema crítico encontrado.")
+
+    st.divider()
+    st.subheader("Visualização Lado a Lado com Destaques")
+
+    legend_style = (
+        "font-size: 14px; "
+        "background-color: #f0f2f6; "
+        "padding: 10px 15px; "
+        "border-radius: 8px; "
+        "margin-bottom: 15px;"
+    )
+    
+    st.markdown(
+        f"<div style='{legend_style}'>"
+        "<strong>Legenda:</strong> "
+        "<mark style='background-color: #ffff99; padding: 2px; margin: 0 2px;'>Amarelo</mark> = Divergências | "
+        "<mark style='background-color: #FFDDC1; padding: 2px; margin: 0 2px;'>Rosa</mark> = Erros ortográficos | "
+        "<mark style='background-color: #cce5ff; padding: 2px; margin: 0 2px;'>Azul</mark> = Data ANVISA"
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+    html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
+    html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
+
+    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
+    html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
+
+
+    caixa_style = (
+        "max-height: 700px; "
+        "overflow-y: auto; "
+        "border: 1px solid #e0e0e0; "
+        "border-radius: 8px; "
+        "padding: 20px 24px; "
+        "background-color: #ffffff; "
+        "font-size: 15px; "
+        "line-height: 1.7; "
+        "box-shadow: 0 4px 12px rgba(0,0,0,0.08); "
+        "text-align: left; "
+        "overflow-wrap: break-word; "
+        "word-break: break-word; "
+    )
+    
+    title_style = (
+        "font-size: 1.25rem; "
+        "font-weight: 600; "
+        "margin-bottom: 8px; "
+        "color: #31333F;"
+    )
+    
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        st.markdown(f"<div style='{title_style}'>{nome_ref}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='{caixa_style}'>{html_ref_marcado}</div>", unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+    
+
+# ----------------- INTERFACE -----------------
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
+st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
+st.divider()
+
+st.header("📋 Configuração da Auditoria")
+tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente"), horizontal=True)
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("📄 Arquivo ANVISA")
+    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+with col2:
+    st.subheader("📄 Arquivo MKT")
+    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
+
+if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+    if pdf_ref and pdf_belfar:
+        with st.spinner("🔄 Processando e analisando as bulas..."):
+            
+            tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
+            
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
+            
+            if not erro_ref:
+                texto_ref = corrigir_quebras_em_titulos(texto_ref) 
+                texto_ref = truncar_apos_anvisa(texto_ref)
+            
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+            
+            if not erro_belfar:
+                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                texto_belfar = truncar_apos_anvisa(texto_belfar)
+
+            if erro_ref or erro_belfar:
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") 
+            elif not texto_ref or not texto_belfar:
+                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
+            else:
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
+    else:
+        st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
+
+st.divider()
+st.caption("Sistema de Auditoria de Bulas v26.26 | Títulos Enumerados + Filtro Aprimorado")
