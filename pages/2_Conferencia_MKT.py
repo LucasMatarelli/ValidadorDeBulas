@@ -229,11 +229,12 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
-    # (v26.10) - Retorna o texto normalizado, mas mantendo a numeração
-    # (ex: "1. TÍTULO") para uma comparação de título mais rigorosa.
-    # A função 'normalizar_texto' já remove o ponto (ex: "1." vira "1"),
-    # mas mantém o número.
-    return normalizar_texto(texto)
+    # (v26.15) - Remove a numeração (ex: "1. ", "1.", "1) ")
+    # do início para a comparação.
+    # Isto trata "1. TÍTULO" e "TÍTULO" como idênticos.
+    texto_norm = normalizar_texto(texto)
+    texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
+    return texto_norm
 
 # ----------------- CORREÇÃO DE TÍTULOS BELFAR -----------------
 def corrigir_quebras_em_titulos(texto):
