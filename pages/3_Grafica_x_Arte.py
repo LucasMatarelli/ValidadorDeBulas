@@ -180,7 +180,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bcom\)\s*uso\b": "com o uso", # CORRIGIDO: \)
         r"(?i)\ble\s+gravidez\b": "de gravidez",
         r"(?i)\bleve\s+ser\b": "deve ser",
-        r"(?i)\bnodo,\b": "modo,", # Erro da screenshot
+        r"(?i)\bnodo\b": "modo", # Erro da screenshot
         r"(?i)\bomar\s+cuidado\b": "tomar cuidado", # Erro da screenshot
         r"(?i)\badministração\b": "administração", # Erro da screenshot
         r"(?i)\banti-\s+histamínicos\b": "anti-histamínicos",
