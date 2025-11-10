@@ -91,7 +91,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
                 r'|^\s*\d+\s*mm\s*$'
                 r'|BUL_CLORIDRATO_DE_NA 190'
-                T   r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
+                r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
                 r'|BUL_CLORIDRATO_DE_A.*'
                 r'|AMBROXOL_BUL\d+V\d+.*'
                 r'|es New Roman.*'
