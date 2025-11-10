@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
-# Versão v26.26
+# Versão v26.27
 # Alterações solicitadas:
 # 1. Enumera os títulos do arquivo ANVISA (como o MKT).
-# 2. Ignora corretamente “New Roman” e “BUL_CLORIDRATO_DE_NA 190”.
+# 2. Ignora corretamente variantes de “New Roman” e “BUL_CLORIDRATO_DE_NA 190”.
 
 # --- IMPORTS ---
 import re
@@ -19,6 +19,7 @@ from spellchecker import SpellChecker
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
 def carregar_modelo_spacy():
+    """Carrega o modelo de linguagem SpaCy de forma otimizada."""
     try:
         return spacy.load("pt_core_news_lg")
     except OSError:
@@ -27,102 +28,132 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.26) -----------------
+# ----------------- EXTRAÇÃO (v26.27) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
-    """Extrai texto de arquivos PDF ou DOCX e remove ruídos específicos."""
+    """
+    Extrai texto de arquivos.
+    Usa sort=True DENTRO de cada coluna,
+    para fluir o texto e deixar o layout "bonitinho".
+    """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
-
     try:
         arquivo.seek(0)
         texto = ""
         full_text_list = []
-
+        
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 if is_marketing_pdf:
+                    # Lógica de 2 colunas SÓ para o PDF do Marketing
                     for page in doc:
                         rect = page.rect
                         clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
                         clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
-                        texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
-                        texto_direita = page.get_text("text", clip=clip_direita, sort=True)
+                        
+                        texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True) # COM SORT
+                        texto_direita = page.get_text("text", clip=clip_direita, sort=True)  # COM SORT
+                        
                         full_text_list.append(texto_esquerda)
                         full_text_list.append(texto_direita)
                 else:
+                    # Lógica de 1 coluna (padrão) para o PDF da Anvisa
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
-                texto = "\n\n".join(full_text_list)
-
+            
+            texto = "\n\n".join(full_text_list)
+        
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto = "\n".join([p.text for p in doc.paragraphs])
-
+        
         if texto:
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
-            texto = texto.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
+            texto = texto.replace('\r\n', '\n').replace('\r', '\n')
+            texto = texto.replace('\u00A0', ' ') # Substitui non-breaking space
+            
+            # --- FILTRO DE RUÍDO (v26.27) ---
+            
+            # Padrão 1: Remove LINHAS INTEIRAS que são ruído
+            padrao_ruido_linha = re.compile(
+                r'bula do paciente|página \d+\s*de\s*\d+'
+                r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
+                r'|(Impressãe|Impressão):? Frente/Verso|Papel[\.:]? Ap \d+gr'
+                r'|Cor:? Preta|contato:?|artes@belfar\.com\.br'
+                r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
+                r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
+                r'|^\s*\d+\s*mm\s*$' # Linha contendo APENAS "mm"
+                r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
+                r'|BUL_CLORIDRATO_DE_A.*'
+                r'|\d{2}\s\d{4}\s\d{4}.*'
+                r'|cloridrato de ambroxo\s*$'
+                r'|Normal e Negrito\. Co\s*$'
+                r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL' # Ruído do topo
+            , re.IGNORECASE)
 
-        # --- FILTRO DE RUÍDO (v26.26) ---
-        padrao_ruido_linha = re.compile(
-            r'bula do paciente|página \d+\s*de\s*\d+'
-            r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
-            r'|(Impressãe|Impressão):? Frente/Verso|Papel[\.:]? Ap \d+gr'
-            r'|Cor:? Preta|contato:?|artes@belfar\.com\.br'
-            r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
-            r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
-            r'|^\s*\d+\s*mm\s*$'
-            r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
-            r'|BUL_CLORIDRATO_DE_A.*'
-            r'|\d{2}\s\d{4}\s\d{4}.*'
-            r'|cloridrato de ambroxo\s*$'
-            r'|Normal e Negrito\. Co\s*$'
-            r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL',
-            re.IGNORECASE
-        )
+            # Padrão 2: Remove FRAGMENTOS de ruído (AGORA APLICADO ANTES DO SPLIT)
+            padrao_ruido_inline = re.compile(
+                # trata várias variantes "BUL ... CLORIDRATO DE ... NA ... 190"
+                r'BUL[\s_\-]*CLORIDRATO[\s_\-]*DE[\s_\-]*N[Aa][A-Za-z0-9_\-]*\s*[,:\-]?\s*190'
+                r'|BUL_CLORIDRATO_DE_NA\s*190'                  # redundância explícita
+                # variantes de Times New Roman / New Roman com quebras, underscores, etc.
+                r'|Times[\s_\-]*New[\s_\-]*Roman'
+                r'|New[\s_\n\r\t\v\f]*Roman'
+                r'|NewRoman'
+                r'|New[\s_\-]*Roman[\s_\-]*o.*?AZOLINA'         # variante estranha que apareceu no código original
+                # Outras regras já listadas
+                r'|AFAZOLINA_BUL\d+V\d+.*?'
+                r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
+                r'|AMBROXOL_BUL\d+V\d+'
+                r'|es New Roman.*?'
+                r'|rpo \d+.*?'
+                r'|olL: Times New Roman.*?'
+            , re.IGNORECASE | re.DOTALL)
 
-        # Ignora completamente as ocorrências dessas duas strings, mesmo que estejam "grudadas" no texto:
-        texto = re.sub(r'New\s*Roman', ' ', texto, flags=re.IGNORECASE)
-        texto = re.sub(r'BUL_CLORIDRATO_DE_NA\s*190', ' ', texto, flags=re.IGNORECASE)
+            # ***** LÓGICA CORRETA (v26.27) *****
+            # 1. Normaliza e remove padrões inline que quebrem títulos
+            texto = padrao_ruido_inline.sub(' ', texto)
 
-        # Aplicar split e remoção de ruído linha a linha
-        linhas = texto.split('\n')
-        linhas_filtradas = []
-        for linha in linhas:
-            linha_strip = linha.strip()
-            if padrao_ruido_linha.search(linha_strip):
-                continue
-            linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
-            if len(linha_limpa) > 1 or (len(linha_limpa) == 1 and linha_limpa.isdigit()):
-                linhas_filtradas.append(linha_limpa)
-            elif linha_limpa.isupper() and len(linha_limpa) > 0:
-                linhas_filtradas.append(linha_limpa)
+            # 1.b adicional — remove palavras isoladas conhecidas problemáticas
+            texto = re.sub(r'\bNew\s*Roman\b', ' ', texto, flags=re.IGNORECASE)
+            texto = re.sub(r'\bTimes\s*New\s*Roman\b', ' ', texto, flags=re.IGNORECASE)
+            texto = re.sub(r'\bBUL_CLORIDRATO_DE_NA\s*190\b', ' ', texto, flags=re.IGNORECASE)
+            # Também remove variantes com espaços/substitutos:
+            texto = re.sub(r'BUL[\s_\-]*CLORIDRATO[\s_\-]*DE[\s_\-]*NA[\s_\-]*190', ' ', texto, flags=re.IGNORECASE)
 
-        texto = "\n".join(linhas_filtradas)
-        texto = re.sub(r'\n{3,}', '\n\n', texto)
-        texto = re.sub(r'[ \t]+', ' ', texto)
-        texto = texto.strip()
+            # 2. AGORA, splitar o texto limpo em linhas
+            linhas = texto.split('\n')
+            
+            # 3. Aplicar o filtro de LINHA INTEIRA
+            linhas_filtradas = []
+            for linha in linhas:
+                linha_strip = linha.strip()
+                
+                # Checa se a LINHA INTEIRA é ruído
+                if padrao_ruido_linha.search(linha_strip):
+                    continue # Pula esta linha
+
+                # Remove espaços duplos que o ".sub" anterior possa ter deixado
+                linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
+                
+                # Adiciona a linha limpa (se não estiver vazia)
+                if len(linha_limpa) > 1 or (len(linha_limpa) == 1 and linha_limpa.isdigit()):
+                    linhas_filtradas.append(linha_limpa)
+                elif linha_limpa.isupper() and len(linha_limpa) > 0:
+                    linhas_filtradas.append(linha_limpa)
+            
+            # 4. Juntar o texto final
+            texto = "\n".join(linhas_filtradas)
+            
+            texto = re.sub(r'\n{3,}', '\n\n', texto)  
+            texto = re.sub(r'[ \t]+', ' ', texto) # Limpeza final
+            texto = texto.strip()
+
         return texto, None
-
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-
-# ----------------- ENUMERAÇÃO DOS TÍTULOS (NOVO) -----------------
-def enumerar_titulos_anvisa(texto):
-    """Numera os títulos do arquivo da ANVISA conforme o padrão do arquivo MKT."""
-    linhas = texto.split('\n')
-    titulos_numerados = []
-    contador = 1
-    for linha in linhas:
-        if linha.isupper() and len(linha) < 80 and not linha.endswith(':'):
-            # adiciona numeração se parecer um título
-            titulos_numerados.append(f"{contador}. {linha}")
-            contador += 1
-        else:
-            titulos_numerados.append(linha)
-    return "\n".join(titulos_numerados)
-
 
 # Função 'truncar_apos_anvisa' reescrita para cortar o lixo na mesma linha.
 def truncar_apos_anvisa(texto):
@@ -228,6 +259,32 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = normalizar_texto(texto)
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
+
+# ----------------- ENUMERAÇÃO FORTE (NOVO) -----------------
+def aplicar_enumeracao_oficial_anvisa(texto, tipo_bula):
+    """
+    Substitui os títulos encontrados no texto pelo rótulo canônico numerado
+    na ordem de `obter_secoes_por_tipo(tipo_bula)`. Isso garante que o
+    Arquivo ANVISA mostre exatamente as mesmas etiquetas numéricas do MKT.
+    """
+    if not isinstance(texto, str) or not texto.strip():
+        return texto
+
+    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
+    # Cria mapa a partir do texto (após limpeza) para localizar os títulos
+    mapa = mapear_secoes(texto, secoes_esperadas)
+    linhas = texto.split('\n')
+
+    # Para cada título mapeado, substitui a linha do título pelo canônico (secao esperada)
+    for entrada in mapa:
+        canonico = entrada['canonico']  # ex: "1. PARA QUE..."
+        linha_idx = entrada['linha_inicio']
+        # protege índices fora do range
+        if 0 <= linha_idx < len(linhas):
+            # substitui diretamente pela forma canônica
+            linhas[linha_idx] = canonico
+
+    return "\n".join(linhas)
 
 # ----------------- CORREÇÃO DE TÍTULOS BELFAR -----------------
 def corrigir_quebras_em_titulos(texto):
@@ -338,8 +395,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
-
-
+    
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
     """
     Extrai o conteúdo de uma seção com base no mapa pré-processado.
