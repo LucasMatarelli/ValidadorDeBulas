@@ -1128,10 +1128,10 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("**Referência:** (Clique na caixa para rolar)")
+                st.markdown("**Arte Vigente:** (Clique na caixa para rolar)")
                 st.markdown(html_ref_box, unsafe_allow_html=True)
             with c2:
-                st.markdown("**BELFAR:** (Clique na caixa para rolar)")
+                st.markdown("**PDF da Gráfica:** (Clique na caixa para rolar)")
                 st.markdown(html_bel_box, unsafe_allow_html=True)
     # --- [FIM DA MUDANÇA v31] ---
     
