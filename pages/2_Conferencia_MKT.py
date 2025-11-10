@@ -32,6 +32,7 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO (v26.16 - Filtro Inline) -----------------
+# ----------------- EXTRAÇÃO (v26.18 - Filtro Inline Otimizado) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
@@ -79,7 +80,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO (v26.16) ---
+            # --- FILTRO DE RUÍDO (v26.18) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha = re.compile(
@@ -100,10 +101,11 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
             # Padrão 2: Remove FRAGMENTOS de ruído de DENTRO das linhas
             padrao_ruido_inline = re.compile(
-                r'BUL_CLORIDRATO_DE_NA\s*190' 
-                r'|AFAZOLINA_BUL\d+V\d+.*?(New\s+Roman|mm)?' 
+                r'BUL_CLORIDRATO_DE_NA\s*\d+' # Captura "BUL_CLORIDRATO_DE_NA 190" e variações
+                r'|AFAZOLINA_BUL\d+V\d+.*?(\s*New\s*Roman|\s*mm)?' # Variações de AFAZOLINA
                 r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
                 r'|AMBROXOL_BUL\d+V\d+'
+                r'|New\s*Roman\s*o\s*\d+\s*AZOLINA\s*:\s*Tim\s*mm' # Captura o ruído "New Roman o 10 AZOLINA : Tim mm"
                 r'|es New Roman.*?' # Tornar não-ganancioso
                 r'|rpo \d+.*?' # Tornar não-ganancioso
                 r'|olL: Times New Roman.*?' # Tornar não-ganancioso
