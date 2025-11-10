@@ -6,8 +6,9 @@
 # v32: Mantém 'melhorar_layout_grafica' (original, conservador) para corrigir e formatar.
 # v32: Mantém o Relatório Completo (mostra todas as seções).
 # v32: Mantém a Comparação Literal.
-# v32 (Gemini patch 4): Remove regras de correção (1so, usso) que estavam estragando palavras corretas (uso).
-# v32 (Gemini patch 4): Adiciona regras específicas para 'A probabilidade' e 'usso' -> 'uso'.
+# v32 (Gemini patch 5): CORRIGE '1so' para 'uso' (em vez de 'usso')
+# v32 (Gemini patch 5): ADICIONA 'lipirona' para 'dipirona'
+# v32 (Gemini patch 5): Mantém a correção da Seção 6 e todos os outros filtros.
 
 # --- IMPORTS ---
 
@@ -63,8 +64,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     if not texto:
         return ""
     
-    # --- [INÍCIO DA CORREÇÃO v4] ---
-    # Removidas/Ajustadas regras que causavam falsos positivos (ex: uso -> isso)
+    # --- [INÍCIO DA CORREÇÃO v5] ---
     correcoes = {
         # Correções de palavras compostas e nomes
         r"(?i)\b(3|1)lfar\b": "Belfar",
@@ -145,8 +145,8 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bBelspan\s+or\b": "Belspan for",
         r"(?i)\bocê\b": "você",
         r"(?i)\basos\b": "casos",
-        # r"(?i)\b1so\b": "isso", # <-- REMOVIDA. Muito perigosa.
-        r"(?i)\busso\b": "uso", # <-- CORRIGIDA de "isso" para "uso".
+        r"(?i)\b1so\b": "uso", # <-- CORREÇÃO: 1so -> uso
+        # r"(?i)\busso\b": "uso", # <-- REMOVIDA
         r"(?i)\bmergência\b": "emergência",
         r"(?i)\bjaracetamol\b": "paracetamol",
         r"(?i)\bropifenazona\b": "propifenazona",
@@ -196,6 +196,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\brespitarórios\b": "respiratórios",
         r"(?i)\bTeste laboratoriais\b": "Testes laboratoriais",
         r"(?i)\bse ALGUM usar\b": "se ALGUÉM usar",
+        r"(?i)\blipirona\b": "dipirona", # <-- ADICIONADA
         r"\s+mm\b": "", # Remove 'mm' solto
         r"\s+mma\b": "", # Remove 'mma' solto
         # --- [FIM DAS NOVAS CORREÇÕES] ---
@@ -729,13 +730,6 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
         indice_original = mapa_indices_originais.get(indice_nao_vazio)
         
         if indice_original is not None:
-            # Recalcula 'lines_consumed' para o contexto original (incluindo linhas vazias)
-            indice_proximo_nao_vazio = indice_nao_vazio + secao_mapa['lines_consumed']
-            indice_original_proximo = mapa_indices_originais.get(
-                indice_proximo_nao_vazio, 
-                len(linhas_originais) # Default para o fim do texto
-            )
-            
             secao_mapa_final = secao_mapa.copy()
             secao_mapa_final['linha_inicio'] = indice_original
             # ATENÇÃO: Usar o lines_consumed original (v32) de 1, 2 ou 3
