@@ -549,7 +549,7 @@ def normalizar_titulo_para_comparacao(texto: str) -> str:
 
 def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     norm = normalizar_texto(secao_nome)
-    norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
+    norm_safe = re.sub(r'[^a-z0_9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
 # ----------------- [CORRIGIDO - v32] MAPEAMENTO DE SEÇÕES -----------------
@@ -676,24 +676,27 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [CORRIGIDO - v32] MAPEAMENTO DE SEÇÃO ---
+# --- [INÍCIO DA CORREÇÃO] ---
+# Substituída a função 'obter_dados_secao' pela versão mais robusta
+# que usa o próprio mapa para definir os limites da seção.
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
     v32: CORRIGIDO para encontrar conteúdo na MESMA linha do título.
+    v33 (Gemini): Usa os índices do mapa_secoes para definir o fim da seção,
+                         em vez de re-escanear o texto, corrigindo o bug do conteúdo vazio.
     """
-    titulos_lista = obter_secoes_por_tipo(tipo_bula)
-    titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
 
     for i, secao_mapa in enumerate(mapa_secoes):
         if secao_mapa['canonico'] != secao_canonico:
             continue
 
-        titulo_encontrado = secao_mapa['titulo_encontrado'] # Título real (pode ser parcial)
+        # --- Seção encontrada no mapa ---
+        titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
         lines_consumed = secao_mapa.get('lines_consumed', 1)
         
-        # --- [INÍCIO DA CORREÇÃO v32] ---
+        # --- [INÍCIO DA CORREÇÃO v32] (Mantida) ---
         # Pega a linha original onde o título foi encontrado
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
@@ -708,47 +711,16 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         
         # O conteúdo restante começa na linha SEGUINTE
         linha_inicio_conteudo = linha_inicio + lines_consumed
-        # --- [FIM DA CORREÇÃO] ---
+        # --- [FIM DA CORREÇÃO v32] ---
 
-        prox_idx = None
-        for j in range(linha_inicio_conteudo, len(linhas_texto)):
-            linha_atual = linhas_texto[j].strip()
-            if not linha_atual:
-                continue
+        # --- [INÍCIO DA CORREÇÃO v33 (Gemini)] ---
+        # Determina o fim da seção olhando o INÍCIO da próxima seção no mapa
+        linha_fim = len(linhas_texto)
+        if (i + 1) < len(mapa_secoes):
+            linha_fim = mapa_secoes[i+1]['linha_inicio']
+        # --- [FIM DA CORREÇÃO v33 (Gemini)] ---
 
-            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
-            encontrou_titulo = False
-
-            for titulo_oficial_norm in titulos_norm_set:
-                if linha_atual_norm.startswith(titulo_oficial_norm) and len(linha_atual_norm) > len(titulo_oficial_norm) + 5:
-                         encontrou_titulo = True
-                         break
-                if fuzz.token_set_ratio(titulo_oficial_norm, linha_atual_norm) >= 96:
-                    encontrou_titulo = True
-                    break
-            
-            if encontrou_titulo:
-                prox_idx = j
-                break
-
-            if (j + 1) < len(linhas_texto):
-                linha_seguinte = linhas_texto[j + 1].strip()
-                if not linha_seguinte or len(linha_seguinte.split()) > 7: continue # Otimização
-
-                titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
-                titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
-
-                for titulo_oficial_norm in titulos_norm_set:
-                    if fuzz.token_set_ratio(titulo_oficial_norm, titulo_duas_linhas_norm) >= 96:
-                        prox_idx = j
-                        break
-                if prox_idx is not None:
-                    break
-        
-        linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
-        
-        # --- [INÍCIO DA CORREÇÃO v32] ---
-        # Pega as linhas DEPOIS da linha do título
+        # Pega as linhas DEPOIS da linha do título, até o início da próxima seção
         conteudo_restante = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         
         # Junta o conteúdo da primeira linha (se houver) com o restante
@@ -756,11 +728,13 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
             conteudo_final = (conteudo_primeira_linha + "\n" + "\n".join(conteudo_restante)).strip()
         else:
             conteudo_final = "\n".join(conteudo_restante).strip()
-        # --- [FIM DA CORREÇÃO] ---
-
+        
         return True, titulo_encontrado, conteudo_final
 
+    # Se a seção não foi encontrada no mapa
     return False, None, ""
+# --- [FIM DA CORREÇÃO] ---
+
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref: str, texto_belfar: str, tipo_bula: str):
@@ -796,7 +770,11 @@ def verificar_secoes_e_conteudo(texto_ref: str, texto_belfar: str, tipo_bula: st
                         current_index = mapa_belfar.index(m)
                         if current_index + 1 < len(mapa_belfar):
                             next_section_start = mapa_belfar[current_index + 1]['linha_inicio']
-                        conteudo_belfar = "\n".join(linhas_belfar[m['linha_inicio']+1:next_section_start])
+                        # Correção: A lógica de fallback aqui estava errada (pegava linha_inicio+1)
+                        # Deve usar a nova obter_dados_secao, mas como é um fallback,
+                        # vamos apenas garantir que 'encontrou_belfar' seja setado.
+                        # A lógica principal de 'obter_dados_secao' já deve ter pego o conteúdo.
+                        _, _, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
                         break
                 encontrou_belfar = True
             else:
@@ -855,7 +833,10 @@ def checar_ortografia_inteligente(texto_para_checar: str, texto_referencia: str,
             if encontrou and conteudo:
                 linhas_conteudo = conteudo.split('\n')
                 if len(linhas_conteudo) > 1:
+                    # Tenta pegar conteúdo exceto a primeira linha (possível título)
                     texto_filtrado_para_checar.append('\n'.join(linhas_conteudo[1:]))
+                else:
+                    texto_filtrado_para_checar.append(conteudo) # Adiciona mesmo se for 1 linha
 
         texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
         if not texto_final_para_checar:
@@ -886,6 +867,10 @@ def marcar_diferencas_palavra_por_palavra(texto_ref: str, texto_belfar: str, eh_
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
             return tok.lower()
         return tok
+    
+    # Garantir que não sejam None
+    texto_ref = texto_ref or ""
+    texto_belfar = texto_belfar or ""
 
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
@@ -933,6 +918,11 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
             conteudo_ref = diff['conteudo_ref']
             conteudo_belfar = diff['conteudo_belfar']
             conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
+            
+            # Garantir que o conteúdo não seja None antes de marcar
+            if conteudo_a_marcar is None:
+                conteudo_a_marcar = ""
+
             conteudo_marcado = marcar_diferencas_palavra_por_palavra(conteudo_ref, conteudo_belfar, eh_referencia)
             secao_canonico = diff['secao']
             anchor_id = _create_anchor_id(secao_canonico, "ref" if eh_referencia else "bel")
@@ -1007,16 +997,6 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     secoes_para_nao_mostrar_expander = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"
     ]
-    
-    # --- [INÍCIO DA CORREÇÃO] ---
-    # Adicionado para ocultar o expander da Seção 6 (Paciente) e 8 (Profissional)
-    # que estavam aparecendo vazios (bug visual).
-    secoes_para_nao_mostrar_expander.extend([
-        "6. COMO DEVO USAR ESTE MEDICAMENTO?",
-        "8. POSOLOGIA E MODO DE USAR"
-    ])
-    # --- [FIM DA CORREÇÃO] ---
-
     secoes_nao_mostrar_norm = [normalizar_titulo_para_comparacao(s) for s in secoes_para_nao_mostrar_expander]
     
     ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
@@ -1043,7 +1023,9 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         encontrou_ref, _, conteudo_ref_para_marcar = obter_dados_secao(secao, mapa_ref, texto_ref.split('\n'), tipo_bula)
         encontrou_belfar, titulo_belfar_encontrado, conteudo_bel_para_marcar = obter_dados_secao(secao, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
 
+        # Bug visual: Se por algum motivo não encontrou em um, mas não foi pego como 'faltante'
         if not encontrou_ref or not encontrou_belfar:
+            # Não renderizar o expander se um dos lados estiver faltando
             continue 
 
         diff = mapa_diferencas.get(secao)
