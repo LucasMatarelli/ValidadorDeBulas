@@ -6,9 +6,8 @@
 # v32: Mantém 'melhorar_layout_grafica' (original, conservador) para corrigir e formatar.
 # v32: Mantém o Relatório Completo (mostra todas as seções).
 # v32: Mantém a Comparação Literal.
-# v32 (Gemini patch 3): Corrige erro de regex 'unbalanced parenthesis' nas regras de correção.
-# v32 (Gemini patch 3): Mantém a correção da Seção 6 e os filtros.
-# v32 (Gemini patch 3): Adiciona novas micro-correções de português (nodo, omar, js, le, etc.)
+# v32 (Gemini patch 4): Remove regras de correção (1so, usso) que estavam estragando palavras corretas (uso).
+# v32 (Gemini patch 4): Adiciona regras específicas para 'A probabilidade' e 'usso' -> 'uso'.
 
 # --- IMPORTS ---
 
@@ -64,8 +63,8 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     if not texto:
         return ""
     
-    # --- [INÍCIO DA CORREÇÃO] ---
-    # Adicionadas todas as novas regras e corrigido o erro 'unbalanced parenthesis'
+    # --- [INÍCIO DA CORREÇÃO v4] ---
+    # Removidas/Ajustadas regras que causavam falsos positivos (ex: uso -> isso)
     correcoes = {
         # Correções de palavras compostas e nomes
         r"(?i)\b(3|1)lfar\b": "Belfar",
@@ -138,7 +137,6 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bralactosemia\b": "galactosemia",
         r"(?i)\bjacientes\b": "pacientes",
         r"(?i)^mm\s+Cada\b": "Cada",
-        r"(?i)\bà\s+probabilidade\b": "à probabilidade",
         r"(?i)^mm\s+Anticolinérgicos": "Anticolinérgicos",
         r"(?i)\b\"ompensarem\b": "compensarem",
         r"(?i)\b\"lorpromazina\b": "Clorpromazina",
@@ -147,8 +145,8 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bBelspan\s+or\b": "Belspan for",
         r"(?i)\bocê\b": "você",
         r"(?i)\basos\b": "casos",
-        r"(?i)\b1so\b": "isso",
-        r"(?i)\busso\b": "isso", # Erro da screenshot
+        # r"(?i)\b1so\b": "isso", # <-- REMOVIDA. Muito perigosa.
+        r"(?i)\busso\b": "uso", # <-- CORRIGIDA de "isso" para "uso".
         r"(?i)\bmergência\b": "emergência",
         r"(?i)\bjaracetamol\b": "paracetamol",
         r"(?i)\bropifenazona\b": "propifenazona",
@@ -174,7 +172,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bom\s+outros\b": "com outros", # Erro da screenshot
         r"(?i)\bcomo\)\s*butilbrometo\b": "como o butilbrometo", # CORRIGIDO: \)
         r"(?i)\bim\s+caso\b": "em caso",
-        r"(?i)\bintolerância\b": "intolerância", # Erro da screenshot
+        r"(?i)\bintolerâácia\b": "intolerância", # Erro da screenshot
         r"(?i)\ble\s+glicose\b": "de glicose", # Erro da screenshot
         r"(?i)\brecomendada\b": "recomendada", # Erro da screenshot
         r"(?i)\bor\s+dose\b": "por dose", # Erro da screenshot
@@ -190,6 +188,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"15“\s*Ce\s*30 C": "15°C e 30°C", # Variação
         r"(?i)\bleo paralítico\b": "íleo paralítico",
         r"(?i)\bà\s+dipirona\b": "à dipirona",
+        r"(?i)\bà\s+probabilidade\b": "A probabilidade", # <-- CORRIGIDO de "à" para "A"
         r"(?i)^1\s+necessária\b": "É necessária",
         r"(?i)\bmediatamente\b": "imediatamente",
         r"(?i)\barticularmente\b": "particularmente",
@@ -910,6 +909,10 @@ def checar_ortografia_inteligente(texto_para_checar: str, texto_referencia: str,
                 # Lógica original (v32) para pegar o texto para ortografia
                 if len(linhas_conteudo) > 1:
                     texto_filtrado_para_checar.append('\n'.join(linhas_conteudo[1:]))
+                # Adicionado para pegar conteúdo mesmo se o título e o conteúdo estiverem na mesma linha
+                elif len(linhas_conteudo) == 1 and conteudo:
+                     texto_filtrado_para_checar.append(conteudo)
+
 
         texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
         if not texto_final_para_checar:
@@ -975,6 +978,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref: str, texto_belfar: str, eh_
         if re.match(r'^[^\w\s]$', raw_tok) or raw_tok == '\n':
             resultado += tok
         else:
+            # Não adiciona espaço antes de \n
             if marcado[i-1] != '\n' and tok != '\n':
                  resultado += " "
             resultado += tok
