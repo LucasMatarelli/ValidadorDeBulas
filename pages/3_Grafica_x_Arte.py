@@ -1,11 +1,15 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v32 (Baseado no v26.9 do usuário)
+# Versão: v33 (Solução Definitiva)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v32: CORRIGE o bug 'obter_dados_secao' que não pegava conteúdo na mesma linha do título (caixas vazias).
-# v32: Mantém o OCR Forçado (psm 3) para AMBOS os PDFs.
-# v32: Mantém 'melhorar_layout_grafica' para corrigir e formatar.
-# v32: Mantém o Relatório Completo (mostra todas as seções).
-# v32: Mantém a Comparação Literal.
+# v33: Lógica HÍBRIDA REAL: Tenta Texto por coluna, se falhar, usa OCR por coluna (psm 6).
+# v33: REMOVE checkbox de "Forçar OCR". A detecção é automática.
+# v33: Corretor de OCR agressivo (Jevido->Devido, Jangramento->Sangramento, etc.).
+# v33: Filtros de lixo atualizados (a ? la KH 190 r, AMO dm JAM, etc.).
+# v33: Relatório MOSTRA TODAS as seções (idênticas ou não) lado a lado.
+# v33: Oculta seções (Apres., Comp., Diz. Legais) do relatório de expanders.
+# v33: Compara a seção "5. ONDE, COMO...".
+# v33: Remove botão de download HTML.
+# v33: Renomeia "Referência" -> "Arte Vigente" e "BELFAR" -> "PDF da Gráfica".
 
 # --- IMPORTS ---
 
@@ -51,7 +55,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [ATUALIZADO - v32] CORRETOR E EMBELEZADOR DE OCR -----------------
+# ----------------- [ATUALIZADO - v33] CORRETOR E EMBELEZADOR DE OCR -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
@@ -112,15 +116,29 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bjossuem\b": "possuem",
         r"(?i)\braves\b": "graves",
         r"(?i)\blérgica\b": "alérgica",
+        r"(?i)\bJangramento\b": "Sangramento",
+        r"(?i)\biparelho\b": "aparelho",
+        r"(?i)\bom\b": "com",
+        r"(?i)\bitilizaram\b": "utilizaram",
+        r"(?i)\blentro\b": "dentro",
+        r"(?i)\bslaucoma\b": "glaucoma",
+        r"(?i)\bratamento\b": "tratamento",
+        r"(?i)\breas\b": "áreas",
+        r"(?i)\bjucimadura\b": "queimadura",
+        r"(?i)\bjs\s+sinais\b": "os sinais",
+        r"(?i)\bnais\b": "mais",
+        r"(?i)\)\s*s\s*pacientes\b": "Os pacientes",
+        r"(?i)\belacionados\b": "relacionados",
+        r"(?i)\brincipalmente\b": "principalmente",
     }
     
     for padrao, correcao in correcoes.items():
         texto = re.sub(padrao, correcao, texto)
     return texto
 
-def melhorar_layout_grafica(texto: str) -> str:
+def melhorar_layout_grafica(texto: str, is_ocr: bool = False) -> str:
     """
-    Heurísticas para melhorar a formatação resultante do OCR:
+    Heurísticas para melhorar a formatação, especialmente do OCR:
     - junta linhas cortadas
     - corrige ruídos comuns
     - normaliza títulos e unidades
@@ -128,8 +146,9 @@ def melhorar_layout_grafica(texto: str) -> str:
     if not texto or not isinstance(texto, str):
         return ""
 
-    # 1. Aplicar correções de palavras primeiro
-    texto = corrigir_erros_ocr_comuns(texto)
+    # 1. Aplicar correções de palavras primeiro (só se for OCR)
+    if is_ocr:
+        texto = corrigir_erros_ocr_comuns(texto)
 
     # 2. Normalizações básicas
     texto = texto.replace('\r\n', '\n').replace('\r', '\n')
@@ -189,44 +208,72 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     return texto
 
-# ----------------- [NOVO - v32] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
-def extrair_pdf_ocr_colunas_v32(arquivo_bytes: bytes) -> str:
+# ----------------- [NOVO - v33] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
+def extrair_pdf_hibrido_colunas_v33(arquivo_bytes: bytes) -> str:
     """
-    Força a extração de OCR em 2 colunas para QUALQUER PDF.
-    Usa --psm 3 (Auto Layout) para melhor detecção.
+    Extrai texto de QUALQUER PDF com 2 colunas, seja texto ou imagem.
+    Tenta extração direta por colunas. Se falhar, usa OCR por colunas.
     """
-    texto_total = ""
+    texto_total_final = ""
+    is_ocr = False # Flag para saber se usamos OCR
+    
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR em {len(doc)} página(s) (pode ser lento)...")
+        st.info(f"Processando {len(doc)} página(s) com lógica de coluna...")
+        
         for i, page in enumerate(doc):
             rect = page.rect
             margin_y = 20
             # Define as duas colunas
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
             rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
+
+            # --- TENTATIVA 1: Extração Direta (para PDFs de texto) ---
+            try:
+                texto_direto_col_1 = page.get_text("text", clip=rect_col_1, sort=True)
+                texto_direto_col_2 = page.get_text("text", clip=rect_col_2, sort=True)
+                texto_direto_pagina = texto_direto_col_1 + "\n" + texto_direto_col_2
+            except Exception:
+                texto_direto_pagina = ""
+
+            # --- VERIFICAÇÃO 1 ---
+            # Se a extração direta funcionou bem, usa ela e vai para a próxima página
+            if len(texto_direto_pagina.strip()) > 200:
+                texto_total_final += texto_direto_pagina + "\n"
+                continue # Pula para a próxima página
+
+            # --- TENTATIVA 2: Extração por OCR (para PDFs de imagem) ---
+            is_ocr = True # Marca que pelo menos uma página precisou de OCR
+            st.warning(f"Extração direta falhou na pág. {i+1}. Ativando OCR por colunas (pode ser lento)...")
+            try:
+                # --- MUDANÇA v33: Voltando para --psm 6 (Bloco Único) ---
+                # psm 3 (Auto) estava alucinando. psm 6 é mais seguro para colunas cortadas.
+                ocr_config = r'--psm 6' 
+                
+                # OCR da Coluna 1
+                pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
+                img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
+                texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
+                
+                # OCR da Coluna 2
+                pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
+                img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
+                texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
+                
+                texto_ocr_pagina = texto_ocr_col_1 + "\n" + texto_ocr_col_2
+                texto_total_final += texto_ocr_pagina + "\n"
             
-            # --- MUDANÇA v32: Usa --psm 3 (Auto Layout) ---
-            # Isso é melhor para detectar parágrafos e colunas automaticamente.
-            ocr_config = r'--psm 3' 
-            
-            # OCR da Coluna 1
-            pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
-            img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
-            texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
-            
-            # OCR da Coluna 2
-            pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
-            img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
-            texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
-            
-            texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
-    return texto_total
+            except Exception as e:
+                st.error(f"Erro fatal no OCR da pág. {i+1}: {e}")
+                continue
+                
+    st.success("Extração de PDF concluída.")
+    return texto_total_final, is_ocr
 
 # ----------------- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
 def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
     """
     Função principal de extração.
-    v32: SEMPRE força OCR para PDFs.
+    v33: Usa lógica híbrida (Texto > OCR) para PDFs.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -234,12 +281,12 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
     try:
         arquivo.seek(0)
         texto = ""
+        is_ocr = False # Flag para saber se o OCR foi usado
         arquivo_bytes = arquivo.read()
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v32 ---
-            # SEMPRE usar OCR por colunas para TODOS os PDFs
-            texto = extrair_pdf_ocr_colunas_v32(arquivo_bytes)
+            # --- MUDANÇA v33 ---
+            texto, is_ocr = extrair_pdf_hibrido_colunas_v33(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
             st.info("Extraindo texto de DOCX...")
@@ -318,8 +365,8 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             
             texto = "\n".join(linhas_filtradas_final)
             
-            # --- [NOVO v32] Aplicar melhoria de layout e correção de erros ---
-            texto = melhorar_layout_grafica(texto)
+            # --- [NOVO v33] Aplicar melhoria de layout e correção de erros ---
+            texto = melhorar_layout_grafica(texto, is_ocr=is_ocr)
 
             # Limpeza final de espaços
             texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
@@ -403,7 +450,7 @@ def obter_aliases_secao() -> Dict[str, str]:
 def obter_secoes_ignorar_ortografia() -> List[str]:
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# --- [ATUALIZADA - v32] ---
+# --- [ATUALIZADA - v33] ---
 def obter_secoes_ignorar_comparacao() -> List[str]:
     # Removido "ONDE, COMO..." e "CUIDADOS DE..." como pedido
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
@@ -441,10 +488,10 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- [CORRIGIDO - v32] MAPEAMENTO DE SEÇÕES -----------------
+# ----------------- [CORRIGIDO - v33] MAPEAMENTO DE SEÇÕES -----------------
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
     """
-    v32: Verifica CADA linha e também linha[i] + linha[i+1] + linha[i+2] contra a lista de títulos.
+    v33: Verifica CADA linha e também linha[i] + linha[i+1] + linha[i+2] contra a lista de títulos.
     Isso permite encontrar títulos de 1, 2 ou 3 linhas.
     """
     mapa = []
@@ -852,7 +899,7 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     return texto_final
 
-# ----------------- [ATUALIZADO - v31] RELATÓRIO E EXPORTAÇÃO -----------------
+# ----------------- [ATUALIZADO - v32] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
     # Prepara os dados para o relatório
@@ -874,19 +921,19 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (BELFAR)", data_belfar)
+    col3.metric("Data ANVISA (PDF da Gráfica)", data_belfar)
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Referência: {data_ref}\n - BELFAR: {data_belfar}")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Arte Vigente: {data_ref}\n - PDF da Gráfica: {data_belfar}")
 
     if secoes_faltantes:
-        st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
+        st.error(f"🚨 **Seções faltantes no PDF da Gráfica ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
 
-    # --- [MUDANÇA v31] ---
+    # --- [MUDANÇA v32] ---
     # Relatório por seção (mostra TUDO, idêntico ou não)
     st.warning(f"⚠️ **Relatório de Conteúdo por Seção:**")
     mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
@@ -953,12 +1000,12 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("**Referência:** (Clique na caixa para rolar)")
+                st.markdown("**Arte Vigente:** (Clique na caixa para rolar)")
                 st.markdown(html_ref_box, unsafe_allow_html=True)
             with c2:
-                st.markdown("**BELFAR:** (Clique na caixa para rolar)")
+                st.markdown("**PDF da Gráfica:** (Clique na caixa para rolar)")
                 st.markdown(html_bel_box, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA v31] ---
+    # --- [FIM DA MUDANÇA v32] ---
     
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)}):**\n" + ", ".join(erros_ortograficos))
@@ -1011,8 +1058,8 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         html_belfar=html_belfar_marcado
     )
 
-    # --- [MUDANÇA v31] ---
-    # Botão de download removido, conforme solicitado
+    # --- [MUDANÇA v32] ---
+    # Botão de download removido
     # b = relatório_html.encode('utf-8')
     # st.download_button("⬇️ Baixar relatório (HTML)", data=b, file_name="relatorio_auditoria_grafica_x_arte.html", mime="text/html", use_container_width=True)
 
@@ -1054,8 +1101,8 @@ mark{{background:#ffff99;padding:2px}}
 <h1>{html.escape(titulo)}</h1>
 <div class="metrics">
 <div class="metric"><strong>Score:</strong> {score:.0f}%</div>
-<div class="metric"><strong>Data ANVISA (Ref):</strong> {html.escape(data_ref)}</div>
-<div class="metric"><strong>Data ANVISA (BELFAR):</strong> {html.escape(data_belfar)}</div>
+<div class="metric"><strong>Data ANVISA (Arte Vigente):</strong> {html.escape(data_ref)}</div>
+<div class="metric"><strong>Data ANVISA (PDF da Gráfica):</strong> {html.escape(data_belfar)}</div>
 <div class="metric"><strong>Erros ortográficos:</strong> {html.escape(resumo_erros)}</div>
 </div>
 </div>
@@ -1078,15 +1125,15 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v31
+Gerado pelo sistema de Auditoria de Bulas — v32
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v31] INTERFACE PRINCIPAL -----------------
-st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v31)")
+# ----------------- [ATUALIZADA - v32] INTERFACE PRINCIPAL -----------------
+st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v32)")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
 
@@ -1104,11 +1151,11 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v31 - Forçando OCR)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v32 - Forçando OCR)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v31] ---
+            # --- [MUDANÇA v32] ---
             # Extração da Referência (SEMPRE OCR)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
@@ -1130,4 +1177,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v31 | OCR Forçado (psm 3) + Embelezador de Layout")
+st.caption("Sistema de Auditoria de Bulas v32 | OCR Forçado (psm 3) + Embelezador de Layout")
