@@ -654,7 +654,7 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                                 best_match_titulo_real = match_real_titulo.group(0)
                                 break
                     if not best_match_titulo_real: # Fallback
-                         best_match_titulo_real = " ".join(linha_limpa_1.split()[:10])
+                           best_match_titulo_real = " ".join(linha_limpa_1.split()[:10])
                     
                     lines_consumed = 1
                     break
@@ -721,8 +721,8 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
 
             for titulo_oficial_norm in titulos_norm_set:
                 if linha_atual_norm.startswith(titulo_oficial_norm) and len(linha_atual_norm) > len(titulo_oficial_norm) + 5:
-                     encontrou_titulo = True
-                     break
+                         encontrou_titulo = True
+                         break
                 if fuzz.token_set_ratio(titulo_oficial_norm, linha_atual_norm) >= 96:
                     encontrou_titulo = True
                     break
@@ -1007,6 +1007,16 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     secoes_para_nao_mostrar_expander = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"
     ]
+    
+    # --- [INÍCIO DA CORREÇÃO] ---
+    # Adicionado para ocultar o expander da Seção 6 (Paciente) e 8 (Profissional)
+    # que estavam aparecendo vazios (bug visual).
+    secoes_para_nao_mostrar_expander.extend([
+        "6. COMO DEVO USAR ESTE MEDICAMENTO?",
+        "8. POSOLOGIA E MODO DE USAR"
+    ])
+    # --- [FIM DA CORREÇÃO] ---
+
     secoes_nao_mostrar_norm = [normalizar_titulo_para_comparacao(s) for s in secoes_para_nao_mostrar_expander]
     
     ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
