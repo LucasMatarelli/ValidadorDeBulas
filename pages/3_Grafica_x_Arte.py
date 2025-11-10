@@ -3,7 +3,7 @@
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
 # v32: CORRIGE o bug 'obter_dados_secao' que não pegava conteúdo na mesma linha do título (caixas vazias).
 # v32: Mantém o OCR Forçado (psm 3) para AMBOS os PDFs.
-# v32: Mantém 'melhorar_layout_grafica' para corrigir e formatar.
+# v32: MANTÉM 'melhorar_layout_grafica' (AGORA COM JUNÇÃO DE LINHAS) para corrigir e formatar.
 # v32: Mantém o Relatório Completo (mostra todas as seções).
 # v32: Mantém a Comparação Literal.
 
@@ -189,11 +189,11 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     return texto
 
 
-# ----------------- [NOVO - v33] LIMPEZA ULTRA CONSERVADORA -----------------
+# --- [INÍCIO DA MUDANÇA - "TEXTO BONITO"] ---
 def melhorar_layout_grafica(texto: str) -> str:
     """
-    v33: Limpeza MÍNIMA - preserva ao máximo a estrutura do OCR
-    Apenas remove lixo óbvio e normaliza espaçamento
+    v33 (Modificado): Limpeza AGRESSIVA - Junta linhas em parágrafos.
+    Remove lixo óbvio e reformata o texto para leitura.
     """
     if not texto or not isinstance(texto, str):
         return ""
@@ -251,19 +251,35 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     texto = "\n".join(linhas_limpas)
 
-    # 6. NÃO JUNTAR LINHAS - preservar estrutura original
-    # Apenas limpar múltiplas quebras excessivas (mais de 3)
-    texto = re.sub(r'\n{4,}', '\n\n\n', texto)
+    # 6. [MUDANÇA] Juntar linhas em parágrafos para um layout "bonito"
+    # Manter quebras de linha duplas (parágrafos), mas remover quebras simples.
     
-    # 7. Limpar espaços múltiplos DENTRO das linhas
-    linhas_final = []
-    for linha in texto.split('\n'):
-        linha = re.sub(r'[ \t]{2,}', ' ', linha)
-        linhas_final.append(linha.strip())
+    # Primeiro, normaliza quebras de linha excessivas para 2 (separador de parágrafo)
+    texto = re.sub(r'\n{3,}', '\n\n', texto) 
     
-    texto = "\n".join(linhas_final)
+    # Agora, processa cada parágrafo
+    paragrafos = texto.split('\n\n')
+    paragrafos_limpos = []
+    
+    for paragrafo in paragrafos:
+        # Remove quebras de linha DENTRO do parágrafo, juntando com espaço
+        linhas_do_paragrafo = [linha.strip() for linha in paragrafo.split('\n')]
+        paragrafo_juntado = ' '.join(linhas_do_paragrafo)
+        
+        # Limpa espaços múltiplos que podem ter sido criados
+        paragrafo_juntado = re.sub(r'[ \t]{2,}', ' ', paragrafo_juntado).strip()
+        
+        if paragrafo_juntado:
+            paragrafos_limpos.append(paragrafo_juntado)
+            
+    # Junta os parágrafos limpos com quebra dupla
+    texto = "\n\n".join(paragrafos_limpos)
+
+    # 7. Limpeza final de espaços
+    texto = re.sub(r'[ \t]{2,}', ' ', texto)
     
     return texto.strip()
+# --- [FIM DA MUDANÇA] ---
 
 
 # ----------------- [ATUALIZADO - v33] OCR COM MELHOR CONFIGURAÇÃO -----------------
@@ -676,9 +692,7 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# --- [INÍCIO DA CORREÇÃO] ---
-# Substituída a função 'obter_dados_secao' pela versão mais robusta
-# que usa o próprio mapa para definir os limites da seção.
+# --- [CORRIGIDO - v33] MAPEAMENTO DE SEÇÃO ---
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
@@ -733,7 +747,6 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
 
     # Se a seção não foi encontrada no mapa
     return False, None, ""
-# --- [FIM DA CORREÇÃO] ---
 
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
