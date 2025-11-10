@@ -1,4 +1,5 @@
 # ----------------- EXTRAÇÃO (v26.20 - Filtro Inline "Força Bruta") -----------------
+# ----------------- EXTRAÇÃO (v26.22 - Filtro "Força Bruta") -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
@@ -46,7 +47,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO (v26.20) ---
+            # --- FILTRO DE RUÍDO (v26.22) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha = re.compile(
@@ -67,10 +68,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
             # Padrão 2: Remove FRAGMENTOS de ruído de DENTRO das linhas
             padrao_ruido_inline = re.compile(
-                # (v26.20) "Força Bruta" - Pega "BUL..." + qualquer coisa + "190"
+                # (v26.22) Pega "BUL..." + qualquer coisa + "190"
                 r'BUL_CLORIDRATO_DE_NA[\s\S]*?190' 
                 
-                # (v26.20) "Força Bruta" - Pega "New Roman" + qualquer coisa + "mm"
+                # (v26.22) Pega "New Roman" + qualquer coisa + "mm"
                 r'|New\s*Roman[\s\S]*?mm' 
                 
                 # Outras regras:
@@ -109,7 +110,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
         return texto, None
     except Exception as e:
-        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"# pages/2_Conferencia_MKT.py
+        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 #
 # Versão v26.17 (Consolidada)
 # 1. Ignora comparação de conteúdo e ortografia de [APRESENTAÇÕES, COMPOSIÇÃO, DIZERES LEGAIS].
@@ -763,11 +764,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
     
-# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.21) ---
+# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.22) ---
     def formatar_html_para_leitura(html_content):
         """
         Formata o texto "fluído" (sort=True) para um HTML "bonito".
-        (v26.21) - Remove "USO NASAL" e "USO ADULTO" da formatação de título.
+        (v26.22) - Usa regras de regex CURTAS e ROBUSTAS para formatar
+        os títulos, mesmo se houver ruído no meio deles.
         """
         if html_content is None:
             return ""
@@ -776,45 +778,55 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
         
         # 2. Lista de Títulos de Seção que queremos formatar
+        # Usamos apenas o INÍCIO dos títulos para sermos robustos a ruídos
         titulos_lista = [
             "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
             "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
-            # "USO NASAL", "USO ADULTO", <-- REMOVIDOS
             
             # Títulos de Paciente (com e sem número)
-            r"1\.\s*PARA QUE ESTE MEDICAMENTO É INDICADO\?",
-            r"PARA QUE ESTE MEDICAMENTO É INDICADO\?",
-            r"2\.\s*COMO ESTE MEDICAMENTO FUNCIONA\?",
-            r"COMO ESTE MEDICAMENTO FUNCIONA\?",
-            r"3\.\s*QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?",
-            r"QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?",
-            r"4\.\s*O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?",
-            r"O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?",
-            r"5\.\s*ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?",
-            r"ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?",
-            r"6\.\s*COMO DEVO USAR ESTE MEDICAMENTO\?",
-            r"COMO DEVO USAR ESTE MEDICAMENTO\?",
-            r"7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?",
-            r"O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?",
-            r"8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?",
+            # A ordem (do mais longo para o mais curto) é importante
+            
+            # 9.
+            r"9\.\s*O QUE FAZER SE ALGUEM USAR",
+            r"O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR",
+            # 8.
+            r"8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO",
             r"QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?",
-            r"9\.\s*O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO\?",
-            r"O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO\?"
+            # 7.
+            r"7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER",
+            r"O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?",
+            # 6.
+            r"6\.\s*COMO DEVO USAR ESTE MEDICAMENTO",
+            r"COMO DEVO USAR ESTE MEDICAMENTO\?",
+            # 5.
+            r"5\.\s*ONDE, COMO E POR QUANTO TEMPO",
+            r"ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?",
+            # 4.
+            r"4\.\s*O QUE DEVO SABER ANTES",
+            r"O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?",
+            # 3.
+            r"3\.\s*QUANDO NÃO DEVO USAR",
+            r"QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?",
+            # 2.
+            r"2\.\s*COMO ESTE MEDICAMENTO FUNCIONA",
+            r"COMO ESTE MEDICAMENTO FUNCIONA\?",
+            # 1.
+            r"1\.\s*PARA QUE ESTE MEDICAMENTO",
+            r"PARA QUE ESTE MEDICAMENTO É INDICADO\?"
         ]
         
-        # Cria um grande regex (ex: ...|TÍTULO 5|TÍTULO 6|...)
-        # A ordem reversa garante que "1. TÍTULO" seja pego antes de "TÍTULO"
-        regex_titulos = r'(' + '|'.join(sorted(titulos_lista, reverse=True)) + r')'
+        # Cria um grande regex (ex: ...|TÍTULO 9|TÍTULO 8|...)
+        regex_titulos = r'(' + '|'.join(titulos_lista) + r')'
 
         # 3. Força a quebra ANTES e DEPOIS dos títulos encontrados
         #    Não importa se está grudado (\n) ou não
         html_content = re.sub(
             regex_titulos,
-            r'[[PARAGRAPH]]<strong>\1</strong>[[PARAGRAPH]]',
+            r'[[PARAGRAPH]]<strong>\1</strong>', # Adiciona quebra SÓ ANTES
             html_content,
             flags=re.IGNORECASE
         )
-
+        
         # 4. Adiciona quebras ANTES de listas
         html_content = re.sub(
             r'(\n)(\s*[-–•*])', # \n seguido de espaço e um marcador
