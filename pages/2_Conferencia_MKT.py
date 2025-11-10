@@ -95,22 +95,23 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|cloridrato de ambroxo\s*$'
                 r'|Normal e Negrito\. Co\s*$'
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL'
+                r'|AZOLINA: Tim mm'  # <-- MUDANÇA AQUI
             , re.IGNORECASE)
 
             # Padrão 2: Remove FRAGMENTOS de ruído (v26.26 - APRIMORADO)
             padrao_ruido_inline = re.compile(
                 # (v26.26) Regra MAIS ABRANGENTE para "BUL_CLORIDRATO_DE_NA" seguido de números
-                r'BUL_CLORIDRATO_DE_NA[\s\S]{0,20}?\d+' 
+                r'BUL_CLORIDRATO_DE_NA[\s\S]{0,20}?\d+'  
                 
                 # (v26.26) Regra MAIS ABRANGENTE para "New Roman" com variações
                 r'|New[\s\S]{0,10}?Roman[\s\S]{0,50}?(?:mm|\d+)'
                 
                 # Outras regras existentes:
-                r'|AFAZOLINA_BUL\d+V\d+.*?' 
+                r'|AFAZOLINA_BUL\d+V\d+.*?'  
                 r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
                 r'|AMBROXOL_BUL\d+V\d+'
-                r'|es New Roman.*?' 
-                r'|rpo \d+.*?' 
+                r'|es New Roman.*?'  
+                r'|rpo \d+.*?'  
                 r'|olL: Times New Roman.*?'
             , re.IGNORECASE)
             
@@ -143,7 +144,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
-        return texto, None
+    return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
@@ -173,15 +174,15 @@ def obter_secoes_por_tipo(tipo_bula):
         "Paciente": [
             "APRESENTAÇÕES", 
             "COMPOSIÇÃO", 
-            "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
-            "2. COMO ESTE MEDICAMENTO FUNCIONA?", 
-            "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+            "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
+            "2.COMO ESTE MEDICAMENTO FUNCIONA?",
+            "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+            "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
             "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
             "6. COMO DEVO USAR ESTE MEDICAMENTO?",
-            "7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+            "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
             "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-            "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+            "9. O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
         ],
         "Profissional": [
@@ -206,15 +207,17 @@ def obter_secoes_por_tipo(tipo_bula):
 def obter_aliases_secao():
     return {
         # Aliases Paciente (com e sem número)
-        "PARA QUE ESTE MEDICAMENTO É INDICADO?": "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "COMO ESTE MEDICAMENTO FUNCIONA?": "2. COMO ESTE MEDICAMENTO FUNCIONA?",
-        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+        "PARA QUE ESTE MEDICAMENTO É INDICADO?": "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
+        "COMO ESTE MEDICAMENTO FUNCIONA?": "2.COMO ESTE MEDICAMENTO FUNCIONA?",
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
         "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
         "COMO DEVO USAR ESTE MEDICAMENTO?": "6. COMO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
         "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9. O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9. O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+
 
         # Aliases Profissional (com e sem número)
         "INDICAÇÕES": "1. INDICAÇÕES",
@@ -638,8 +641,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
-    
-    def formatar_html_para_leitura(html_content):
+  def formatar_html_para_leitura(html_content):
         """
         Formata o texto "fluído" (sort=True) para um HTML "bonito".
         (v26.23) - Regras de regex quebram em partes menores e usam [\s\S]
@@ -654,22 +656,36 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
             "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
             
-            r"(9\.\s*O QUE FAZER SE ALGUEM[\s\S]*?DESTE MEDICAMENTO\?)",
-            r"(O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR[\s\S]*?DESTE MEDICAMENTO\?)",
-            r"(8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO[\s\S]*?ME CAUSAR\?)",
+            # --- MUDANÇAS ABAIXO ---
+            # Regex mais específico para Seção 9 (permite ruído como 'mm')
+            r"(9\.\s*O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA[\s\S]*?DESTE MEDICAMENTO\?)",
+            r"(O QUE FAZER SE ALGUÉM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA[\s\S]*?DESTE MEDICAMENTO\?)",
+            
+            r"(8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
             r"(QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
-            r"(7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER[\s\S]*?DESTE MEDICAMENTO\?)",
+
+            # Regex mais específico para Seção 7
+            r"(7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR[\s\S]*?DESTE MEDICAMENTO\?)",
             r"(O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?)",
+
             r"(6\.\s*COMO DEVO USAR ESTE MEDICAMENTO\?)",
             r"(COMO DEVO USAR ESTE MEDICAMENTO\?)",
-            r"(5\.\s*ONDE, COMO E POR QUANTO TEMPO[\s\S]*?GUARDAR ESTE MEDICAMENTO\?)",
+
+            # Regex mais específico para Seção 5
+            r"(5\.\s*ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR[\s\S]*?ESTE MEDICAMENTO\?)",
             r"(ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?)",
-            r"(4\.\s*O QUE DEVO SABER ANTES[\s\S]*?USAR ESTE MEDICAMENTO\?)",
+
+            # Regex mais específico para Seção 4
+            r"(4\.\s*O QUE DEVO SABER ANTES DE USAR[\s\S]*?ESTE MEDICAMENTO\?)",
             r"(O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?)",
+
             r"(3\.\s*QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
             r"(QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
+            
             r"(2\.\s*COMO ESTE MEDICAMENTO FUNCIONA\?)",
             r"(COMO ESTE MEDICAMENTO FUNCIONA\?)",
+
+            # Regex mais específico para Seção 1 (captura '1.PARA...' sem espaço)
             r"(1\.\s*PARA QUE ESTE MEDICAMENTO[\s\S]*?É INDICADO\?)",
             r"(PARA QUE ESTE MEDICAMENTO É INDICADO\?)"
         ]
@@ -697,7 +713,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
         html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
         
-        return html_content
+        return html_content  
 
     expander_caixa_style = (
         "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
