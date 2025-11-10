@@ -208,14 +208,15 @@ def melhorar_layout_grafica(texto: str, is_ocr: bool = False) -> str:
     
     return texto
 
-# ----------------- [NOVO - v33] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
-def extrair_pdf_hibrido_colunas_v33(arquivo_bytes: bytes) -> str:
+# ----------------- [NOVO - v33] LÓGICA DE EXTRAÇÃO HÍBRIDA -----------------
+def extrair_pdf_hibrido_colunas_v33(arquivo_bytes: bytes) -> Tuple[str, bool]:
     """
     Extrai texto de QUALQUER PDF com 2 colunas, seja texto ou imagem.
     Tenta extração direta por colunas. Se falhar, usa OCR por colunas.
+    Retorna (texto_final, is_ocr)
     """
     texto_total_final = ""
-    is_ocr = False # Flag para saber se usamos OCR
+    is_ocr = False 
     
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         st.info(f"Processando {len(doc)} página(s) com lógica de coluna...")
@@ -286,6 +287,7 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
 
         if tipo_arquivo == "pdf":
             # --- MUDANÇA v33 ---
+            # Usa a nova lógica HÍBRIDA
             texto, is_ocr = extrair_pdf_hibrido_colunas_v33(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
@@ -899,7 +901,7 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     return texto_final
 
-# ----------------- [ATUALIZADO - v32] RELATÓRIO E EXPORTAÇÃO -----------------
+# ----------------- [ATUALIZADO - v33] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
     # Prepara os dados para o relatório
@@ -921,19 +923,19 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    col3.metric("Data ANVISA (PDF da Gráfica)", data_belfar)
+    col3.metric(f"Data ANVISA ({nome_belfar})", data_belfar) # <--- MUDANÇA v33
     col4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Arte Vigente: {data_ref}\n - PDF da Gráfica: {data_belfar}")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - {nome_ref}: {data_ref}\n - {nome_belfar}: {data_belfar}") # <--- MUDANÇA v33
 
     if secoes_faltantes:
-        st.error(f"🚨 **Seções faltantes no PDF da Gráfica ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
+        st.error(f"🚨 **Seções faltantes no {nome_belfar} ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes])) # <--- MUDANÇA v33
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
 
-    # --- [MUDANÇA v32] ---
+    # --- [MUDANÇA v33] ---
     # Relatório por seção (mostra TUDO, idêntico ou não)
     st.warning(f"⚠️ **Relatório de Conteúdo por Seção:**")
     mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
@@ -1000,12 +1002,12 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("**Arte Vigente:** (Clique na caixa para rolar)")
+                st.markdown(f"**{nome_ref}:** (Clique na caixa para rolar)") # <--- MUDANÇA v33
                 st.markdown(html_ref_box, unsafe_allow_html=True)
             with c2:
-                st.markdown("**PDF da Gráfica:** (Clique na caixa para rolar)")
+                st.markdown(f"**{nome_belfar}:** (Clique na caixa para rolar)") # <--- MUDANÇA v33
                 st.markdown(html_bel_box, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA v32] ---
+    # --- [FIM DA MUDANÇA v33] ---
     
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)}):**\n" + ", ".join(erros_ortograficos))
@@ -1058,7 +1060,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         html_belfar=html_belfar_marcado
     )
 
-    # --- [MUDANÇA v32] ---
+    # --- [MUDANÇA v33] ---
     # Botão de download removido
     # b = relatório_html.encode('utf-8')
     # st.download_button("⬇️ Baixar relatório (HTML)", data=b, file_name="relatorio_auditoria_grafica_x_arte.html", mime="text/html", use_container_width=True)
@@ -1125,15 +1127,15 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v32
+Gerado pelo sistema de Auditoria de Bulas — v33
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v32] INTERFACE PRINCIPAL -----------------
-st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v32)")
+# ----------------- [ATUALIZADA - v33] INTERFACE PRINCIPAL -----------------
+st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v33)")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
 
@@ -1151,15 +1153,15 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v32 - Forçando OCR)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v33 - Híbrido Automático)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v32] ---
-            # Extração da Referência (SEMPRE OCR)
+            # --- [MUDANÇA v33] ---
+            # Extração da Referência
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
-            # Extração da Gráfica (SEMPRE OCR)
+            # Extração da Gráfica
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
             # --- [FIM DA MUDANÇA] ---
             
@@ -1177,4 +1179,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v32 | OCR Forçado (psm 3) + Embelezador de Layout")
+st.caption("Sistema de Auditoria de Bulas v33 | OCR Híbrido (psm 6) + Embelezador de Layout")
