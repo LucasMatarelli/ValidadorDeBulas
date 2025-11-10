@@ -1,10 +1,13 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v33 (Baseado no v32, com correções Gemini)
+# Versão: v32 (Baseado no v26.9 do usuário)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v33: CORRIGE o bug 'obter_dados_secao' (v32) que falhava após a junção de parágrafos (caixas vazias).
-# v33: Mantém a junção de linhas (texto "bonito") em 'melhorar_layout_grafica'.
-# v33: Adiciona filtro para "BUL BELSPAN COMP".
-# v33: Mantém o OCR Forçado (psm 3), Relatório Completo e Comparação Literal.
+# v32: CORRIGE o bug 'obter_dados_secao' que não pegava conteúdo na mesma linha do título (caixas vazias).
+# v32: Mantém o OCR Forçado (psm 3) para AMBOS os PDFs.
+# v32: Mantém 'melhorar_layout_grafica' (original, conservador) para corrigir e formatar.
+# v32: Mantém o Relatório Completo (mostra todas as seções).
+# v32: Mantém a Comparação Literal.
+# v32 (Gemini patch): Funções 'mapear_secoes' e 'obter_dados_secao' atualizadas para corrigir bug da caixa vazia (Seção 6).
+# v32 (Gemini patch): Adicionado filtro para "BUL BELSPAN COMP".
 
 # --- IMPORTS ---
 
@@ -188,11 +191,12 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     return texto
 
 
-# --- [INÍCIO DA MUDANÇA - "TEXTO BONITO"] ---
+# ----------------- [NOVO - v33] LIMPEZA ULTRA CONSERVADORA -----------------
+# --- ESTA É A SUA FUNÇÃO ORIGINAL (V32) QUE ESTOU MANTENDO ---
 def melhorar_layout_grafica(texto: str) -> str:
     """
-    v33 (Modificado): Limpeza AGRESSIVA - Junta linhas em parágrafos.
-    Remove lixo óbvio e reformata o texto para leitura.
+    v33: Limpeza MÍNIMA - preserva ao máximo a estrutura do OCR
+    Apenas remove lixo óbvio e normaliza espaçamento
     """
     if not texto or not isinstance(texto, str):
         return ""
@@ -250,35 +254,19 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     texto = "\n".join(linhas_limpas)
 
-    # 6. [MUDANÇA] Juntar linhas em parágrafos para um layout "bonito"
-    # Manter quebras de linha duplas (parágrafos), mas remover quebras simples.
+    # 6. NÃO JUNTAR LINHAS - preservar estrutura original (SUA PREFERÊNCIA)
+    # Apenas limpar múltiplas quebras excessivas (mais de 3)
+    texto = re.sub(r'\n{4,}', '\n\n\n', texto)
     
-    # Primeiro, normaliza quebras de linha excessivas para 2 (separador de parágrafo)
-    texto = re.sub(r'\n{3,}', '\n\n', texto) 
+    # 7. Limpar espaços múltiplos DENTRO das linhas
+    linhas_final = []
+    for linha in texto.split('\n'):
+        linha = re.sub(r'[ \t]{2,}', ' ', linha)
+        linhas_final.append(linha.strip())
     
-    # Agora, processa cada parágrafo
-    paragrafos = texto.split('\n\n')
-    paragrafos_limpos = []
-    
-    for paragrafo in paragrafos:
-        # Remove quebras de linha DENTRO do parágrafo, juntando com espaço
-        linhas_do_paragrafo = [linha.strip() for linha in paragrafo.split('\n')]
-        paragrafo_juntado = ' '.join(linhas_do_paragrafo)
-        
-        # Limpa espaços múltiplos que podem ter sido criados
-        paragrafo_juntado = re.sub(r'[ \t]{2,}', ' ', paragrafo_juntado).strip()
-        
-        if paragrafo_juntado:
-            paragrafos_limpos.append(paragrafo_juntado)
-            
-    # Junta os parágrafos limpos com quebra dupla
-    texto = "\n\n".join(paragrafos_limpos)
-
-    # 7. Limpeza final de espaços
-    texto = re.sub(r'[ \t]{2,}', ' ', texto)
+    texto = "\n".join(linhas_final)
     
     return texto.strip()
-# --- [FIM DA MUDANÇA] ---
 
 
 # ----------------- [ATUALIZADO - v33] OCR COM MELHOR CONFIGURAÇÃO -----------------
@@ -409,12 +397,14 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
                 r"\[E\s*O\s*\|\s*dj\s*jul",
                 r"\+\s*\|\s*hd\s*bl\s*O\s*mm\s*DS\s*AALPRA",
                 r"A\s*\+\s*med\s*FÃ\s*ias\s*A\s*KA\s*aõArA\s*\+\s*ima",
-                r"BUL\s+BELSPAN\s+COMPR",
-                r"^\s*m--*\s*$",
-
-                # --- [INÍCIO DA CORREÇÃO - Remoção de Lixo] ---
+                
+                # --- [INÍCIO DA CORREÇÃO] ---
+                # Adicionado filtro solicitado
+                r"BUL\s+BELSPAN\s+COMPR\b", 
                 r"BUL\s+BELSPAN\s+COMP\b",
                 # --- [FIM DA CORREÇÃO] ---
+                
+                r"^\s*m--*\s*$",
             ]
             
             # Aplicar filtros
@@ -449,7 +439,7 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             texto = "\n".join(linhas_filtradas_final)
             
             # --- [NOVO v32] Aplicar melhoria de layout e correção de erros ---
-            texto = melhorar_layout_grafica(texto)
+            texto = melhorar_layout_grafica(texto) # SUA VERSÃO CONSERVADORA
 
             # Limpeza final de espaços
             texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
@@ -546,7 +536,9 @@ def normalizar_para_comparacao_literal(texto: str) -> str:
     """
     if not isinstance(texto, str):
         return ""
-    texto = re.sub(r'[\n\r\t]+', ' ', texto)
+    # No layout conservador, \n\n é parágrafo, \n é junção
+    texto = re.sub(r'(?<!\n)\n(?!\n)', ' ', texto) # Junta \n simples
+    texto = re.sub(r'[\n\r\t]+', ' ', texto) # Junta o resto (parágrafos)
     texto = re.sub(r' +', ' ', texto)
     texto = texto.strip()
     return texto.lower()
@@ -568,24 +560,30 @@ def normalizar_titulo_para_comparacao(texto: str) -> str:
 
 def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     norm = normalizar_texto(secao_nome)
-    norm_safe = re.sub(r'[^a-z0_9\-]', '-', norm)
+    norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- [CORRIGIDO - v32] MAPEAMENTO DE SEÇÕES -----------------
+# --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA] ---
+# Esta função 'mapear_secoes' é a v33 robusta, que recalcula os índices
+# para bater com o split('\n') original (que inclui linhas vazias)
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
     """
-    v32: Verifica CADA linha e também linha[i] + linha[i+1] + linha[i+2] contra a lista de títulos.
-    Isso permite encontrar títulos de 1, 2 ou 3 linhas.
+    v33 (Gemini): Mapeia seções e recalcula índices para alinhamento com
+    o texto original (incluindo linhas vazias), essencial para 'obter_dados_secao'.
     """
-    mapa = []
+    mapa_preliminar = []
     
-    # --- [MUDANÇA v33] ---
-    # Se o texto foi "embelezado", ele agora tem parágrafos como linhas únicas.
-    # Devemos dividir por \n, não \n\n, pois o split('\n') é usado em obter_dados_secao
-    # O "embelezador" já transforma \n\n em \n (após juntar parágrafos)
-    # Correção: O "embelezador" usa \n\n. Vamos dividir por \n e filtrar vazias.
-    linhas = [linha for linha in texto_completo.split('\n') if linha.strip()]
+    # 1. Mapeamento preliminar baseado em linhas NÃO VAZIAS
+    # (O layout conservador cria muitas linhas vazias)
+    linhas_nao_vazias = []
+    mapa_indices_originais = {} # Mapeia {indice_nao_vazio: indice_original}
+    linhas_originais = texto_completo.split('\n')
     
+    for i, linha in enumerate(linhas_originais):
+        if linha.strip():
+            mapa_indices_originais[len(linhas_nao_vazias)] = i
+            linhas_nao_vazias.append(linha)
+
     aliases = obter_aliases_secao()
     titulos_possiveis = {}
 
@@ -596,37 +594,30 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
             if alias not in titulos_possiveis:
                 titulos_possiveis[alias] = canonico
     
-    # Cache de normalização dos títulos esperados
     titulos_norm_map = {norm: canon for norm, canon in 
                         [(normalizar_titulo_para_comparacao(t), c) for t, c in titulos_possiveis.items()]}
     titulos_norm_set = set(titulos_norm_map.keys())
 
     idx = 0
-    while idx < len(linhas):
-        linha_limpa_1 = linhas[idx].strip()
-        if not linha_limpa_1:
-            idx += 1
-            continue
-        
+    while idx < len(linhas_nao_vazias):
+        linha_limpa_1 = linhas_nao_vazias[idx].strip()
         linha_norm_1 = normalizar_titulo_para_comparacao(linha_limpa_1)
         
-        # --- Check 2 linhas (Menos provável com o novo layout, mas mantido) ---
         linha_limpa_2 = ""
         linha_norm_2 = ""
         linha_combinada_2 = ""
-        if idx + 1 < len(linhas):
-            linha_limpa_2 = linhas[idx+1].strip()
-            if linha_limpa_2 and len(linha_limpa_2.split()) < 7: # Não juntar parágrafos
+        if idx + 1 < len(linhas_nao_vazias):
+            linha_limpa_2 = linhas_nao_vazias[idx+1].strip()
+            if linha_limpa_2 and len(linha_limpa_2.split()) < 7:
                 linha_combinada_2 = f"{linha_limpa_1} {linha_limpa_2}"
                 linha_norm_2 = normalizar_titulo_para_comparacao(linha_combinada_2)
 
-        # --- Check 3 linhas (Menos provável com o novo layout, mas mantido) ---
         linha_limpa_3 = ""
         linha_norm_3 = ""
         linha_combinada_3 = ""
-        if idx + 2 < len(linhas):
-            linha_limpa_3 = linhas[idx+2].strip()
-            if linha_limpa_2 and linha_limpa_3 and len(linha_limpa_3.split()) < 7: # Não juntar parágrafos
+        if idx + 2 < len(linhas_nao_vazias):
+            linha_limpa_3 = linhas_nao_vazias[idx+2].strip()
+            if linha_limpa_2 and linha_limpa_3 and len(linha_limpa_3.split()) < 7:
                 linha_combinada_3 = f"{linha_limpa_1} {linha_limpa_2} {linha_limpa_3}"
                 linha_norm_3 = normalizar_titulo_para_comparacao(linha_combinada_3)
 
@@ -635,8 +626,6 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
         best_match_titulo_real = ""
         lines_consumed = 1
         
-        # --- Prioridade de Match ---
-        # 1. Tentar match de 3 linhas
         if linha_norm_3:
             match_3 = difflib.get_close_matches(linha_norm_3, titulos_norm_set, n=1, cutoff=0.96)
             if match_3:
@@ -645,7 +634,6 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 best_match_titulo_real = linha_combinada_3
                 lines_consumed = 3
 
-        # 2. Tentar match de 2 linhas
         if linha_norm_2 and best_match_score < 98:
             match_2 = difflib.get_close_matches(linha_norm_2, titulos_norm_set, n=1, cutoff=0.96)
             if match_2:
@@ -654,7 +642,6 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 best_match_titulo_real = linha_combinada_2
                 lines_consumed = 2
 
-        # 3. Tentar match de 1 linha
         if best_match_score < 96:
             match_1 = difflib.get_close_matches(linha_norm_1, titulos_norm_set, n=1, cutoff=0.96)
             if match_1:
@@ -663,84 +650,70 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 best_match_titulo_real = linha_limpa_1
                 lines_consumed = 1
         
-        # 4. Tentar 'startswith' (MUITO IMPORTANTE para o layout "bonito")
         if best_match_score < 96:
             for titulo_norm in titulos_norm_set:
-                # Otimizado para o layout "bonito": o título estará no início da linha/parágrafo
-                if linha_norm_1.startswith(titulo_norm):
-                    best_match_score = 97 # 'startswith' é bom
+                if linha_norm_1.startswith(titulo_norm) and len(linha_norm_1) > len(titulo_norm) + 5:
+                    best_match_score = 97
                     best_match_canonico = titulos_norm_map[titulo_norm]
-                    
-                    # Extrai o título real da linha
                     match_real = None
-                    for t_orig in titulos_possiveis: # Procura o título original
+                    for t_orig in titulos_possiveis:
                         if normalizar_titulo_para_comparacao(t_orig) == titulo_norm:
                             match_real_titulo = re.search(re.escape(t_orig), linha_limpa_1, re.IGNORECASE)
                             if match_real_titulo:
                                 best_match_titulo_real = match_real_titulo.group(0)
                                 break
-                    if not best_match_titulo_real: # Fallback
-                           best_match_titulo_real = " ".join(linha_limpa_1.split()[:10]) # Pega as 10 primeiras palavras
-                    
+                    if not best_match_titulo_real:
+                           best_match_titulo_real = " ".join(linha_limpa_1.split()[:10])
                     lines_consumed = 1
                     break
 
-        # Adicionar ao mapa
         if best_match_score >= 96:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico:
-                mapa.append({
+            if not mapa_preliminar or mapa_preliminar[-1]['canonico'] != best_match_canonico:
+                mapa_preliminar.append({
                     'canonico': best_match_canonico,
                     'titulo_encontrado': best_match_titulo_real,
-                    'linha_inicio': idx, # Linha no array 'linhas' (filtrado de vazios)
+                    'linha_inicio': idx, # Este é o índice das 'linhas_nao_vazias'
                     'score': best_match_score,
-                    'lines_consumed': lines_consumed
+                    'lines_consumed': lines_consumed # 'lines_consumed' refere-se a linhas NÃO VAZIAS
                 })
             idx += lines_consumed
         else:
             idx += 1
-
-    # Recalcular 'linha_inicio' para corresponder ao 'linhas_texto' original (com linhas vazias)
-    # Esta é a chave para a V33 funcionar.
-    mapa_final = []
-    linhas_texto_originais = texto_completo.split('\n')
-    idx_mapa = 0
-    idx_linhas_originais = 0
-    
-    if not mapa: # Se nenhum mapa foi feito, retorna vazio
-        return []
-
-    # Alinha o mapa (baseado em linhas não-vazias) com o texto original (que tem linhas vazias)
-    while idx_mapa < len(mapa) and idx_linhas_originais < len(linhas_texto_originais):
-        linha_original_atual = linhas_texto_originais[idx_linhas_originais].strip()
-        
-        # Se a linha original está vazia, pula
-        if not linha_original_atual:
-            idx_linhas_originais += 1
-            continue
             
-        # Pega a linha que o mapa encontrou (sem linhas vazias)
-        linha_mapa_atual = linhas[mapa[idx_mapa]['linha_inicio']].strip()
-
-        # Se as linhas baterem, encontramos o índice original
-        if linha_original_atual == linha_mapa_atual:
-            mapa_atualizado = mapa[idx_mapa].copy()
-            mapa_atualizado['linha_inicio'] = idx_linhas_originais # Seta o índice da linha original
-            mapa_final.append(mapa_atualizado)
-            idx_mapa += 1
+    # 2. Recalcular 'linha_inicio' para bater com 'linhas_texto' (originais)
+    mapa_final = []
+    for secao_mapa in mapa_preliminar:
+        indice_nao_vazio = secao_mapa['linha_inicio']
+        indice_original = mapa_indices_originais.get(indice_nao_vazio)
         
-        idx_linhas_originais += 1
+        if indice_original is not None:
+            # Recalcula 'lines_consumed' para o contexto original (incluindo linhas vazias)
+            indice_proximo_nao_vazio = indice_nao_vazio + secao_mapa['lines_consumed']
+            indice_original_proximo = mapa_indices_originais.get(
+                indice_proximo_nao_vazio, 
+                len(linhas_originais) # Default para o fim do texto
+            )
+            
+            # O 'lines_consumed' real é a diferença nos índices originais
+            lines_consumed_real = indice_original_proximo - indice_original
+            
+            secao_mapa_final = secao_mapa.copy()
+            secao_mapa_final['linha_inicio'] = indice_original
+            secao_mapa_final['lines_consumed'] = lines_consumed_real # Usa o 'real'
+            mapa_final.append(secao_mapa_final)
 
     mapa_final.sort(key=lambda x: x['linha_inicio'])
     return mapa_final
 
 
-# --- [INÍCIO DA CORREÇÃO - v33 Gemini] ---
-# Esta é a função robusta que corrige o bug da "caixa vazia".
+# --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA] ---
+# Esta função 'obter_dados_secao' é a v33 robusta, que usa o mapa
+# de seções (calculado acima) para definir os limites de início e fim.
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
     v33 (Gemini): Usa os índices do mapa_secoes para definir o fim da seção,
-                         corrigindo o bug do conteúdo vazio que o V32 tinha com o layout "bonito".
+                         corrigindo o bug do conteúdo vazio (Seção 6).
     """
 
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -750,10 +723,16 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         # --- Seção encontrada no mapa ---
         titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
-        lines_consumed = secao_mapa.get('lines_consumed', 1)
         
+        # O 'lines_consumed' do novo mapa (v33) já considera as linhas vazias.
+        # Mas a lógica original v32 de 'lines_consumed' (contando 1, 2 ou 3)
+        # pode ser mais simples. Vamos recalcular 'lines_consumed' v32 aqui:
+        
+        lines_consumed_v32 = 1 # Default
+        if '\n' in titulo_encontrado:
+             lines_consumed_v32 = len(titulo_encontrado.split('\n'))
+             
         # Pega a linha original onde o título foi encontrado
-        # É seguro pegar, pois o 'mapa_final' em mapear_secoes garante que o índice existe
         if linha_inicio >= len(linhas_texto):
              return False, None, "" # Segurança
              
@@ -762,39 +741,17 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         # Encontra o conteúdo que está NA MESMA LINHA do título
         conteudo_primeira_linha = ""
         
-        # Usa o 'titulo_encontrado' (que pode ser só o começo) para achar o fim
         match = re.search(re.escape(titulo_encontrado), linha_original_titulo, re.IGNORECASE)
         
-        if not match:
-             # Fallback: Tenta normalizar e achar
-             titulo_norm = normalizar_titulo_para_comparacao(titulo_encontrado)
-             linha_norm = normalizar_titulo_para_comparacao(linha_original_titulo)
-             if linha_norm.startswith(titulo_norm):
-                 # Pega o conteúdo após o comprimento do título normalizado
-                 # Isso é impreciso, mas é um fallback
-                 # Tenta achar o título original na lista de seções
-                 secoes_todas = obter_secoes_por_tipo(tipo_bula)
-                 aliases = obter_aliases_secao()
-                 titulo_real_len = len(titulo_encontrado) # Default
-                 
-                 for s_oficial in secoes_todas + list(aliases.keys()):
-                     if normalizar_titulo_para_comparacao(s_oficial) == titulo_norm:
-                         match_oficial = re.search(re.escape(s_oficial), linha_original_titulo, re.IGNORECASE)
-                         if match_oficial:
-                             titulo_real_len = match_oficial.end()
-                             break
-                 
-                 conteudo_primeira_linha = linha_original_titulo[titulo_real_len:].strip()
-        
-        elif lines_consumed == 1: # Só pega conteúdo da mesma linha se o título for de 1 linha
+        # A lógica v32 (conteúdo na mesma linha)
+        if match and lines_consumed_v32 == 1: 
             idx_fim_titulo = match.end()
             conteudo_primeira_linha = linha_original_titulo[idx_fim_titulo:].strip()
-            
-        # Limpa pontuação inicial (ex: "6. TÍTULO: ...")
-        conteudo_primeira_linha = re.sub(r"^[.:\s]+", "", conteudo_primeira_linha)
+            conteudo_primeira_linha = re.sub(r"^[.:\s]+", "", conteudo_primeira_linha)
         
         # O conteúdo restante começa na linha SEGUINTE
-        linha_inicio_conteudo = linha_inicio + lines_consumed
+        # Usamos o 'lines_consumed_v32' para saber onde o título termina
+        linha_inicio_conteudo = linha_inicio + lines_consumed_v32
 
         # Determina o fim da seção olhando o INÍCIO da próxima seção no mapa
         linha_fim = len(linhas_texto)
@@ -814,7 +771,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
 
     # Se a seção não foi encontrada no mapa
     return False, None, ""
-# --- [FIM DA CORREÇÃO - v33 Gemini] ---
+# --- [FIM DA CORREÇÃO] ---
 
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
@@ -835,7 +792,6 @@ def verificar_secoes_e_conteudo(texto_ref: str, texto_belfar: str, tipo_bula: st
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
 
         if not encontrou_belfar:
-            # Tenta encontrar um título similar se o 'canonico' falhar
             melhor_score = 0
             melhor_titulo_encontrado = None
             for m in mapa_belfar:
@@ -907,7 +863,9 @@ def checar_ortografia_inteligente(texto_para_checar: str, texto_referencia: str,
                 continue
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto, tipo_bula)
             if encontrou and conteudo:
-                texto_filtrado_para_checar.append(conteudo) # Adiciona todo o conteúdo
+                linhas_conteudo = conteudo.split('\n')
+                if len(linhas_conteudo) > 1:
+                    texto_filtrado_para_checar.append('\n'.join(linhas_conteudo[1:]))
 
         texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
         if not texto_final_para_checar:
@@ -990,7 +948,7 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
             conteudo_belfar = diff['conteudo_belfar']
             conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
             
-            # Garantir que o conteúdo não seja None antes de marcar
+            # Garantir que o conteúdo não seja None
             if conteudo_a_marcar is None:
                 conteudo_a_marcar = ""
 
@@ -1000,7 +958,7 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
             conteudo_com_ancora = f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{conteudo_marcado}</div>"
 
             if conteudo_a_marcar and conteudo_a_marcar in texto_sem_escape:
-                texto_sem_escape = texto_sem_escape.replace(conteudo_a_marcar, conteudo_com_ancora, 1) # Adicionado '1' para evitar substituições erradas
+                texto_sem_escape = texto_sem_escape.replace(conteudo_a_marcar, conteudo_com_ancora, 1) # Adicionado '1'
             else:
                 escaped_marcar = html.escape(conteudo_a_marcar)
                 if escaped_marcar in texto_trabalho:
@@ -1018,11 +976,9 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
         texto_sem_escape = texto_sem_escape.replace(frase_anvisa, f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{html.escape(frase_anvisa)}</mark>", 1)
 
     if '<div' in texto_sem_escape or '<mark' in texto_sem_escape:
-        # Substitui \n\n (separador de parágrafo) por <br><br>
-        # Substitui \n (que não deveria existir, mas por segurança) por <br>
-        texto_final = texto_sem_escape.replace('\n\n', '<br><br>').replace('\n', '<br>')
+        texto_final = texto_sem_escape.replace('\n', '<br>')
     else:
-        texto_final = html.escape(texto_sem_escape).replace('\n\n', '<br><br>').replace('\n', '<br>')
+        texto_final = html.escape(texto_sem_escape).replace('\n', '<br>')
 
     return texto_final
 
@@ -1096,9 +1052,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         encontrou_ref, _, conteudo_ref_para_marcar = obter_dados_secao(secao, mapa_ref, texto_ref.split('\n'), tipo_bula)
         encontrou_belfar, titulo_belfar_encontrado, conteudo_bel_para_marcar = obter_dados_secao(secao, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
 
-        # Bug visual: Se por algum motivo não encontrou em um, mas não foi pego como 'faltante'
         if not encontrou_ref or not encontrou_belfar:
-            # Não renderizar o expander se um dos lados estiver faltando
             continue 
 
         diff = mapa_diferencas.get(secao)
