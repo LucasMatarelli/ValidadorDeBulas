@@ -1271,11 +1271,11 @@ tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), 
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("📄 Arte Vigente")
-    pdf_ref = st.file_uploader("Envie o PDF ou DOCX de referência", type=["pdf", "docx"], key="ref")
+    pdf_ref = st.file_uploader("Envie o PDF da Arte Vigente", type=["pdf"], key="ref")
 
 with col2:
     st.subheader("📄 PDF da Gráfica")
-    pdf_belfar = st.file_uploader("Envie o PDF BELFAR", type="pdf", key="belfar")
+    pdf_belfar = st.file_uploader("Envie o PDF da Gráfica", type="pdf", key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
