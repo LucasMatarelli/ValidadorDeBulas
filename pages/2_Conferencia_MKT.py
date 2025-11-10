@@ -76,11 +76,11 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
-            texto = texto.replace('\u00A0', ' ')
+            texto = texto.replace('\u00A0', ' ') # Substitui non-breaking space
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO (v26.15) ---
+            # --- FILTRO DE RUÍDO (v26.16) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha = re.compile(
@@ -101,8 +101,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
             # Padrão 2: Remove FRAGMENTOS de ruído de DENTRO das linhas
             padrao_ruido_inline = re.compile(
-                r'BUL_CLORIDRATO_DE_NA\s+190'
-                r'|AFAZOLINA_BUL\d+V\d+.*?(\s+New\s+Roman|\s+mm)?'
+                # (v26.16) Regex mais permissivo (espaço opcional \s*)
+                r'BUL_CLORIDRATO_DE_NA\s*190' 
+                r'|AFAZOLINA_BUL\d+V\d+.*?(New\s+Roman|mm)?' 
                 r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
                 r'|AMBROXOL_BUL\d+V\d+'
                 r'|es New Roman.*?' # Tornar não-ganancioso
