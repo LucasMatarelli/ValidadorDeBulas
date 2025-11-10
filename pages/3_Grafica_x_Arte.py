@@ -6,8 +6,9 @@
 # v32: Mantém 'melhorar_layout_grafica' (original, conservador) para corrigir e formatar.
 # v32: Mantém o Relatório Completo (mostra todas as seções).
 # v32: Mantém a Comparação Literal.
-# v32 (Gemini patch 2): Corrige erro de regex 'unbalanced parenthesis' nas regras de correção.
-# v32 (Gemini patch 2): Mantém a correção da Seção 6 e os filtros.
+# v32 (Gemini patch 3): Corrige erro de regex 'unbalanced parenthesis' nas regras de correção.
+# v32 (Gemini patch 3): Mantém a correção da Seção 6 e os filtros.
+# v32 (Gemini patch 3): Adiciona novas micro-correções de português (nodo, omar, js, le, etc.)
 
 # --- IMPORTS ---
 
@@ -63,6 +64,8 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     if not texto:
         return ""
     
+    # --- [INÍCIO DA CORREÇÃO] ---
+    # Adicionadas todas as novas regras e corrigido o erro 'unbalanced parenthesis'
     correcoes = {
         # Correções de palavras compostas e nomes
         r"(?i)\b(3|1)lfar\b": "Belfar",
@@ -135,8 +138,6 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bralactosemia\b": "galactosemia",
         r"(?i)\bjacientes\b": "pacientes",
         r"(?i)^mm\s+Cada\b": "Cada",
-        r"(?i)\bque\s+faz\b": "o que faz",
-        r"(?i)\ba\s+dipirona\b": "à dipirona",
         r"(?i)\bà\s+probabilidade\b": "à probabilidade",
         r"(?i)^mm\s+Anticolinérgicos": "Anticolinérgicos",
         r"(?i)\b\"ompensarem\b": "compensarem",
@@ -147,6 +148,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bocê\b": "você",
         r"(?i)\basos\b": "casos",
         r"(?i)\b1so\b": "isso",
+        r"(?i)\busso\b": "isso", # Erro da screenshot
         r"(?i)\bmergência\b": "emergência",
         r"(?i)\bjaracetamol\b": "paracetamol",
         r"(?i)\bropifenazona\b": "propifenazona",
@@ -166,32 +168,37 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         # --- [INÍCIO DAS NOVAS CORREÇÕES (COM REGEX CORRIGIDO)] ---
         # Erros do texto de exemplo
         r"(?i)\bo o que faz\b": "o que faz",
-        r"(?i)\bjs sinais\b": "os sinais",
+        r"(?i)\bjs\s+sinais\b": "os sinais", # Erro da screenshot
         r"\.\)\s*s\s+pacientes\b": ". Os pacientes", # CORRIGIDO: \.\)
-        r"(?i)\bom outros\b": "com outros",
+        r"(?i)\bom\s+bolhas\b": "com bolhas", # Erro da screenshot
+        r"(?i)\bom\s+outros\b": "com outros", # Erro da screenshot
         r"(?i)\bcomo\)\s*butilbrometo\b": "como o butilbrometo", # CORRIGIDO: \)
+        r"(?i)\bim\s+caso\b": "em caso",
+        r"(?i)\bintolerância\b": "intolerância", # Erro da screenshot
+        r"(?i)\ble\s+glicose\b": "de glicose", # Erro da screenshot
+        r"(?i)\brecomendada\b": "recomendada", # Erro da screenshot
+        r"(?i)\bor\s+dose\b": "por dose", # Erro da screenshot
+        r"(?i)\bssa\s+quantidade\b": "essa quantidade", # Erro da screenshot
+        r"(?i)\bcom\)\s*uso\b": "com o uso", # CORRIGIDO: \)
+        r"(?i)\ble\s+gravidez\b": "de gravidez",
+        r"(?i)\bleve\s+ser\b": "deve ser",
+        r"(?i)\bnodo,\b": "modo,", # Erro da screenshot
+        r"(?i)\bomar\s+cuidado\b": "tomar cuidado", # Erro da screenshot
+        r"(?i)\badministração\b": "administração", # Erro da screenshot
+        r"(?i)\banti-\s+histamínicos\b": "anti-histamínicos",
+        r"15\s*Ce\s*30 C": "15°C e 30°C",
+        r"15“\s*Ce\s*30 C": "15°C e 30°C", # Variação
+        r"(?i)\bleo paralítico\b": "íleo paralítico",
+        r"(?i)\bà\s+dipirona\b": "à dipirona",
         r"(?i)^1\s+necessária\b": "É necessária",
-        r"(?i)\bintolerâácia\b": "intolerância",
-        r"(?i)\ble glicose\b": "de glicose",
-        r"(?i)\ble gravidez\b": "de gravidez",
-        r"(?i)\bleve ser\b": "deve ser",
-        r"(?i)\blipirona\b": "dipirona",
         r"(?i)\bmediatamente\b": "imediatamente",
-        r"(?i)\bnodo,\b": "modo,",
         r"(?i)\barticularmente\b": "particularmente",
         r"(?i)\bAcido acetilsalicílico\b": "Ácido acetilsalicílico",
-        r"(?i)\bomar cuidado\b": "tomar cuidado",
         r"(?i)\brespitarórios\b": "respiratórios",
         r"(?i)\bTeste laboratoriais\b": "Testes laboratoriais",
         r"(?i)\bse ALGUM usar\b": "se ALGUÉM usar",
-        r"(?i)\bor dose\b": "por dose",
-        r"(?i)\bssa quantidade\b": "essa quantidade",
-        r"(?i)\bcom\)\s*uso\b": "com o uso", # CORRIGIDO: \)
-        r"15“\s*Ce\s*30 C": "15°C e 30°C",
-        
-        # Lixo 'mm' e 'mma' no meio do texto
-        r"\s+mm\b": "",
-        r"\s+mma\b": "",
+        r"\s+mm\b": "", # Remove 'mm' solto
+        r"\s+mma\b": "", # Remove 'mma' solto
         # --- [FIM DAS NOVAS CORREÇÕES] ---
         
         # Correções de caracteres especiais/lixo
@@ -215,7 +222,8 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(\()\s+": r"\1",
         r"\s+(\))": r"\1",
     }
-    
+    # --- [FIM DA CORREÇÃO] ---
+
     for padrao, correcao in correcoes.items():
         texto = re.sub(padrao, correcao, texto, flags=re.MULTILINE)
     
@@ -729,14 +737,10 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 len(linhas_originais) # Default para o fim do texto
             )
             
-            # O 'lines_consumed' real é a diferença nos índices originais
-            lines_consumed_real = indice_original_proximo - indice_original
-            
             secao_mapa_final = secao_mapa.copy()
             secao_mapa_final['linha_inicio'] = indice_original
             # ATENÇÃO: Usar o lines_consumed original (v32) de 1, 2 ou 3
             # A lógica v32 de 'obter_dados_secao' depende de saber se o TÍTULO tem 1, 2 ou 3 linhas
-            # E não quantas linhas TOTAIS (incluindo vazias) existem até a próxima seção.
             secao_mapa_final['lines_consumed'] = secao_mapa['lines_consumed']
             mapa_final.append(secao_mapa_final)
 
@@ -774,7 +778,13 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         # Encontra o conteúdo que está NA MESMA LINHA do título
         conteudo_primeira_linha = ""
         
-        match = re.search(re.escape(titulo_encontrado), linha_original_titulo, re.IGNORECASE)
+        match = None
+        try:
+            # Tenta encontrar o título exato
+            match = re.search(re.escape(titulo_encontrado), linha_original_titulo, re.IGNORECASE)
+        except re.error:
+             # Fallback se o 'titulo_encontrado' tiver um regex inválido (raro)
+             pass
         
         # A lógica v32 (conteúdo na mesma linha)
         if match and lines_consumed_titulo == 1: 
