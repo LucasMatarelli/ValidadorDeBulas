@@ -90,7 +90,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
                 r'|^\s*\d+\s*mm\s*$'
-                r'|BUL_CLORIDRATO_DE_NA 190'
+T               r'|BUL_CLORIDRATO_DE_NA 190'
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
                 r'|BUL_CLORIDRATO_DE_A.*'
                 r'|AMBROXOL_BUL\d+V\d+.*'
@@ -229,10 +229,11 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
-    texto_norm = normalizar_texto(texto)
-    # Remove a numeração (ex: "1. ", "1.", "1) ") do início para a comparação
-    texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
-    return texto_norm
+    # (v26.10) - Retorna o texto normalizado, mas mantendo a numeração
+    # (ex: "1. TÍTULO") para uma comparação de título mais rigorosa.
+    # A função 'normalizar_texto' já remove o ponto (ex: "1." vira "1"),
+    # mas mantém o número.
+    return normalizar_texto(texto)
 
 # ----------------- CORREÇÃO DE TÍTULOS BELFAR -----------------
 def corrigir_quebras_em_titulos(texto):
