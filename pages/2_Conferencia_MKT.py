@@ -763,12 +763,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
     
-   # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.20) ---
+# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.21) ---
     def formatar_html_para_leitura(html_content):
         """
         Formata o texto "fluído" (sort=True) para um HTML "bonito".
-        (v26.20) - Encontra títulos MESMO "grudados" no texto
-        e força a quebra de parágrafo ao redor deles.
+        (v26.21) - Remove "USO NASAL" e "USO ADULTO" da formatação de título.
         """
         if html_content is None:
             return ""
@@ -776,11 +775,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         # 1. Preserva parágrafos reais (linhas em branco)
         html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
         
-        # 2. Lista de TODOS os títulos que queremos formatar
+        # 2. Lista de Títulos de Seção que queremos formatar
         titulos_lista = [
             "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
             "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
-            "USO NASAL", "USO ADULTO",
+            # "USO NASAL", "USO ADULTO", <-- REMOVIDOS
+            
             # Títulos de Paciente (com e sem número)
             r"1\.\s*PARA QUE ESTE MEDICAMENTO É INDICADO\?",
             r"PARA QUE ESTE MEDICAMENTO É INDICADO\?",
