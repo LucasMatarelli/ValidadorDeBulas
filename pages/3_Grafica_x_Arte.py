@@ -6,8 +6,8 @@
 # v32: Mantém 'melhorar_layout_grafica' (original, conservador) para corrigir e formatar.
 # v32: Mantém o Relatório Completo (mostra todas as seções).
 # v32: Mantém a Comparação Literal.
-# v32 (Gemini patch): Funções 'mapear_secoes' e 'obter_dados_secao' atualizadas para corrigir bug da caixa vazia (Seção 6).
-# v32 (Gemini patch): Adicionado filtro para "BUL BELSPAN COMP" e erros de digitação do exemplo.
+# v32 (Gemini patch 2): Corrige erro de regex 'unbalanced parenthesis' nas regras de correção.
+# v32 (Gemini patch 2): Mantém a correção da Seção 6 e os filtros.
 
 # --- IMPORTS ---
 
@@ -163,13 +163,13 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\braves\b": "graves",
         r"(?i)\blérgica\b": "alérgica",
 
-        # --- [INÍCIO DAS NOVAS CORREÇÕES] ---
+        # --- [INÍCIO DAS NOVAS CORREÇÕES (COM REGEX CORRIGIDO)] ---
         # Erros do texto de exemplo
         r"(?i)\bo o que faz\b": "o que faz",
         r"(?i)\bjs sinais\b": "os sinais",
-        r"\.)\s*s\s+pacientes\b": ". Os pacientes", # Trata ") s pacientes"
+        r"\.\)\s*s\s+pacientes\b": ". Os pacientes", # CORRIGIDO: \.\)
         r"(?i)\bom outros\b": "com outros",
-        r"(?i)\bcomo\)\s*butilbrometo\b": "como o butilbrometo",
+        r"(?i)\bcomo\)\s*butilbrometo\b": "como o butilbrometo", # CORRIGIDO: \)
         r"(?i)^1\s+necessária\b": "É necessária",
         r"(?i)\bintolerâácia\b": "intolerância",
         r"(?i)\ble glicose\b": "de glicose",
@@ -186,7 +186,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bse ALGUM usar\b": "se ALGUÉM usar",
         r"(?i)\bor dose\b": "por dose",
         r"(?i)\bssa quantidade\b": "essa quantidade",
-        r"(?i)\bcom\)\s*uso\b": "com o uso",
+        r"(?i)\bcom\)\s*uso\b": "com o uso", # CORRIGIDO: \)
         r"15“\s*Ce\s*30 C": "15°C e 30°C",
         
         # Lixo 'mm' e 'mma' no meio do texto
@@ -541,7 +541,7 @@ def obter_secoes_por_tipo(tipo_bula: str) -> List[str]:
 def obter_aliases_secao() -> Dict[str, str]:
     return {
         "INDICAÇÕES": "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "CONTRAINDICAÇÕES": "3. QUANDO NÃO DEVO USAR ESTE MEDICamento?",
+        "CONTRAINDICAÇÕES": "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
         "POSOLOGIA E MODO DE USAR": "6. COMO DEVO USAR ESTE MEDICAMENTO?",
         "REAÇÕES ADVERSAS": "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
         "SUPERDOSE": "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
@@ -734,7 +734,10 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
             
             secao_mapa_final = secao_mapa.copy()
             secao_mapa_final['linha_inicio'] = indice_original
-            secao_mapa_final['lines_consumed'] = lines_consumed_real # Usa o 'real'
+            # ATENÇÃO: Usar o lines_consumed original (v32) de 1, 2 ou 3
+            # A lógica v32 de 'obter_dados_secao' depende de saber se o TÍTULO tem 1, 2 ou 3 linhas
+            # E não quantas linhas TOTAIS (incluindo vazias) existem até a próxima seção.
+            secao_mapa_final['lines_consumed'] = secao_mapa['lines_consumed']
             mapa_final.append(secao_mapa_final)
 
     mapa_final.sort(key=lambda x: x['linha_inicio'])
@@ -759,13 +762,8 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
         
-        # O 'lines_consumed' do novo mapa (v33) já considera as linhas vazias.
-        # Mas a lógica original v32 de 'lines_consumed' (contando 1, 2 ou 3)
-        # pode ser mais simples. Vamos recalcular 'lines_consumed_v32' aqui:
-        
-        lines_consumed_v32 = 1 # Default
-        if '\n' in titulo_encontrado:
-             lines_consumed_v32 = len(titulo_encontrado.split('\n'))
+        # O 'lines_consumed' (v32) diz respeito a quantas linhas o TÍTULO ocupa (1, 2 ou 3)
+        lines_consumed_titulo = secao_mapa.get('lines_consumed', 1)
              
         # Pega a linha original onde o título foi encontrado
         if linha_inicio >= len(linhas_texto):
@@ -779,14 +777,14 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         match = re.search(re.escape(titulo_encontrado), linha_original_titulo, re.IGNORECASE)
         
         # A lógica v32 (conteúdo na mesma linha)
-        if match and lines_consumed_v32 == 1: 
+        if match and lines_consumed_titulo == 1: 
             idx_fim_titulo = match.end()
             conteudo_primeira_linha = linha_original_titulo[idx_fim_titulo:].strip()
             conteudo_primeira_linha = re.sub(r"^[.:\s]+", "", conteudo_primeira_linha)
         
         # O conteúdo restante começa na linha SEGUINTE
-        # Usamos o 'lines_consumed_v32' para saber onde o título termina
-        linha_inicio_conteudo = linha_inicio + lines_consumed_v32
+        # Usamos o 'lines_consumed_titulo' para saber onde o título termina
+        linha_inicio_conteudo = linha_inicio + lines_consumed_titulo
 
         # Determina o fim da seção olhando o INÍCIO da próxima seção no mapa
         linha_fim = len(linhas_texto)
@@ -963,10 +961,10 @@ def marcar_diferencas_palavra_por_palavra(texto_ref: str, texto_belfar: str, eh_
             resultado += tok
             continue
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
+        # Condição original (v32) para layout conservador
         if re.match(r'^[^\w\s]$', raw_tok) or raw_tok == '\n':
             resultado += tok
         else:
-            # Não adiciona espaço antes de \n
             if marcado[i-1] != '\n' and tok != '\n':
                  resultado += " "
             resultado += tok
