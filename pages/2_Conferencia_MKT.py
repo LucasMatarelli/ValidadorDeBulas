@@ -80,43 +80,61 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO APRIMORADO (v26.11) ---
+            # --- FILTRO DE RUÍDO (v26.15) ---
+            
+            # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
                 r'|(Impressãe|Impressão):? Frente/Verso|Papel[\.:]? Ap \d+gr'
                 r'|Cor:? Preta|contato:?|artes@belfar\.com\.br'
-                r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
                 r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
-                r'|^\s*\d+\s*mm\s*$'
-                r'|BUL_CLORIDRATO_DE_NA\s+190.*' # <-- ALTERAÇÃO (v26.11)
+                r'|^\s*\d+\s*mm\s*$' # Linha contendo APENAS "mm"
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
                 r'|BUL_CLORIDRATO_DE_A.*'
-                r'|AMBROXOL_BUL\d+V\d+.*'
-                r'|AFAZOLINA_BUL\d+V\d+.*'
-                r'|es New Roman.*'
-                r'|rpo \d+.*'
-                r'|olL: Times New Roman.*'
-                r'|\d{2}\s\d{4}\s\d{4}.*'  
+                r'|\d{2}\s\d{4}\s\d{4}.*'
                 r'|cloridrato de ambroxo\s*$'
                 r'|Normal e Negrito\. Co\s*$'
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL' # Ruído do topo
             , re.IGNORECASE)
+
+            # Padrão 2: Remove FRAGMENTOS de ruído de DENTRO das linhas
+            padrao_ruido_inline = re.compile(
+                r'BUL_CLORIDRATO_DE_NA\s+190'
+                r'|AFAZOLINA_BUL\d+V\d+.*?(\s+New\s+Roman|\s+mm)?'
+                r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
+                r'|AMBROXOL_BUL\d+V\d+'
+                r'|es New Roman.*?' # Tornar não-ganancioso
+                r'|rpo \d+.*?' # Tornar não-ganancioso
+                r'|olL: Times New Roman.*?' # Tornar não-ganancioso
+            , re.IGNORECASE)
+
             
             linhas_filtradas = []
             for linha in linhas:
                 linha_strip = linha.strip()
-                if not padrao_ruido_linha.search(linha_strip):
-                    if len(linha_strip) > 1 or (len(linha_strip) == 1 and linha_strip.isdigit()):
-                        linhas_filtradas.append(linha_strip)
-                    elif linha_strip.isupper() and len(linha_strip) > 0:
-                        linhas_filtradas.append(linha_strip)
+                
+                # 1. Checa se a LINHA INTEIRA é ruído
+                if padrao_ruido_linha.search(linha_strip):
+                    continue # Pula esta linha
+
+                # 2. Remove ruído DE DENTRO da linha
+                # Substitui o ruído por um espaço para não "grudar" palavras
+                linha_limpa = padrao_ruido_inline.sub(' ', linha_strip)
+                # Remove espaços duplos que o ".sub" possa ter deixado
+                linha_limpa = re.sub(r'\s{2,}', ' ', linha_limpa).strip()
+                
+                # 3. Adiciona a linha limpa (se não estiver vazia)
+                if len(linha_limpa) > 1 or (len(linha_limpa) == 1 and linha_limpa.isdigit()):
+                    linhas_filtradas.append(linha_limpa)
+                elif linha_limpa.isupper() and len(linha_limpa) > 0:
+                    linhas_filtradas.append(linha_limpa)
             
             texto = "\n".join(linhas_filtradas)
             
             texto = re.sub(r'\n{3,}', '\n\n', texto)  
-            texto = re.sub(r'[ \t]+', ' ', texto)
+            texto = re.sub(r'[ \t]+', ' ', texto) # Limpeza final
             texto = texto.strip()
 
         return texto, None
