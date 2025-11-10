@@ -844,7 +844,7 @@ st.markdown("Sistema avançado de comparação literal e validação de bulas fa
 st.divider()
 
 st.header("📋 Configuração da Auditoria")
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
+tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente"), horizontal=True)
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("📄 Arquivo ANVISA")
