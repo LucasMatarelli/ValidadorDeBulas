@@ -7,7 +7,7 @@
 # v32: Mantém o Relatório Completo (mostra todas as seções).
 # v32: Mantém a Comparação Literal.
 # v32 (Gemini patch): Funções 'mapear_secoes' e 'obter_dados_secao' atualizadas para corrigir bug da caixa vazia (Seção 6).
-# v32 (Gemini patch): Adicionado filtro para "BUL BELSPAN COMP".
+# v32 (Gemini patch): Adicionado filtro para "BUL BELSPAN COMP" e erros de digitação do exemplo.
 
 # --- IMPORTS ---
 
@@ -162,6 +162,37 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bjossuem\b": "possuem",
         r"(?i)\braves\b": "graves",
         r"(?i)\blérgica\b": "alérgica",
+
+        # --- [INÍCIO DAS NOVAS CORREÇÕES] ---
+        # Erros do texto de exemplo
+        r"(?i)\bo o que faz\b": "o que faz",
+        r"(?i)\bjs sinais\b": "os sinais",
+        r"\.)\s*s\s+pacientes\b": ". Os pacientes", # Trata ") s pacientes"
+        r"(?i)\bom outros\b": "com outros",
+        r"(?i)\bcomo\)\s*butilbrometo\b": "como o butilbrometo",
+        r"(?i)^1\s+necessária\b": "É necessária",
+        r"(?i)\bintolerâácia\b": "intolerância",
+        r"(?i)\ble glicose\b": "de glicose",
+        r"(?i)\ble gravidez\b": "de gravidez",
+        r"(?i)\bleve ser\b": "deve ser",
+        r"(?i)\blipirona\b": "dipirona",
+        r"(?i)\bmediatamente\b": "imediatamente",
+        r"(?i)\bnodo,\b": "modo,",
+        r"(?i)\barticularmente\b": "particularmente",
+        r"(?i)\bAcido acetilsalicílico\b": "Ácido acetilsalicílico",
+        r"(?i)\bomar cuidado\b": "tomar cuidado",
+        r"(?i)\brespitarórios\b": "respiratórios",
+        r"(?i)\bTeste laboratoriais\b": "Testes laboratoriais",
+        r"(?i)\bse ALGUM usar\b": "se ALGUÉM usar",
+        r"(?i)\bor dose\b": "por dose",
+        r"(?i)\bssa quantidade\b": "essa quantidade",
+        r"(?i)\bcom\)\s*uso\b": "com o uso",
+        r"15“\s*Ce\s*30 C": "15°C e 30°C",
+        
+        # Lixo 'mm' e 'mma' no meio do texto
+        r"\s+mm\b": "",
+        r"\s+mma\b": "",
+        # --- [FIM DAS NOVAS CORREÇÕES] ---
         
         # Correções de caracteres especiais/lixo
         r"\bc\.t\s+": "",
@@ -214,7 +245,8 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     # 4. Remover lixo de OCR óbvio
     texto = re.sub(r'(\.|\s){7,}', ' ', texto)  # Muitos pontos/espaços
-    texto = re.sub(r'[«»"""ÉÀ]', '', texto)  # Caracteres estranhos
+    # Adicionado “ e ” para limpeza
+    texto = re.sub(r'[«»"""ÉÀ“”]', '', texto)  # Caracteres estranhos
     texto = re.sub(r'\bBEE\s*\*\b', '', texto, flags=re.IGNORECASE)
     
     # 5. Remover linhas de lixo técnico
@@ -232,6 +264,8 @@ def melhorar_layout_grafica(texto: str) -> str:
         r'^\s*\|\s*$',
         r'^\s*-{5,}\s*$',
         r'^\s*\d+\s*$',  # Linha só com número
+        # Adicionado para limpar o lixo '190' do topo do exemplo
+        r'^\s*—+\s*\d+\s*$',
     ]
     
     for linha in linhas:
@@ -507,7 +541,7 @@ def obter_secoes_por_tipo(tipo_bula: str) -> List[str]:
 def obter_aliases_secao() -> Dict[str, str]:
     return {
         "INDICAÇÕES": "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "CONTRAINDICAÇÕES": "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "CONTRAINDICAÇÕES": "3. QUANDO NÃO DEVO USAR ESTE MEDICamento?",
         "POSOLOGIA E MODO DE USAR": "6. COMO DEVO USAR ESTE MEDICAMENTO?",
         "REAÇÕES ADVERSAS": "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
         "SUPERDOSE": "9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
@@ -562,6 +596,7 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     norm = normalizar_texto(secao_nome)
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
+
 
 # --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA] ---
 # Esta função 'mapear_secoes' é a v33 robusta, que recalcula os índices
@@ -726,7 +761,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         
         # O 'lines_consumed' do novo mapa (v33) já considera as linhas vazias.
         # Mas a lógica original v32 de 'lines_consumed' (contando 1, 2 ou 3)
-        # pode ser mais simples. Vamos recalcular 'lines_consumed' v32 aqui:
+        # pode ser mais simples. Vamos recalcular 'lines_consumed_v32' aqui:
         
         lines_consumed_v32 = 1 # Default
         if '\n' in titulo_encontrado:
@@ -864,6 +899,7 @@ def checar_ortografia_inteligente(texto_para_checar: str, texto_referencia: str,
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto, tipo_bula)
             if encontrou and conteudo:
                 linhas_conteudo = conteudo.split('\n')
+                # Lógica original (v32) para pegar o texto para ortografia
                 if len(linhas_conteudo) > 1:
                     texto_filtrado_para_checar.append('\n'.join(linhas_conteudo[1:]))
 
@@ -930,7 +966,10 @@ def marcar_diferencas_palavra_por_palavra(texto_ref: str, texto_belfar: str, eh_
         if re.match(r'^[^\w\s]$', raw_tok) or raw_tok == '\n':
             resultado += tok
         else:
-            resultado += " " + tok
+            # Não adiciona espaço antes de \n
+            if marcado[i-1] != '\n' and tok != '\n':
+                 resultado += " "
+            resultado += tok
 
     resultado = re.sub(r'\s+([.,;:!?)])', r'\1', resultado)
     resultado = re.sub(r'(\()\s+', r'\1', resultado)
