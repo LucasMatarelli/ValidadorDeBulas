@@ -1,37 +1,4 @@
-# pages/2_Conferencia_MKT.py
-#
-# Versão v26.17 (Consolidada)
-# 1. Ignora comparação de conteúdo e ortografia de [APRESENTAÇÕES, COMPOSIÇÃO, DIZERES LEGAIS].
-# 2. Ignora numeração de títulos na COMPARAÇÃO (ex: "1. TÍTULO" == "TÍTULO").
-# 3. (v26.16) Filtro de ruído "inline" para remover "BUL_CLORIDRATO..." do meio do texto.
-# 4. (v26.14) Função de layout (formatar_html_para_leitura) melhorada para evitar textos "grudados".
-
-# --- IMPORTS ---
-import re
-import difflib
-import unicodedata
-import io
-
-import streamlit as st
-import fitz  # PyMuPDF
-import docx
-import spacy
-from thefuzz import fuzz
-from spellchecker import SpellChecker
-
-# ----------------- MODELO NLP -----------------
-@st.cache_resource
-def carregar_modelo_spacy():
-    """Carrega o modelo de linguagem SpaCy de forma otimizada."""
-    try:
-        return spacy.load("pt_core_news_lg")
-    except OSError:
-        st.error("Modelo 'pt_core_news_lg' não encontrado. Execute: python -m spacy download pt_core_news_lg")
-        return None
-
-nlp = carregar_modelo_spacy()
-
-# ----------------- EXTRAÇÃO (v26.19 - Filtro Inline Agressivo) -----------------
+# ----------------- EXTRAÇÃO (v26.20 - Filtro Inline "Força Bruta") -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
@@ -79,7 +46,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO (v26.19) ---
+            # --- FILTRO DE RUÍDO (v26.20) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha = re.compile(
@@ -100,12 +67,156 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
             # Padrão 2: Remove FRAGMENTOS de ruído de DENTRO das linhas
             padrao_ruido_inline = re.compile(
-                # (v26.19) Regra mais forte para "BUL...":
-                r'BUL_CLORIDRATO_DE_NA\s+\d+' # \s+ (um ou mais espaços)
+                # (v26.20) "Força Bruta" - Pega "BUL..." + qualquer coisa + "190"
+                r'BUL_CLORIDRATO_DE_NA[\s\S]*?190' 
                 
-                # (v26.19) Regra mais forte para "New Roman...":
-                # Pega de "New Roman" até "mm", incluindo tudo no meio
-                r'|New\s*Roman[^\n]*?mm' 
+                # (v26.20) "Força Bruta" - Pega "New Roman" + qualquer coisa + "mm"
+                r'|New\s*Roman[\s\S]*?mm' 
+                
+                # Outras regras:
+                r'|AFAZOLINA_BUL\d+V\d+.*?' 
+                r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
+                r'|AMBROXOL_BUL\d+V\d+'
+                r'|es New Roman.*?' 
+                r'|rpo \d+.*?' 
+                r'|olL: Times New Roman.*?'
+            , re.IGNORECASE)
+
+            
+            linhas_filtradas = []
+            for linha in linhas:
+                linha_strip = linha.strip()
+                
+                # 1. Checa se a LINHA INTEIRA é ruído
+                if padrao_ruido_linha.search(linha_strip):
+                    continue # Pula esta linha
+
+                # 2. Remove ruído DE DENTRO da linha
+                linha_limpa = padrao_ruido_inline.sub(' ', linha_strip)
+                linha_limpa = re.sub(r'\s{2,}', ' ', linha_limpa).strip()
+                
+                # 3. Adiciona a linha limpa (se não estiver vazia)
+                if len(linha_limpa) > 1 or (len(linha_limpa) == 1 and linha_limpa.isdigit()):
+                    linhas_filtradas.append(linha_limpa)
+                elif linha_limpa.isupper() and len(linha_limpa) > 0:
+                    linhas_filtradas.append(linha_limpa)
+            
+            texto = "\n".join(linhas_filtradas)
+            
+            texto = re.sub(r'\n{3,}', '\n\n', texto)  
+            texto = re.sub(r'[ \t]+', ' ', texto) # Limpeza final
+            texto = texto.strip()
+
+        return texto, None
+    except Exception as e:
+        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"# pages/2_Conferencia_MKT.py
+#
+# Versão v26.17 (Consolidada)
+# 1. Ignora comparação de conteúdo e ortografia de [APRESENTAÇÕES, COMPOSIÇÃO, DIZERES LEGAIS].
+# 2. Ignora numeração de títulos na COMPARAÇÃO (ex: "1. TÍTULO" == "TÍTULO").
+# 3. (v26.16) Filtro de ruído "inline" para remover "BUL_CLORIDRATO..." do meio do texto.
+# 4. (v26.14) Função de layout (formatar_html_para_leitura) melhorada para evitar textos "grudados".
+
+# --- IMPORTS ---
+import re
+import difflib
+import unicodedata
+import io
+
+import streamlit as st
+import fitz  # PyMuPDF
+import docx
+import spacy
+from thefuzz import fuzz
+from spellchecker import SpellChecker
+
+# ----------------- MODELO NLP -----------------
+@st.cache_resource
+def carregar_modelo_spacy():
+    """Carrega o modelo de linguagem SpaCy de forma otimizada."""
+    try:
+        return spacy.load("pt_core_news_lg")
+    except OSError:
+        st.error("Modelo 'pt_core_news_lg' não encontrado. Execute: python -m spacy download pt_core_news_lg")
+        return None
+
+nlp = carregar_modelo_spacy()
+
+# ----------------- EXTRAÇÃO (v26.19 - Filtro Inline Agressivo) -----------------
+# ----------------- EXTRAÇÃO (v26.20 - Filtro Inline "Força Bruta") -----------------
+def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
+    """
+    Extrai texto de arquivos.
+    Usa sort=True DENTRO de cada coluna,
+    para fluir o texto e deixar o layout "bonitinho".
+    """
+    if arquivo is None:
+        return "", f"Arquivo {tipo_arquivo} não enviado."
+    try:
+        arquivo.seek(0)
+        texto = ""
+        full_text_list = []
+        
+        if tipo_arquivo == 'pdf':
+            with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
+                if is_marketing_pdf:
+                    # Lógica de 2 colunas SÓ para o PDF do Marketing
+                    for page in doc:
+                        rect = page.rect
+                        clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
+                        clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
+                        
+                        texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True) # COM SORT
+                        texto_direita = page.get_text("text", clip=clip_direita, sort=True)  # COM SORT
+                        
+                        full_text_list.append(texto_esquerda)
+                        full_text_list.append(texto_direita)
+                else:
+                    # Lógica de 1 coluna (padrão) para o PDF da Anvisa
+                    for page in doc:
+                        full_text_list.append(page.get_text("text", sort=True))
+            
+            texto = "\n\n".join(full_text_list)
+        
+        elif tipo_arquivo == 'docx':
+            doc = docx.Document(arquivo)
+            texto = "\n".join([p.text for p in doc.paragraphs])
+        
+        if texto:
+            caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
+            for char in caracteres_invisiveis:
+                texto = texto.replace(char, '')
+            texto = texto.replace('\r\n', '\n').replace('\r', '\n')
+            texto = texto.replace('\u00A0', ' ') # Substitui non-breaking space
+            
+            linhas = texto.split('\n')
+            
+            # --- FILTRO DE RUÍDO (v26.20) ---
+            
+            # Padrão 1: Remove LINHAS INTEIRAS que são ruído
+            padrao_ruido_linha = re.compile(
+                r'bula do paciente|página \d+\s*de\s*\d+'
+                r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
+                r'|(Impressãe|Impressão):? Frente/Verso|Papel[\.:]? Ap \d+gr'
+                r'|Cor:? Preta|contato:?|artes@belfar\.com\.br'
+                r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
+                r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
+                r'|^\s*\d+\s*mm\s*$' # Linha contendo APENAS "mm"
+                r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
+                r'|BUL_CLORIDRATO_DE_A.*'
+                r'|\d{2}\s\d{4}\s\d{4}.*'
+                r'|cloridrato de ambroxo\s*$'
+                r'|Normal e Negrito\. Co\s*$'
+                r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL' # Ruído do topo
+            , re.IGNORECASE)
+
+            # Padrão 2: Remove FRAGMENTOS de ruído de DENTRO das linhas
+            padrao_ruido_inline = re.compile(
+                # (v26.20) "Força Bruta" - Pega "BUL..." + qualquer coisa + "190"
+                r'BUL_CLORIDRATO_DE_NA[\s\S]*?190' 
+                
+                # (v26.20) "Força Bruta" - Pega "New Roman" + qualquer coisa + "mm"
+                r'|New\s*Roman[\s\S]*?mm' 
                 
                 # Outras regras:
                 r'|AFAZOLINA_BUL\d+V\d+.*?' 
@@ -652,85 +763,75 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
     
-    # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.14) ---
+   # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.20) ---
     def formatar_html_para_leitura(html_content):
         """
         Formata o texto "fluído" (sort=True) para um HTML "bonito".
-        (v26.14) - Regras de regex mais fortes, incluindo TÍTULOS MISTOS
-        (ex: "COMO ESTE MEDICAMENTO FUNCIONA?") para forçar quebras.
+        (v26.20) - Encontra títulos MESMO "grudados" no texto
+        e força a quebra de parágrafo ao redor deles.
         """
         if html_content is None:
             return ""
         
-        # 1. Preserva parágrafos reais (linhas em branco) com um marcador
-        #    (Ex: ...texto.\n\n...texto.)
+        # 1. Preserva parágrafos reais (linhas em branco)
         html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
         
-        # 2. Adiciona quebras ANTES e DEPOIS de todos os títulos
-        
-        # Lista de Títulos (ALL CAPS e Mistos, sem números)
+        # 2. Lista de TODOS os títulos que queremos formatar
         titulos_lista = [
             "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
             "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
             "USO NASAL", "USO ADULTO",
-            # Títulos de Paciente (sem número, para o regex)
-            "PARA QUE ESTE MEDICAMENTO É INDICADO?",
-            "COMO ESTE MEDICAMENTO FUNCIONA?",
-            "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-            "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "COMO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-            "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?"
+            # Títulos de Paciente (com e sem número)
+            r"1\.\s*PARA QUE ESTE MEDICAMENTO É INDICADO\?",
+            r"PARA QUE ESTE MEDICAMENTO É INDICADO\?",
+            r"2\.\s*COMO ESTE MEDICAMENTO FUNCIONA\?",
+            r"COMO ESTE MEDICAMENTO FUNCIONA\?",
+            r"3\.\s*QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?",
+            r"QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?",
+            r"4\.\s*O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?",
+            r"O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?",
+            r"5\.\s*ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?",
+            r"ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?",
+            r"6\.\s*COMO DEVO USAR ESTE MEDICAMENTO\?",
+            r"COMO DEVO USAR ESTE MEDICAMENTO\?",
+            r"7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?",
+            r"O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?",
+            r"8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?",
+            r"QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?",
+            r"9\.\s*O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO\?",
+            r"O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO\?"
         ]
         
-        # Escapa caracteres de regex (como '?' e '.')
-        titulos_regex_lista = [re.escape(t) for t in titulos_lista]
-        
-        # Padrão 1: Títulos da Lista (ex: "COMPOSIÇÃO", "COMO ESTE...")
-        regex_titulos_lista = r'(' + '|'.join(titulos_regex_lista) + r')'
-        
-        # Padrão 2: Títulos Numerados (ex: "1. PARA QUE...")
-        # [^\n] = "qualquer coisa que NÃO seja quebra de linha"
-        regex_titulos_num = r'(\d+\.\s+[A-Z][^\n]*)'
+        # Cria um grande regex (ex: ...|TÍTULO 5|TÍTULO 6|...)
+        # A ordem reversa garante que "1. TÍTULO" seja pego antes de "TÍTULO"
+        regex_titulos = r'(' + '|'.join(sorted(titulos_lista, reverse=True)) + r')'
 
-        # Substitui Padrão 1 (Títulos da Lista)
+        # 3. Força a quebra ANTES e DEPOIS dos títulos encontrados
+        #    Não importa se está grudado (\n) ou não
         html_content = re.sub(
-            # Procura por: \n, (Título da Lista), \n
-            rf'(\n){regex_titulos_lista}(\n)',
-            # Substitui por: PARÁGRAFO, <strong>Título</strong>, PARÁGRAFO
-            r'[[PARAGRAPH]]<strong>\2</strong>[[PARAGRAPH]]',
+            regex_titulos,
+            r'[[PARAGRAPH]]<strong>\1</strong>[[PARAGRAPH]]',
             html_content,
-            flags=re.IGNORECASE 
-        )
-        
-        # Substitui Padrão 2 (Títulos Numerados)
-        html_content = re.sub(
-            # Procura por: \n, (1. Título...), \n
-            rf'(\n){regex_titulos_num}(\n)',
-            # Substitui por: PARÁGRAFO, <strong>Título</strong>, PARÁGRAFO
-            r'[[PARAGRAPH]]<strong>\2</strong>[[PARAGRAPH]]',
-            html_content
+            flags=re.IGNORECASE
         )
 
-        # 3. Adiciona quebras ANTES de listas
-        #    (Ex: ...texto.\n- item)
+        # 4. Adiciona quebras ANTES de listas
         html_content = re.sub(
             r'(\n)(\s*[-–•*])', # \n seguido de espaço e um marcador
             r'[[LIST_ITEM]]\2',
             html_content
         )
 
-        # 4. Remove todas as OUTRAS quebras de linha (fluidez)
+        # 5. Remove todas as OUTRAS quebras de linha (fluidez)
         html_content = html_content.replace('\n', ' ')
 
-        # 5. Restaura os marcadores
+        # 6. Restaura os marcadores
         html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
         html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
         
-        # 6. Remove quebras duplas (limpeza final)
-        html_content = re.sub(r'(<br><br>){2,}', '<br><br>', html_content)
+        # 7. Limpeza final de quebras duplas/triplas
+        html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
+        html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
         
         return html_content
     # --- FIM DA CORREÇÃO DE LAYOUT ---
