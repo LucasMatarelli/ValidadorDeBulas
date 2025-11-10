@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
-# (Seu código v26.1 completo e corrigido)
-# Versão v26.8:
-# 1. CORRIGIDO: Aplica a função 'truncar_apos_anvisa' TAMBÉM ao 'texto_ref' (Arquivo ANVISA).
-# 2. Mantém a correção do truncamento na mesma linha (v26.7).
-# 3. Mantém a exibição de TODAS as seções (idênticas e divergentes).
-# 4. Mantém a lista de seções exata (numeração híbrida).
+#
+# Versão v26.11 (Consolidada):
+# 1. (v26.8) Aplica 'truncar_apos_anvisa' em AMBOS os arquivos.
+# 2. (v26.9) Ignora comparação de conteúdo e ortografia de [APRESENTAÇÕES, COMPOSIÇÃO, DIZERES LEGAIS].
+# 3. (v26.10) Mantém a numeração dos títulos (ex: "1. TÍTULO") para uma comparação mais rigorosa.
+# 4. (v26.11) Corrige o filtro de ruído 'BUL_CLORIDRATO_DE_NA 190' para 'BUL_CLORIDRATO_DE_NA\s+190.*'.
 
 # --- IMPORTS ---
 import re
@@ -80,7 +80,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             linhas = texto.split('\n')
             
-            # --- FILTRO DE RUÍDO APRIMORADO (v26.0) ---
+            # --- FILTRO DE RUÍDO APRIMORADO (v26.11) ---
             padrao_ruido_linha = re.compile(
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
@@ -90,7 +90,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
                 r'|^\s*\d+\s*mm\s*$'
-                r'|BUL_CLORIDRATO_DE_NA 190'
+                r'|BUL_CLORIDRATO_DE_NA\s+190.*' # <-- ALTERAÇÃO (v26.11)
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
                 r'|BUL_CLORIDRATO_DE_A.*'
                 r'|AMBROXOL_BUL\d+V\d+.*'
@@ -218,6 +218,7 @@ def obter_secoes_ignorar_comparacao():
 def obter_secoes_ignorar_ortografia():
     # (v26.9) - Seções que não passam pelo corretor ortográfico
     return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
+
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
     if not isinstance(texto, str):
@@ -228,11 +229,11 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
-    # (v26.10) - Retorna o texto normalizado, mas mantendo a numeração
-    # (ex: "1. TÍTULO") para uma comparação de título mais rigorosa.
-    # A função 'normalizar_texto' já remove o ponto (ex: "1." vira "1"),
-    # mas mantém o número.
-    return normalizar_texto(texto)
+    # (v26.10) - Retorna o texto normalizado, mas mantendo a numeração
+    # (ex: "1. TÍTULO") para uma comparação de título mais rigorosa.
+    # A função 'normalizar_texto' já remove o ponto (ex: "1." vira "1"),
+    # mas mantém o número.
+    return normalizar_texto(texto)
 
 # ----------------- CORREÇÃO DE TÍTULOS BELFAR -----------------
 def corrigir_quebras_em_titulos(texto):
@@ -309,7 +310,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if canonico in secoes_esperadas:
             titulos_possiveis[alias] = canonico # Key: "INDICAÇÕES", Value: "1. INDICAÇÕES"
             
-    # Compara a versão normalizada e SEM NÚMERO
+    # Compara a versão normalizada (COM NÚMERO, v26.10)
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
 
     limiar_score = 85  # Reduzido de 95 para 85 para maior tolerância
@@ -320,7 +321,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if not is_titulo_secao(linha_limpa):
             continue
         
-        # Compara a linha normalizada e SEM NÚMERO
+        # Compara a linha normalizada (COM NÚMERO, v26.10)
         norm_linha_1 = normalizar_titulo_para_comparacao(linha_limpa)
         best_score = 0
         best_canonico = None
@@ -387,7 +388,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     relatorio_comparacao_completo = []
     similaridade_geral = []
     
-    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()] # Agora é uma lista vazia
+    # (v26.9) Carrega a lista de seções para ignorar
+    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()] 
 
     linhas_ref = texto_ref.split('\n')
     linhas_belfar = texto_belfar.split('\n')
@@ -411,8 +413,16 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             continue
 
         if encontrou_ref and encontrou_belfar:
-            # Esta verificação está mantida, caso o usuário decida reativar a lista de ignorar
+            # (v26.9) PULA A COMPARAÇÃO se a seção estiver na lista de ignorar
             if secao.upper() in secoes_ignorar_upper: 
+                # Mesmo pulando, adiciona como "idêntica" (para não poluir o relatório)
+                relatorio_comparacao_completo.append({
+                    'secao': secao, 
+                    'status': 'identica', 
+                    'conteudo_ref': conteudo_ref, 
+                    'conteudo_belfar': conteudo_belfar
+                })
+                similaridade_geral.append(100) # Assume 100%
                 continue
 
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
@@ -440,6 +450,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     for secao_canonico, titulo_ref in titulos_ref_encontrados.items():
         if secao_canonico in titulos_belfar_encontrados:
             titulo_belfar = titulos_belfar_encontrados[secao_canonico]
+            # (v26.10) Compara os títulos normalizados (que agora incluem os números)
             if normalizar_titulo_para_comparacao(titulo_ref) != normalizar_titulo_para_comparacao(titulo_belfar):
                 diferencas_titulos.append({'secao_esperada': secao_canonico, 'titulo_encontrado': titulo_belfar})
 
@@ -453,6 +464,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         return []
 
     try:
+        # (v26.9) Carrega a lista de seções para ignorar
         secoes_ignorar = obter_secoes_ignorar_ortografia()
         secoes_todas = obter_secoes_por_tipo(tipo_bula)
         texto_filtrado_para_checar = []
@@ -462,6 +474,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 
         for secao_nome in secoes_todas:
             # Compara usando o nome canônico correto (ex: "COMPOSIÇÃO")
+            # (v26.9) PULA A CHECAGEM se a seção estiver na lista de ignorar
             if secao_nome.upper() in [s.upper() for s in secoes_ignorar]:
                 continue
             
@@ -723,6 +736,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         status = item['status']
         conteudo_ref_str = item.get('conteudo_ref') or ""
         conteudo_belfar_str = item.get('conteudo_belfar') or ""
+        
+        # (v26.9) Verifica se esta seção deve ser ignorada
+        is_ignored_section = secao_nome.upper() in [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
         if status == 'diferente':
             with st.expander(f"📄 {secao_nome} - ❌ CONTEÚDO DIVERGENTE"):
@@ -747,7 +763,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
         
         elif status == 'identica':
-            with st.expander(f"📄 {secao_nome} - ✅ CONTEÚDO IDÊNTICO"):
+            # (v26.9) Adiciona um sufixo visual se a seção foi ignorada
+            expander_title = f"📄 {secao_nome} - ✅ CONTEÚDO IDÊNTICO"
+            if is_ignored_section:
+                expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
+
+            with st.expander(expander_title):
                 # Não precisa marcar diferenças, apenas formata
                 expander_html_ref = formatar_html_para_leitura(conteudo_ref_str)
                 expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str)
@@ -879,7 +900,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_bfalar}")
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") # Corrigido 'erro_bfalar'
             elif not texto_ref or not texto_belfar:
                  st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
@@ -888,4 +909,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.8 | Truncamento aplicado a ambos os arquivos")
+st.caption("Sistema de Auditoria de Bulas v26.11 | Ignora Seções MKT + Títulos Numerados + Filtro Ruído")
