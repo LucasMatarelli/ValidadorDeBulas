@@ -1,5 +1,4 @@
-# ----------------- EXTRAÇÃO (v26.20 - Filtro Inline "Força Bruta") -----------------
-# ----------------- EXTRAÇÃO (v26.22 - Filtro "Força Bruta") -----------------
+# ----------------- EXTRAÇÃO (v26.23 - Correção de Ordem Lógica) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
     Extrai texto de arquivos.
@@ -45,9 +44,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ') # Substitui non-breaking space
             
-            linhas = texto.split('\n')
-            
-            # --- FILTRO DE RUÍDO (v26.22) ---
+            # --- FILTRO DE RUÍDO (v26.23) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha = re.compile(
@@ -66,12 +63,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL' # Ruído do topo
             , re.IGNORECASE)
 
-            # Padrão 2: Remove FRAGMENTOS de ruído de DENTRO das linhas
+            # Padrão 2: Remove FRAGMENTOS de ruído (AGORA APLICADO ANTES DO SPLIT)
+            # [\s\S]*? = "pega tudo, incluindo quebras de linha"
             padrao_ruido_inline = re.compile(
-                # (v26.22) Pega "BUL..." + qualquer coisa + "190"
+                # (v26.23) Pega "BUL..." + qualquer coisa (incl. \n) + "190"
                 r'BUL_CLORIDRATO_DE_NA[\s\S]*?190' 
                 
-                # (v26.22) Pega "New Roman" + qualquer coisa + "mm"
+                # (v26.23) Pega "New Roman" + qualquer coisa (incl. \n) + "mm"
                 r'|New\s*Roman[\s\S]*?mm' 
                 
                 # Outras regras:
@@ -82,26 +80,34 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|rpo \d+.*?' 
                 r'|olL: Times New Roman.*?'
             , re.IGNORECASE)
-
             
+            # ***** MUDANÇA DE LÓGICA (v26.23) *****
+            # 1. Aplicar o filtro INLINE no texto COMPLETO (antes de splitar)
+            #    Isso remove ruídos que quebram linhas (ex: "New \n Roman ... mm")
+            texto = padrao_ruido_inline.sub(' ', texto)
+            
+            # 2. AGORA, splitar o texto limpo em linhas
+            linhas = texto.split('\n')
+            
+            # 3. Aplicar o filtro de LINHA INTEIRA
             linhas_filtradas = []
             for linha in linhas:
                 linha_strip = linha.strip()
                 
-                # 1. Checa se a LINHA INTEIRA é ruído
+                # Checa se a LINHA INTEIRA é ruído
                 if padrao_ruido_linha.search(linha_strip):
                     continue # Pula esta linha
 
-                # 2. Remove ruído DE DENTRO da linha
-                linha_limpa = padrao_ruido_inline.sub(' ', linha_strip)
-                linha_limpa = re.sub(r'\s{2,}', ' ', linha_limpa).strip()
+                # Remove espaços duplos que o ".sub" anterior possa ter deixado
+                linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # 3. Adiciona a linha limpa (se não estiver vazia)
+                # Adiciona a linha limpa (se não estiver vazia)
                 if len(linha_limpa) > 1 or (len(linha_limpa) == 1 and linha_limpa.isdigit()):
                     linhas_filtradas.append(linha_limpa)
                 elif linha_limpa.isupper() and len(linha_limpa) > 0:
                     linhas_filtradas.append(linha_limpa)
             
+            # 4. Juntar o texto final
             texto = "\n".join(linhas_filtradas)
             
             texto = re.sub(r'\n{3,}', '\n\n', texto)  
@@ -764,12 +770,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
     
-# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.22) ---
+# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.23) ---
     def formatar_html_para_leitura(html_content):
         """
         Formata o texto "fluído" (sort=True) para um HTML "bonito".
-        (v26.22) - Usa regras de regex CURTAS e ROBUSTAS para formatar
-        os títulos, mesmo se houver ruído no meio deles.
+        (v26.23) - Regras de regex quebram em partes menores e usam [\s\S]
+        para formatar títulos, mesmo se houver ruído ou quebras de linha.
         """
         if html_content is None:
             return ""
@@ -778,55 +784,54 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
         
         # 2. Lista de Títulos de Seção que queremos formatar
-        # Usamos apenas o INÍCIO dos títulos para sermos robustos a ruídos
+        #    Usamos o INÍCIO e o FIM dos títulos para sermos robustos
+        #    a ruídos no MEIO do título.
         titulos_lista = [
+            # Títulos simples
             "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
             "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
             
-            # Títulos de Paciente (com e sem número)
-            # A ordem (do mais longo para o mais curto) é importante
-            
+            # Títulos complexos (com e sem número)
             # 9.
-            r"9\.\s*O QUE FAZER SE ALGUEM USAR",
-            r"O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR",
+            r"(9\.\s*O QUE FAZER SE ALGUEM[\s\S]*?DESTE MEDICAMENTO\?)",
+            r"(O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR[\s\S]*?DESTE MEDICAMENTO\?)",
             # 8.
-            r"8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO",
-            r"QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?",
+            r"(8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO[\s\S]*?ME CAUSAR\?)",
+            r"(QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
             # 7.
-            r"7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER",
-            r"O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?",
+            r"(7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER[\s\S]*?DESTE MEDICAMENTO\?)",
+            r"(O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?)",
             # 6.
-            r"6\.\s*COMO DEVO USAR ESTE MEDICAMENTO",
-            r"COMO DEVO USAR ESTE MEDICAMENTO\?",
+            r"(6\.\s*COMO DEVO USAR ESTE MEDICAMENTO\?)",
+            r"(COMO DEVO USAR ESTE MEDICAMENTO\?)",
             # 5.
-            r"5\.\s*ONDE, COMO E POR QUANTO TEMPO",
-            r"ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?",
+            r"(5\.\s*ONDE, COMO E POR QUANTO TEMPO[\s\S]*?GUARDAR ESTE MEDICAMENTO\?)",
+            r"(ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?)",
             # 4.
-            r"4\.\s*O QUE DEVO SABER ANTES",
-            r"O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?",
+            r"(4\.\s*O QUE DEVO SABER ANTES[\s\S]*?USAR ESTE MEDICAMENTO\?)",
+            r"(O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?)",
             # 3.
-            r"3\.\s*QUANDO NÃO DEVO USAR",
-            r"QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?",
+            r"(3\.\s*QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
+            r"(QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
             # 2.
-            r"2\.\s*COMO ESTE MEDICAMENTO FUNCIONA",
-            r"COMO ESTE MEDICAMENTO FUNCIONA\?",
+            r"(2\.\s*COMO ESTE MEDICAMENTO FUNCIONA\?)",
+            r"(COMO ESTE MEDICAMENTO FUNCIONA\?)",
             # 1.
-            r"1\.\s*PARA QUE ESTE MEDICAMENTO",
-            r"PARA QUE ESTE MEDICAMENTO É INDICADO\?"
+            r"(1\.\s*PARA QUE ESTE MEDICAMENTO[\s\S]*?É INDICADO\?)",
+            r"(PARA QUE ESTE MEDICAMENTO É INDICADO\?)"
         ]
         
         # Cria um grande regex (ex: ...|TÍTULO 9|TÍTULO 8|...)
         regex_titulos = r'(' + '|'.join(titulos_lista) + r')'
 
-        # 3. Força a quebra ANTES e DEPOIS dos títulos encontrados
-        #    Não importa se está grudado (\n) ou não
+        # 3. Força a quebra ANTES dos títulos encontrados
         html_content = re.sub(
             regex_titulos,
-            r'[[PARAGRAPH]]<strong>\1</strong>', # Adiciona quebra SÓ ANTES
+            r'[[PARAGRAPH]]<strong>\1</strong>', 
             html_content,
             flags=re.IGNORECASE
         )
-        
+
         # 4. Adiciona quebras ANTES de listas
         html_content = re.sub(
             r'(\n)(\s*[-–•*])', # \n seguido de espaço e um marcador
