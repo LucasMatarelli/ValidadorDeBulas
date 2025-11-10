@@ -660,13 +660,90 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     
     
 # --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.12) ---
+# --- INÍCIO DA CORREÇÃO DE LAYOUT (v26.14) ---
     def formatar_html_para_leitura(html_content):
         """
         Formata o texto "fluído" (sort=True) para um HTML "bonito".
-        (v26.12) - Adiciona quebras DEPOIS dos títulos para evitar "texto grudado".
+        (v26.14) - Regras de regex mais fortes, incluindo TÍTULOS MISTOS
+        (ex: "COMO ESTE MEDICAMENTO FUNCIONA?") para forçar quebras.
         """
         if html_content is None:
             return ""
+        
+        # 1. Preserva parágrafos reais (linhas em branco) com um marcador
+        #    (Ex: ...texto.\n\n...texto.)
+        html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
+        
+        # 2. Adiciona quebras ANTES e DEPOIS de todos os títulos
+        
+        # Lista de Títulos (ALL CAPS e Mistos, sem números)
+        # Inclui todos os títulos de seção conhecidos para garantir a quebra.
+        titulos_lista = [
+            "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
+            "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
+            "USO NASAL", "USO ADULTO",
+            # Títulos de Paciente (sem número, para o regex)
+            "PARA QUE ESTE MEDICAMENTO É INDICADO?",
+            "COMO ESTE MEDICAMENTO FUNCIONA?",
+            "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+            "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+            "COMO DEVO USAR ESTE MEDICAMENTO?",
+            "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+            "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?"
+        ]
+        
+        # Escapa caracteres de regex (como '?' e '.')
+        titulos_regex_lista = [re.escape(t) for t in titulos_lista]
+        
+        # Padrão 1: Títulos da Lista (ex: "COMPOSIÇÃO", "COMO ESTE...")
+        regex_titulos_lista = r'(' + '|'.join(titulos_regex_lista) + r')'
+        
+        # Padrão 2: Títulos Numerados (ex: "1. PARA QUE...")
+        # [^\n] = "qualquer coisa que NÃO seja quebra de linha"
+        regex_titulos_num = r'(\d+\.\s+[A-Z][^\n]*)'
+
+        # Substitui Padrão 1 (Títulos da Lista)
+        html_content = re.sub(
+            # Procura por: \n, (Título da Lista), \n
+            rf'(\n){regex_titulos_lista}(\n)',
+            # Substitui por: PARÁGRAFO, <strong>Título</strong>, PARÁGRAFO
+            r'[[PARAGRAPH]]<strong>\2</strong>[[PARAGRAPH]]',
+            html_content,
+            flags=re.IGNORECASE # Ignora caso (embora a lista esteja em maiúsculas)
+        )
+        
+        # Substitui Padrão 2 (Títulos Numerados)
+        html_content = re.sub(
+            # Procura por: \n, (1. Título...), \n
+            rf'(\n){regex_titulos_num}(\n)',
+            # Substitui por: PARÁGRAFO, <strong>Título</strong>, PARÁGRAFO
+            r'[[PARAGRAPH]]<strong>\2</strong>[[PARAGRAPH]]',
+            html_content
+        )
+
+        # 3. Adiciona quebras ANTES de listas
+        #    (Ex: ...texto.\n- item)
+        html_content = re.sub(
+            r'(\n)(\s*[-–•*])', # \n seguido de espaço e um marcador
+            r'[[LIST_ITEM]]\2',
+            html_content
+        )
+
+        # 4. Remove todas as OUTRAS quebras de linha (fluidez)
+        #    Esta é a linha que junta o texto de parágrafos comuns.
+        html_content = html_content.replace('\n', ' ')
+
+        # 5. Restaura os marcadores
+        html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
+        html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
+        
+        # 6. Remove quebras duplas (limpeza final)
+        html_content = re.sub(r'(<br><br>){2,}', '<br><br>', html_content)
+        
+        return html_content
+    # --- FIM DA CORREÇÃO DE LAYOUT ---
         
         # 1. Preserva parágrafos reais (linhas em branco) com um marcador
         html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
