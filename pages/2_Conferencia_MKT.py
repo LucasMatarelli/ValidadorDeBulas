@@ -211,14 +211,13 @@ def obter_aliases_secao():
         "SUPERDOSE": "10. SUPERDOSE"
     }
 
-def obter_secoes_ignorar_ortografia():
-    # (v26.9) - Seções que não passam pelo corretor ortográfico
-    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
-
 def obter_secoes_ignorar_comparacao():
     # (v26.9) - Retorna a lista de seções que NÃO devem ter o conteúdo comparado
     return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
+def obter_secoes_ignorar_ortografia():
+    # (v26.9) - Seções que não passam pelo corretor ortográfico
+    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
     if not isinstance(texto, str):
