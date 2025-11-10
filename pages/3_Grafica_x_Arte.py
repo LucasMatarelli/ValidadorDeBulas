@@ -1261,12 +1261,12 @@ Gerado pelo sistema de Auditoria de Bulas — v31
     return html_page
 
 # ----------------- [ATUALIZADA - v31] INTERFACE PRINCIPAL -----------------
-st.title("🔬 Auditoria de Bulas — Gráfica x Arte (v31)")
+st.title("🔬 Auditoria de Bulas — Gráfica x Arte")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
 
 st.header("📋 Configuração da Auditoria")
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
+tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente"), horizontal=True)
 
 col1, col2 = st.columns(2)
 with col1:
