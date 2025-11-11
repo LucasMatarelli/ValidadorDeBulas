@@ -1,12 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.35 (Filtros de Ruído Aprimorados)
-# 1. (v26.35) Adicionado filtro em 'padrao_ruido_linha' para remover linhas
-#    que são APENAS números (ex: '1.', '2.', '190').
-# 2. (v26.35) Adicionado filtro em 'padrao_ruido_inline' para remover 'mm'
-#    solto (corrige o Título 9).
-# 3. (v26.35) Adicionado filtro bônus para ruídos '190' e '300' inline.
-# 4. (v26.34) Mantida a correção do 'IndexError' (match.group(0)).
+# Versão v26.36 (Correção de Números Flutuantes)
+# 1. (v26.36) Adicionada lógica de 're.fullmatch(r'\s*\d+\.?\s*', ...)' 
+#    para remover linhas que são APENAS números (ex: '1.', '2.').
+# 2. (v26.35) Mantidos os filtros de ruído 'mm' e '190'.
+# 3. (v26.34) Mantida a correção do 'IndexError' (match.group(0)).
 
 # --- IMPORTS ---
 import re
@@ -162,7 +160,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.35 - FILTROS CORRIGIDOS) -----------------
+# ----------------- EXTRAÇÃO (v26.36 - CORRIGIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -201,7 +199,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
-            # --- FILTRO DE RUÍDO (v26.35 - APRIMORADO) ---
+            # --- FILTRO DE RUÍDO (v26.36 - APRIMORADO) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha_regex = (
@@ -218,12 +216,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|cloridrato de ambroxo\s*$'
                 r'|Normal e Negrito\. Co\s*$'
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL'
-                r'|^\s*\d+\.?\s*$'  # <-- v26.35: Remove '1.' '2.' '190' etc. em linhas próprias
-                r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*' # <-- v26.35: Remove '190 CLORIDRATO...'
+                r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*' # Remove '190 CLORIDRATO...'
+                # O filtro r'|^\s*\d+\.?\s*$' foi REMOVIDO daqui (v26.36)
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
-            # Padrão 2: Remove FRAGMENTOS de ruído (v26.35 - APRIMORADO)
+            # Padrão 2: Remove FRAGMENTOS de ruído
             padrao_ruido_inline_regex = (
                 r'BUL_CLORIDRATO_DE_NA[\s\S]{0,20}?\d+'  
                 r'|New[\s\S]{0,10}?Roman[\s\S]{0,50}?(?:mm|\d+)'
@@ -233,8 +231,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|es New Roman.*?'  
                 r'|rpo \d+.*?'  
                 r'|olL: Times New Roman.*?'
-                r'|(?<=\s)\d{3}(?=\s[a-zA-Z])' # <-- v26.35: Remove '190' e '300' inline
-                r'|(?<=\s)mm(?=\s)' # <-- v26.35: Remove ' mm ' inline (corrige Título 9)
+                r'|(?<=\s)\d{3}(?=\s[a-zA-Z])' # Remove '190' e '300' inline
+                r'|(?<=\s)mm(?=\s)' # Remove ' mm ' inline (corrige Título 9)
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
             
@@ -250,7 +248,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # Lógica de manter a linha (simplificada)
+                # --- INÍCIO DA CORREÇÃO v26.36 ---
+                # Filtro explícito para linhas que são SÓ números ou números com ponto
+                if re.fullmatch(r'\s*\d+\.?\s*', linha_limpa):
+                    continue
+                # --- FIM DA CORREÇÃO v26.36 ---
+
                 if len(linha_limpa) > 1:
                     linhas_filtradas.append(linha_limpa)
                 elif linha_limpa.isupper() and len(linha_limpa) > 0:
@@ -838,4 +841,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.35 | Filtros de Ruído Aprimorados")
+st.caption("Sistema de Auditoria de Bulas v26.36 | Correção de Números Flutuantes")
