@@ -217,7 +217,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|Normal e Negrito\. Co\s*$'
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL'
                 r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*' # Remove '190 CLORIDRATO...'
-                # O filtro r'|^\s*\d+\.?\s*$' foi REMOVIDO daqui (v26.36)
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
@@ -243,17 +242,20 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for linha in linhas:
                 linha_strip = linha.strip()
                 
+                # 1. Filtra linhas de ruído conhecidas
                 if padrao_ruido_linha.search(linha_strip):
                     continue
 
+                # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
                 # --- INÍCIO DA CORREÇÃO v26.36 ---
-                # Filtro explícito para linhas que são SÓ números ou números com ponto
+                # 3. Filtra linhas que são APENAS números ou números com ponto
                 if re.fullmatch(r'\s*\d+\.?\s*', linha_limpa):
                     continue
                 # --- FIM DA CORREÇÃO v26.36 ---
 
+                # 4. Adiciona a linha se ela tiver conteúdo real
                 if len(linha_limpa) > 1:
                     linhas_filtradas.append(linha_limpa)
                 elif linha_limpa.isupper() and len(linha_limpa) > 0:
@@ -302,7 +304,7 @@ def obter_secoes_por_tipo(tipo_bula):
             "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
             "6.COMO DEVO USAR ESTE MEDICAMENTO?",
             "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+            "8.QUAIS OS MALES QUE ESTE MEDICamento PODE ME CAUSAR?",
             "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
         ],
