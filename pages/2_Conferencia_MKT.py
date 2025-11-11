@@ -15,94 +15,77 @@ import io
 def formatar_html_para_leitura(html_content):
     """
     Formata o texto "fluído" (sort=True) para um HTML "bonito".
-    (v26.26) - Regras de regex quebram em partes menores e usam [\s\S]
-    para formatar títulos, mesmo se houver ruído ou quebras de linha.
+    (v26.27) - Títulos sempre enumerados e seção 9 completa.
     """
     if html_content is None:
         return ""
     
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
     
-    # Lista de títulos de seções (do mais longo para o mais curto para evitar matches parciais)
-    titulos_lista = [
-        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
-        "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
+    # Dicionário com padrões de títulos e suas numerações
+    titulos_com_numeros = [
+        # Títulos sem número
+        ("APRESENTAÇÕES", None),
+        ("COMPOSIÇÃO", None),
+        ("DIZERES LEGAIS", None),
+        ("IDENTIFICAÇÃO DO MEDICAMENTO", None),
+        ("INFORMAÇÕES AO PACIENTE", None),
         
-        # Seção 9 - padrões mais amplos
-        r"(9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??)",
-        r"(O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??)",
+        # Seção 9 - PADRÃO MAIS FLEXÍVEL para capturar o título completo
+        (r"9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??", "9"),
+        (r"O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??", "9"),
         
         # Seção 8
-        r"(8\.?\s*QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
-        r"(QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
+        (r"8\.?\s*QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??", "8"),
+        (r"QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??", "8"),
         
         # Seção 7
-        r"(7\.?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
-        r"(O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        (r"7\.?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "7"),
+        (r"O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "7"),
         
         # Seção 6
-        r"(6\.?\s*COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
-        r"(COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        (r"6\.?\s*COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "6"),
+        (r"COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "6"),
         
         # Seção 5
-        r"(5\.?\s*ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??)",
-        r"(ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??)",
+        (r"5\.?\s*ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??", "5"),
+        (r"ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??", "5"),
         
         # Seção 4
-        r"(4\.?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
-        r"(O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        (r"4\.?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "4"),
+        (r"O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "4"),
         
         # Seção 3
-        r"(3\.?\s*QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
-        r"(QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        (r"3\.?\s*QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "3"),
+        (r"QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "3"),
         
         # Seção 2
-        r"(2\.?\s*COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
-        r"(COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
+        (r"2\.?\s*COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??", "2"),
+        (r"COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??", "2"),
         
         # Seção 1
-        r"(1\.?\s*PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)",
-        r"(PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)"
+        (r"1\.?\s*PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??", "1"),
+        (r"PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??", "1")
     ]
     
-    def limpar_e_numerar_titulo(match):
-        titulo = match.group(1)
-        # Remove tags HTML do título antes de aplicar o <strong>
-        titulo_limpo = re.sub(r'<mark.*?>|</mark>', '', titulo)
-        # Remove espaços extras
-        titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+    # Processar cada padrão
+    for titulo_pattern, numero in titulos_com_numeros:
+        def formatar_titulo_func(match):
+            titulo = match.group(0)
+            # Remove tags HTML
+            titulo_limpo = re.sub(r'<mark.*?>|</mark>|</?strong>', '', titulo)
+            # Remove espaços extras
+            titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+            
+            # Adiciona numeração se necessário e não tiver número no início
+            if numero and not re.match(r'^\d+\.', titulo_limpo):
+                titulo_limpo = f"{numero}. {titulo_limpo}"
+            
+            return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
         
-        # Adiciona numeração se não tiver
-        if not re.match(r'^\d+\.', titulo_limpo):
-            # Identifica qual seção é e adiciona o número
-            titulo_upper = titulo_limpo.upper()
-            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
-            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
-            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
-            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
-            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
-            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
-            elif 'COMO DEVO USAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
-            elif 'ESQUECER' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
-            elif 'QUAIS OS MALES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
-            elif 'QUANTIDADE MAIOR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
-        
-        return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
-
-    for titulo_pattern in titulos_lista:
         html_content = re.sub(
             titulo_pattern,
-            limpar_e_numerar_titulo,
+            formatar_titulo_func,
             html_content,
             flags=re.IGNORECASE
         )
@@ -114,7 +97,6 @@ def formatar_html_para_leitura(html_content):
     )
 
     html_content = html_content.replace('\n', ' ')
-
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
     
@@ -154,11 +136,14 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 flags=re.IGNORECASE
             )
     
-    # 3. Formata TODOS os títulos das seções em negrito (ANTES da marca ANVISA)
-    titulos_secoes = [
+    # 3. Formata TODOS os títulos das seções em negrito COM NUMERAÇÃO
+    titulos_secoes_formatacao = [
         ("APRESENTAÇÕES", None),
         ("COMPOSIÇÃO", None),
         ("DIZERES LEGAIS", None),
+        ("IDENTIFICAÇÃO DO MEDICAMENTO", None),
+        ("INFORMAÇÕES AO PACIENTE", None),
+        # Ordem reversa (do 9 ao 1) para evitar substituições parciais
         (r"O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??", "9"),
         (r"QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??", "8"),
         (r"O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "7"),
@@ -170,7 +155,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
         (r"PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??", "1")
     ]
     
-    for titulo_pattern, numero_secao in titulos_secoes:
+    for titulo_pattern, numero_secao in titulos_secoes_formatacao:
         def formatar_titulo(match):
             titulo_encontrado = match.group(0)
             # Remove qualquer tag <mark> ou <strong> existente
