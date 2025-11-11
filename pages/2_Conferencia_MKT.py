@@ -1,15 +1,14 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.46 (Patch Definitivo de Numeração MKT)
-# 1. (v26.46) Em 'formatar_html_para_leitura':
-#    - Adicionado um "patch" de Regex logo após a substituição de '[[PARAGRAPH]]'.
-#    - Se 'aplicar_numeracao=False' (ou seja, SÓ para o MKT),
-#      ele procura pelo padrão "[[PARAGRAPH]] 1. [[PARAGRAPH]]"
-#      e o substitui por um único "[[PARAGRAPH]]".
-#    - Isso limpa os números órfãos que o filtro de extração
-#      não pegou, resolvendo o problema visual.
-# 2. (v26.45) Mantida a correção do 'SyntaxError'.
-# 3. (v26.44) Mantido o filtro específico em 'extrair_texto'.
+# Versão v26.47 (Patch Visual Definitivo - MKT)
+# 1. (v26.47) Em 'gerar_relatorio_final':
+#    - Adicionado um "patch" de Regex que roda no HTML final
+#      do 'html_belfar_marcado' (lado a lado e expanders).
+#    - O Regex procura por <br><br> (número órfão) <br><br>
+#      e substitui por um único <br><br>.
+#    - Isso limpa o artefato visual do MKT sem
+#      mexer na lógica de extração ou formatação base.
+# 2. (v26.46) Lógica anterior mantida.
 
 # --- IMPORTS ---
 import re
@@ -23,29 +22,20 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.46 - CORRIGIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.46 - MANTIDO) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
     
-    # Substitui quebras de linha duplas por um marcador temporário
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
     
-    # --- INÍCIO DA MUDANÇA v26.46 ---
-    # Patch específico para MKT: Remove parágrafos que contêm APENAS um número
-    # (ex: "[[PARAGRAPH]]1.[[PARAGRAPH]]") que o filtro de extração pode ter perdido.
     if not aplicar_numeracao:
-        # Regex: Encontra um PARAGRAPH, seguido de (opcional) espaço, 
-        # um ou mais dígitos, um ponto, (opcional) espaço, e outro PARAGRAPH.
-        # Substitui tudo por um único PARAGRAPH.
         html_content = re.sub(
             r'\[\[PARAGRAPH\]\]\s*\d+\.\s*\[\[PARAGRAPH\]\]', 
             '[[PARAGRAPH]]', 
             html_content
         )
-    # --- FIM DA MUDANÇA v26.46 ---
     
-    # Lista de padrões de títulos a serem formatados (ordem importa para regex)
     titulos_lista = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
@@ -666,6 +656,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
+# ----------------- GERAÇÃO DE RELATÓRIO (v26.47 - CORRIGIDO) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     
@@ -711,6 +702,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     
     st.markdown("---")
     st.subheader("Análise Detalhada Seção por Seção")
+    
+    # --- INÍCIO DA MUDANÇA v26.47 ---
+    # Regex do patch: (2+ <br>), (espaço*), (dígitos), (ponto), (espaço*), (2+ <br>)
+    patch_regex = re.compile(r'(<br\s*/?>\s*){2,}\s*\d+\.\s*(<br\s*/?>\s*){2,}', re.IGNORECASE)
+    # --- FIM DA MUDANÇA v26.47 ---
 
     for item in relatorio_comparacao_completo:
         secao_nome = item['secao']
@@ -731,6 +727,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, aplicar_numeracao=True)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, aplicar_numeracao=False)
+                
+                # Aplica o patch no MKT
+                expander_html_belfar = patch_regex.sub('<br><br>', expander_html_belfar)
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -748,6 +747,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             with st.expander(expander_title):
                 expander_html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
                 expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
+                
+                # Aplica o patch no MKT
+                expander_html_belfar = patch_regex.sub('<br><br>', expander_html_belfar)
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -792,6 +794,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
 
+    # --- INÍCIO DA MUDANÇA v26.47 ---
+    # Aplica o patch no MKT também na visualização principal
+    html_belfar_marcado = patch_regex.sub('<br><br>', html_belfar_marcado)
+    # --- FIM DA MUDANÇA v26.47 ---
 
     caixa_style = (
         "max-height: 700px; "
@@ -867,4 +873,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.46 | Patch de Formatação (MKT)")
+st.caption("Sistema de Auditoria de Bulas v26.47 | Patch Visual (MKT)")
