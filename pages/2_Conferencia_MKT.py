@@ -1,11 +1,15 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.40 (Correção Dupla Definitiva)
-# 1. (v26.40) Em 'extrair_texto': RE-ADICIONADO o filtro que remove
-#    linhas sem letras (ex: '1.', '2.', '190') para corrigir o MKT.
-# 2. (v26.40) Em 'formatar_html_para_leitura': MANTIDA a lógica que
-#    adiciona números (1., 2.) SE FALTAR (para corrigir o ANVISA).
-# 3. (v26.34) Mantida a correção do 'IndexError' (match.group(0)).
+# Versão v26.41 (Correção Numeração MKT)
+# 1. (v26.41) Em 'formatar_html_para_leitura':
+#    - Adicionado parâmetro 'aplicar_numeracao=False'.
+#    - A lógica 'limpar_e_numerar_titulo' agora só adiciona números
+#      (1., 2.) se o parâmetro 'aplicar_numeracao' for True.
+# 2. (v26.41) Em 'gerar_relatorio_final':
+#    - Chamadas de formatação para ANVISA (ref) usam 'aplicar_numeracao=True'.
+#    - Chamadas de formatação para MKT (belfar) usam 'aplicar_numeracao=False'.
+#    - Isso corrige os números duplicados no MKT.
+# 3. (v26.40) Mantido o filtro que remove linhas sem letras (para MKT).
 
 # --- IMPORTS ---
 import re
@@ -19,8 +23,8 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.38 - MANTIDO) -----------------
-def formatar_html_para_leitura(html_content):
+# ----------------- FORMATAÇÃO HTML (v26.41 - CORRIGIDO) -----------------
+def formatar_html_para_leitura(html_content, aplicar_numeracao=False): # <--- MUDANÇA AQUI
     if html_content is None:
         return ""
     
@@ -56,7 +60,10 @@ def formatar_html_para_leitura(html_content):
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
-        if not re.match(r'^\d+\.', titulo_limpo):
+        # --- INÍCIO DA MUDANÇA v26.41 ---
+        # Só aplica números se a flag for True (ANVISA) E o título já não tiver número
+        if not re.match(r'^\d+\.', titulo_limpo) and aplicar_numeracao:
+        # --- FIM DA MUDANÇA v26.41 ---
             titulo_upper = titulo_limpo.upper()
             if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
                 return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
@@ -79,6 +86,7 @@ def formatar_html_para_leitura(html_content):
             elif 'QUANTIDADE MAIOR' in titulo_upper:
                 return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
         
+        # Caso padrão (sem adicionar números, ex: MKT ou títulos já numerados)
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
 
     for titulo_pattern in titulos_lista:
@@ -162,7 +170,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.40 - CORRIGIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.40 - MANTIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -187,7 +195,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 else:
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
-            
+                
             texto = "\n\n".join(full_text_list)
         
         elif tipo_arquivo == 'docx':
@@ -707,8 +715,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
                 
-                expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
-                expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
+                # --- INÍCIO DA MUDANÇA v26.41 ---
+                expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, aplicar_numeracao=True)
+                expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, aplicar_numeracao=False)
+                # --- FIM DA MUDANÇA v26.41 ---
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -724,8 +734,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
 
             with st.expander(expander_title):
-                expander_html_ref = formatar_html_para_leitura(conteudo_ref_str)
-                expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str)
+                # --- INÍCIO DA MUDANÇA v26.41 ---
+                expander_html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
+                expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
+                # --- FIM DA MUDANÇA v26.41 ---
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -767,8 +779,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
-    html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
+    # --- INÍCIO DA MUDANÇA v26.41 ---
+    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
+    html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
+    # --- FIM DA MUDANÇA v26.41 ---
 
 
     caixa_style = (
@@ -836,11 +850,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")  
             elif not texto_ref or not texto_belfar:
-                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
+                   st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.40 | Correção de Filtro (MKT) + Numeração (ANVISA)")
+st.caption("Sistema de Auditoria de Bulas v26.41 | Correção de Numeração (MKT)")
