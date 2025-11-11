@@ -1,11 +1,11 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v33 (Baseado no v32)
+# Versão: v34 (Baseado no v33)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v33: ATUALIZA OCR para --psm 6 (Bloco de Texto) e --oem 3 (LSTM)
-# v33: ADICIONA 'preserve_interword_spaces=1' para corrigir palavras cortadas/juntadas.
-# v33: CORRIGE bug do "último tópico" (seções 7,8,9 sumindo) causado pelo layout psm 3.
-# v33: ADICIONA correções de regex da imagem (vezes, os, do, aplicar, zincica, no).
-# v33: Mantém a Comparação Literal e Relatório Completo.
+# v34: REVERTE o OCR para --psm 3 (Auto Layout) da v32.
+# v34: O --psm 6 (Bloco Único) da v33 falhou e misturou as colunas, causando o erro "Seções Faltantes".
+# v34: MANTÉM todas as correções de regex da v33 (ex: "vez" -> "vezes", "aplic" -> "aplicar").
+# v34: Esta versão combina o layout correto (psm 3) com as correções de palavras (regex v33).
+# v34: Mantém a Comparação Literal e Relatório Completo.
 
 # --- IMPORTS ---
 
@@ -51,7 +51,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [ATUALIZADO - v33] CORRETOR DE ERROS OCR EXPANDIDO -----------------
+# ----------------- [MANTIDO - v33] CORRETOR DE ERROS OCR EXPANDIDO -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
@@ -113,6 +113,7 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bvocê\s+aplic\s+sulfato\b": "você aplicar sulfato", # "você aplic sulfato" -> "você aplicar sulfato"
         r"(?i)\bbacitracina\s+zinci\b": "bacitracina zincica", # "bacitracina zinci" -> "bacitracina zincica"
         r"(?i)\bpoucos\s+dias;1\b": "poucos dias; no", # "poucos dias;1" -> "poucos dias; no"
+        r"(?i)\bpoucos\s+dias(1|I)\b": "poucos dias; no", # Variação do erro "poucos dias;1"
         # --- [FIM NOVAS CORREÇÕES v33] ---
         
         # Correções de palavras específicas
@@ -208,7 +209,9 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         
         # Correções de caracteres especiais/lixo
         r"\bc\.t\s+": "",
-        r"\bciirereeas\s+": "",
+        r"\bciirereeas\s+": "", # Lixo da Arte Vigente (exemplo)
+        r"rereeeio \d+ ME": "", # Lixo da Arte Vigente (exemplo)
+        r"q\.8\.p esses LE": "q.s.p. 1 g", # Lixo da Arte Vigente (exemplo)
         r"\bq\.s\.p\s+\"?si\s+": "q.s.p. ",
         r"\"\"": "",
         r"Too\s+\"": "",
@@ -235,17 +238,16 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     return texto
 
 
-# ----------------- [NOVO - v33] LIMPEZA ULTRA CONSERVADORA -----------------
-# --- ESTA É A SUA FUNÇÃO ORIGINAL (V32) QUE ESTOU MANTENDO ---
+# ----------------- [MANTIDO - v32] LIMPEZA ULTRA CONSERVADORA -----------------
 def melhorar_layout_grafica(texto: str) -> str:
     """
-    v33: Limpeza MÍNIMA - preserva ao máximo a estrutura do OCR
+    v34: Limpeza MÍNIMA - preserva ao máximo a estrutura do OCR
     Apenas remove lixo óbvio e normaliza espaçamento
     """
     if not texto or not isinstance(texto, str):
         return ""
 
-    # 1. Aplicar correções de palavras PRIMEIRO
+    # 1. Aplicar correções de palavras PRIMEIRO (AGORA COM REGEX V33)
     texto = corrigir_erros_ocr_comuns(texto)
 
     # 2. Normalizações básicas de quebras
@@ -259,7 +261,7 @@ def melhorar_layout_grafica(texto: str) -> str:
     # 4. Remover lixo de OCR óbvio
     texto = re.sub(r'(\.|\s){7,}', ' ', texto)  # Muitos pontos/espaços
     # Adicionado “ e ” para limpeza
-    texto = re.sub(r'[«»"""ÉÀ“”]', '', texto)  # Caracteres estranhos
+    texto = re.sub(r'[«»"""ÉÀ“”&]', '', texto)  # Caracteres estranhos (removido &)
     texto = re.sub(r'\bBEE\s*\*\b', '', texto, flags=re.IGNORECASE)
     
     # 5. Remover linhas de lixo técnico
@@ -277,8 +279,17 @@ def melhorar_layout_grafica(texto: str) -> str:
         r'^\s*\|\s*$',
         r'^\s*-{5,}\s*$',
         r'^\s*\d+\s*$',  # Linha só com número
-        # Adicionado para limpar o lixo '190' do topo do exemplo
         r'^\s*—+\s*\d+\s*$',
+        # Lixo do OCR v33 (exemplo Arte Vigente)
+        r'^\s*S\s*$',
+        r'^\s*E\s*$',
+        r'^\s*O\s*$',
+        r'^\s*m\s*$',
+        r'^\s*EN\s*$',
+        r'^m\s+EN\s+\d+\s+\d+\s+a,\s+\d+\s+-$', # m EN 57 5 a, 3 -
+        r'fig\.\s+\d', # fig. 1, fig. 2
+        r'^\s*es\s+New\s+Roman\(\)\s+B\s+E\s+LFAR\s+rpo\s+\d+$', # es New Roman() B E LFAR rpo 10
+        r'^\d+-\s+\d+$' # 313514- 2900
     ]
     
     for linha in linhas:
@@ -292,7 +303,7 @@ def melhorar_layout_grafica(texto: str) -> str:
         # Checa se é lixo
         eh_lixo = False
         for padrao_lixo in padroes_lixo_linha_completa:
-            if re.match(padrao_lixo, linha_limpa, re.IGNORECASE):
+            if re.search(padrao_lixo, linha_limpa, re.IGNORECASE): # Mudado de match para search
                 eh_lixo = True
                 break
         
@@ -316,29 +327,27 @@ def melhorar_layout_grafica(texto: str) -> str:
     return texto.strip()
 
 
-# ----------------- [ATUALIZADO - v33] OCR COM MELHOR CONFIGURAÇÃO -----------------
-def extrair_pdf_ocr_colunas_v33(arquivo_bytes: bytes) -> str:
+# ----------------- [NOVO - v34] OCR REVERTIDO PARA psm 3 (Layout Automático) -----------------
+def extrair_pdf_ocr_colunas_v34_psm3(arquivo_bytes: bytes) -> str:
     """
-    v33: OCR otimizado com configurações para melhor precisão
-    Usa --psm 6 (Bloco de Texto) e preserve_interword_spaces
-    para corrigir palavras cortadas/juntadas.
+    v34: REVERTE para a extração de OCR da v32.
+    Usa --psm 3 (Auto Layout) para respeitar as colunas e o layout da bula.
+    Isso corrige o erro de "Seções Faltantes" causado pelo psm 6.
     """
     texto_total = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR (v33: psm 6) em {len(doc)} página(s)...")
+        st.info(f"Forçando OCR (v34: psm 3) em {len(doc)} página(s)...")
         for i, page in enumerate(doc):
             rect = page.rect
             margin_y = 20
-            
             # Define as duas colunas
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
             rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
             
-            # --- MUDANÇA v33: Configuração OCR Otimizada ---
-            # --psm 6: Assume um bloco uniforme de texto (MUITO MELHOR que 3)
-            # --oem 3: Usa LSTM + Legacy (melhor precisão)
-            # -c preserve_interword_spaces=1: IMPEDE O CORTE/JUNÇÃO de palavras (ex: "aplic ar" -> "aplicar")
-            ocr_config = r'--psm 6 --oem 3 -c preserve_interword_spaces=1'
+            # --- MUDANÇA v34: Usa --psm 3 (Auto Layout) ---
+            # Isso é MELHOR para detectar parágrafos e colunas automaticamente.
+            # O psm 6 (v33) falhou miseravelmente.
+            ocr_config = r'--psm 3' 
             
             # OCR da Coluna 1
             pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
@@ -351,18 +360,13 @@ def extrair_pdf_ocr_colunas_v33(arquivo_bytes: bytes) -> str:
             texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
             
             texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
-    
     return texto_total
-
-# ----------------- [REMOVIDA FUNÇÃO DUPLICADA v32] -----------------
-# A função extrair_pdf_ocr_colunas_v32 que usava --psm 3 foi removida.
-# A v33 acima é a única ativa.
 
 # ----------------- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
 def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
     """
     Função principal de extração.
-    v33: SEMPRE força OCR (v33) para PDFs.
+    v34: SEMPRE força OCR (v34 - psm 3) para PDFs.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -373,9 +377,9 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
         arquivo_bytes = arquivo.read()
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v33 ---
-            # SEMPRE usar OCR v33 (psm 6) para TODOS os PDFs
-            texto = extrair_pdf_ocr_colunas_v33(arquivo_bytes)
+            # --- MUDANÇA v34 ---
+            # SEMPRE usar OCR v34 (psm 3) para TODOS os PDFs
+            texto = extrair_pdf_ocr_colunas_v34_psm3(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
             st.info("Extraindo texto de DOCX...")
@@ -461,7 +465,7 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             texto = "\n".join(linhas_filtradas_final)
             
             # --- [NOVO v32] Aplicar melhoria de layout e correção de erros ---
-            texto = melhorar_layout_grafica(texto) # SUA VERSÃO CONSERVADORA
+            texto = melhorar_layout_grafica(texto) # SUA VERSÃO CONSERVADORA (agora com regex v33)
 
             # Limpeza final de espaços
             texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
@@ -479,19 +483,29 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
 # ----------------- TRUNCAR APÓS ANVISA -----------------
 def truncar_apos_anvisa(texto: str) -> str:
     """
-    v33: Esta função agora deve funcionar corretamente, pois o OCR (psm 6)
-    deve manter a data da ANVISA no final do documento, e não no meio.
+    v34: Esta função agora deve funcionar corretamente, pois o OCR (psm 3)
+    deve manter a data da ANVISA no final do documento.
     """
     if not isinstance(texto, str):
         return texto
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match = re.search(regex_anvisa, texto, re.IGNORECASE)
-    if match:
-        end_of_line_pos = texto.find('\n', match.end())
+    # Regex busca pela data e captura o final da linha
+    regex_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    
+    match_iterator = re.finditer(regex_anvisa, texto, re.IGNORECASE)
+    last_match = None
+    for match in match_iterator:
+        last_match = match # Pega a ÚLTIMA ocorrência da data
+        
+    if last_match:
+        end_of_line_pos = texto.find('\n', last_match.end())
         if end_of_line_pos != -1:
+            # Trunca o texto no final da linha onde a última data foi encontrada
             return texto[:end_of_line_pos]
         else:
+            # Se for a última linha do arquivo
             return texto
+            
+    # Se nenhuma data da ANVISA for encontrada, retorna o texto completo
     return texto
 
 
@@ -590,9 +604,10 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     return f"anchor-{prefix}-{norm_safe}"
 
 
-# --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA (Mantida)] ---
-# Esta função 'mapear_secoes' é a v33 robusta, que recalcula os índices
-# para bater com o split('\n') original (que inclui linhas vazias)
+# --- [MANTIDO - v33] MAPEAMENTO E EXTRAÇÃO DE SEÇÃO (ROBUSTO) ---
+# Esta lógica de mapeamento provou ser robusta e deve funcionar
+# corretamente agora que o texto de entrada (do psm 3) está na ordem certa.
+
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
     """
     v33 (Gemini): Mapeia seções e recalcula índices para alinhamento com
@@ -601,7 +616,6 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     mapa_preliminar = []
     
     # 1. Mapeamento preliminar baseado em linhas NÃO VAZIAS
-    # (O layout conservador cria muitas linhas vazias)
     linhas_nao_vazias = []
     mapa_indices_originais = {} # Mapeia {indice_nao_vazio: indice_original}
     linhas_originais = texto_completo.split('\n')
@@ -716,8 +730,6 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
         if indice_original is not None:
             secao_mapa_final = secao_mapa.copy()
             secao_mapa_final['linha_inicio'] = indice_original
-            # ATENÇÃO: Usar o lines_consumed original (v32) de 1, 2 ou 3
-            # A lógica v32 de 'obter_dados_secao' depende de saber se o TÍTULO tem 1, 2 ou 3 linhas
             secao_mapa_final['lines_consumed'] = secao_mapa['lines_consumed']
             mapa_final.append(secao_mapa_final)
 
@@ -725,14 +737,10 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     return mapa_final
 
 
-# --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA (Mantida)] ---
-# Esta função 'obter_dados_secao' é a v33 robusta, que usa o mapa
-# de seções (calculado acima) para definir os limites de início e fim.
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
-    v33 (Gemini): Usa os índices do mapa_secoes para definir o fim da seção,
-                  corrigindo o bug do conteúdo vazio (Seção 6).
+    v33 (Gemini): Usa os índices do mapa_secoes para definir o fim da seção.
     """
 
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -742,46 +750,33 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         # --- Seção encontrada no mapa ---
         titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
-        
-        # O 'lines_consumed' (v32) diz respeito a quantas linhas o TÍTULO ocupa (1, 2 ou 3)
         lines_consumed_titulo = secao_mapa.get('lines_consumed', 1)
               
-        # Pega a linha original onde o título foi encontrado
         if linha_inicio >= len(linhas_texto):
              return False, None, "" # Segurança
               
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
-        # Encontra o conteúdo que está NA MESMA LINHA do título
         conteudo_primeira_linha = ""
-        
         match = None
         try:
-            # Tenta encontrar o título exato
             match = re.search(re.escape(titulo_encontrado), linha_original_titulo, re.IGNORECASE)
         except re.error:
-             # Fallback se o 'titulo_encontrado' tiver um regex inválido (raro)
              pass
         
-        # A lógica v32 (conteúdo na mesma linha)
         if match and lines_consumed_titulo == 1: 
             idx_fim_titulo = match.end()
             conteudo_primeira_linha = linha_original_titulo[idx_fim_titulo:].strip()
             conteudo_primeira_linha = re.sub(r"^[.:\s]+", "", conteudo_primeira_linha)
         
-        # O conteúdo restante começa na linha SEGUINTE
-        # Usamos o 'lines_consumed_titulo' para saber onde o título termina
         linha_inicio_conteudo = linha_inicio + lines_consumed_titulo
 
-        # Determina o fim da seção olhando o INÍCIO da próxima seção no mapa
         linha_fim = len(linhas_texto)
         if (i + 1) < len(mapa_secoes):
             linha_fim = mapa_secoes[i+1]['linha_inicio']
 
-        # Pega as linhas DEPOIS da linha do título, até o início da próxima seção
         conteudo_restante = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         
-        # Junta o conteúdo da primeira linha (se houver) com o restante
         if conteudo_primeira_linha:
             conteudo_final = (conteudo_primeira_linha + "\n" + "\n".join(conteudo_restante)).strip()
         else:
@@ -791,7 +786,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
 
     # Se a seção não foi encontrada no mapa
     return False, None, ""
-# --- [FIM DA CORREÇÃO] ---
+# --- [FIM - LÓGICA V33 MANTIDA] ---
 
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
@@ -821,10 +816,8 @@ def verificar_secoes_e_conteudo(texto_ref: str, texto_belfar: str, tipo_bula: st
                     melhor_titulo_encontrado = m['titulo_encontrado']
 
             if melhor_score >= 92:
-                # Encontrou um título similar, vamos tentar pegar o conteúdo dele
                 for m_similar in mapa_belfar:
                      if m_similar['titulo_encontrado'] == melhor_titulo_encontrado:
-                          # Pega o 'canonico' do mapa (pode não ser o 'secao' que buscamos)
                           _, titulo_belfar, conteudo_belfar = obter_dados_secao(m_similar['canonico'], mapa_belfar, linhas_belfar, tipo_bula)
                           encontrou_belfar = True
                           diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar})
@@ -848,7 +841,6 @@ def verificar_secoes_e_conteudo(texto_ref: str, texto_belfar: str, tipo_bula: st
                 similaridades_secoes.append(100)
                 continue
 
-            # comparação literal
             if normalizar_para_comparacao_literal(conteudo_ref) != normalizar_para_comparacao_literal(conteudo_belfar):
                 titulo_real_encontrado = titulo_belfar
                 diferencas_conteudo.append({
@@ -884,10 +876,8 @@ def checar_ortografia_inteligente(texto_para_checar: str, texto_referencia: str,
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto, tipo_bula)
             if encontrou and conteudo:
                 linhas_conteudo = conteudo.split('\n')
-                # Lógica original (v32) para pegar o texto para ortografia
                 if len(linhas_conteudo) > 1:
                     texto_filtrado_para_checar.append('\n'.join(linhas_conteudo[1:]))
-                # Adicionado para pegar conteúdo mesmo se o título e o conteúdo estiverem na mesma linha
                 elif len(linhas_conteudo) == 1 and conteudo:
                      texto_filtrado_para_checar.append(conteudo)
 
@@ -897,7 +887,7 @@ def checar_ortografia_inteligente(texto_para_checar: str, texto_referencia: str,
             return []
 
         spell = SpellChecker(language='pt')
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "escopolamina", "dipirona", "butilbrometo", "nafazolina", "cloreto"}
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "escopolamina", "dipirona", "butilbrometo", "nafazolina", "cloreto", "zíncica"}
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
 
         doc = nlp(texto_para_checar)
@@ -922,7 +912,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref: str, texto_belfar: str, eh_
             return tok.lower()
         return tok
     
-    # Garantir que não sejam None
     texto_ref = texto_ref or ""
     texto_belfar = texto_belfar or ""
 
@@ -952,11 +941,9 @@ def marcar_diferencas_palavra_por_palavra(texto_ref: str, texto_belfar: str, eh_
             resultado += tok
             continue
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        # Condição original (v32) para layout conservador
         if re.match(r'^[^\w\s]$', raw_tok) or raw_tok == '\n':
             resultado += tok
         else:
-            # Não adiciona espaço antes de \n
             if marcado[i-1] != '\n' and tok != '\n':
                  resultado += " "
             resultado += tok
@@ -977,7 +964,6 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
             conteudo_belfar = diff['conteudo_belfar']
             conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
             
-            # Garantir que o conteúdo não seja None
             if conteudo_a_marcar is None:
                 conteudo_a_marcar = ""
 
@@ -987,11 +973,11 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
             conteudo_com_ancora = f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{conteudo_marcado}</div>"
 
             if conteudo_a_marcar and conteudo_a_marcar in texto_sem_escape:
-                texto_sem_escape = texto_sem_escape.replace(conteudo_a_marcar, conteudo_com_ancora, 1) # Adicionado '1'
+                texto_sem_escape = texto_sem_escape.replace(conteudo_a_marcar, conteudo_com_ancora, 1) 
             else:
                 escaped_marcar = html.escape(conteudo_a_marcar)
                 if escaped_marcar in texto_trabalho:
-                    texto_trabalho = texto_trabalho.replace(escaped_marcar, conteudo_com_ancora, 1) # Adicionado '1'
+                    texto_trabalho = texto_trabalho.replace(escaped_marcar, conteudo_com_ancora, 1) 
 
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
@@ -999,10 +985,21 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
             texto_sem_escape = pattern.sub(lambda m: f"<mark style='background-color: #FFDDC1; padding: 2px;'>{html.escape(m.group(0))}</mark>", texto_sem_escape)
 
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match = re.search(regex_anvisa, texto_sem_escape, re.IGNORECASE)
-    if match:
-        frase_anvisa = match.group(1)
-        texto_sem_escape = texto_sem_escape.replace(frase_anvisa, f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{html.escape(frase_anvisa)}</mark>", 1)
+    
+    # Marca a ÚLTIMA ocorrência
+    last_match = None
+    for match in re.finditer(regex_anvisa, texto_sem_escape, re.IGNORECASE):
+        last_match = match
+        
+    if last_match:
+        frase_anvisa = last_match.group(1)
+        # Substitui apenas a última ocorrência
+        start, end = last_match.start(1), last_match.end(1)
+        texto_sem_escape = (
+            texto_sem_escape[:start] +
+            f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{html.escape(frase_anvisa)}</mark>" +
+            texto_sem_escape[end:]
+        )
 
     if '<div' in texto_sem_escape or '<mark' in texto_sem_escape:
         texto_final = texto_sem_escape.replace('\n', '<br>')
@@ -1014,12 +1011,14 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 # ----------------- [ATUALIZADO - v31] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
-    # Prepara os dados para o relatório
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match_ref = re.search(regex_anvisa, texto_ref.lower())
-    match_belfar = re.search(regex_anvisa, texto_belfar.lower())
-    data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
-    data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
+    
+    # Pega a ÚLTIMA data de cada
+    match_ref = list(re.finditer(regex_anvisa, texto_ref, re.IGNORECASE))
+    match_belfar = list(re.finditer(regex_anvisa, texto_belfar, re.IGNORECASE))
+    
+    data_ref = match_ref[-1].group(2).strip() if match_ref else "Não encontrada"
+    data_belfar = match_belfar[-1].group(2).strip() if match_belfar else "Não encontrada"
     
     mapa_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
     mapa_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
@@ -1028,7 +1027,6 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
-    # Dashboard
     st.header("Relatório de Auditoria Inteligente")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
@@ -1038,25 +1036,21 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
 
     st.divider()
     st.subheader("Detalhes dos Problemas Encontrados")
-    st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n - Arte Vigente: {data_ref}\n - PDF da Gráfica: {data_belfar}")
+    st.info(f"ℹ️ **Datas de Aprovação ANVISA (Última encontrada):**\n - Arte Vigente: {data_ref}\n - PDF da Gráfica: {data_belfar}")
 
     if secoes_faltantes:
         st.error(f"🚨 **Seções faltantes na bula BELFAR ({len(secoes_faltantes)})**:\n" + "\n".join([f" - {s}" for s in secoes_faltantes]))
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
 
-    # --- [MUDANÇA v31] ---
-    # Relatório por seção (mostra TUDO, idêntico ou não)
     st.warning(f"⚠️ **Relatório de Conteúdo por Seção:**")
     mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     
-    # Seções para NUNCA mostrar no expander (seu pedido)
     secoes_para_nao_mostrar_expander = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"
     ]
     secoes_nao_mostrar_norm = [normalizar_titulo_para_comparacao(s) for s in secoes_para_nao_mostrar_expander]
-    
     ignorar_comparacao_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_ignorar_comparacao()]
 
     expander_caixa_style = (
@@ -1068,16 +1062,13 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     for secao in secoes_esperadas:
         secao_canon_norm = normalizar_titulo_para_comparacao(secao)
         
-        # Pula se for "ignorar" OU se for "não mostrar"
         if (secao_canon_norm in ignorar_comparacao_norm or 
             secao_canon_norm in secoes_nao_mostrar_norm):
             continue
             
-        # Se estiver FALTANDO
         if secao in secoes_faltantes:
             continue
             
-        # Se foi ENCONTRADA (seja idêntica ou diferente)
         encontrou_ref, _, conteudo_ref_para_marcar = obter_dados_secao(secao, mapa_ref, texto_ref.split('\n'), tipo_bula)
         encontrou_belfar, titulo_belfar_encontrado, conteudo_bel_para_marcar = obter_dados_secao(secao, mapa_belfar, texto_belfar.split('\n'), tipo_bula)
 
@@ -1093,7 +1084,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             titulo_display = titulo_belfar_encontrado or secao
             expander_title = f"📄 {titulo_display} - ✅ CONTEÚDO IDÊNTICO"
             
-        with st.expander(expander_title, expanded=bool(diff)): # <-- Abre por padrão se tiver erro
+        with st.expander(expander_title, expanded=bool(diff)): 
             anchor_id_ref = _create_anchor_id(secao, "ref")
             anchor_id_bel = _create_anchor_id(secao, "bel")
 
@@ -1117,7 +1108,6 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             with c2:
                 st.markdown("**PDF da Gráfica:** (Clique na caixa para rolar)")
                 st.markdown(html_bel_box, unsafe_allow_html=True)
-    # --- [FIM DA MUDANÇA v31] ---
     
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)}):**\n" + ", ".join(erros_ortograficos))
@@ -1155,7 +1145,6 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
 
     st.divider()
 
-    # Gerar HTML completo para download
     relatório_html = gerar_relatorio_html_para_download(
         titulo="Relatório de Auditoria - Gráfica x Arte",
         nome_ref=nome_ref,
@@ -1169,11 +1158,6 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         html_ref=html_ref_marcado,
         html_belfar=html_belfar_marcado
     )
-
-    # --- [MUDANÇA v31] ---
-    # Botão de download removido, conforme solicitado
-    # b = relatório_html.encode('utf-8')
-    # st.download_button("⬇️ Baixar relatório (HTML)", data=b, file_name="relatorio_auditoria_grafica_x_arte.html", mime="text/html", use_container_width=True)
 
 
 def gerar_relatorio_html_para_download(titulo: str, nome_ref: str, nome_belfar: str, data_ref: str, data_belfar: str, score: float, erros_ortograficos: List[str], secoes_faltantes: List[str], diferencas_conteudo: List[Dict], html_ref: str, html_belfar: str) -> str:
@@ -1237,14 +1221,14 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v33
+Gerado pelo sistema de Auditoria de Bulas — v34
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v31] INTERFACE PRINCIPAL -----------------
+# ----------------- [ATUALIZADA - v34] INTERFACE PRINCIPAL -----------------
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
@@ -1263,15 +1247,15 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v33 - Forçando OCR psm 6)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v34 - Forçando OCR psm 3)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v33] ---
-            # Extração da Referência (SEMPRE OCR v33)
+            # --- [MUDANÇA v34] ---
+            # Extração da Referência (SEMPRE OCR v34 - psm 3)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
-            # Extração da Gráfica (SEMPRE OCR v33)
+            # Extração da Gráfica (SEMPRE OCR v34 - psm 3)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
             # --- [FIM DA MUDANÇA] ---
             
@@ -1289,4 +1273,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v33 | OCR Forçado (psm 6) + Embelezador de Layout")
+st.caption("Sistema de Auditoria de Bulas v34 | OCR Forçado (psm 3) + Embelezador de Layout (v33 regex)")
