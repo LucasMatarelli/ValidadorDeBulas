@@ -1,14 +1,15 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.41 (Correção Numeração MKT)
-# 1. (v26.41) Em 'formatar_html_para_leitura':
-#    - Adicionado parâmetro 'aplicar_numeracao=False'.
-#    - A lógica 'limpar_e_numerar_titulo' agora só adiciona números
-#      (1., 2.) se o parâmetro 'aplicar_numeracao' for True.
-# 2. (v26.41) Em 'gerar_relatorio_final':
-#    - Chamadas de formatação para ANVISA (ref) usam 'aplicar_numeracao=True'.
-#    - Chamadas de formatação para MKT (belfar) usam 'aplicar_numeracao=False'.
-#    - Isso corrige os números duplicados no MKT.
+# Versão v26.42 (Correção Posição Numeração MKT)
+# 1. (v26.42) Em 'formatar_html_para_leitura' (subfunção 'limpar_e_numerar_titulo'):
+#    - A lógica de adicionar números (1., 2.) foi movida para DENTRO
+#      do condicional 'aplicar_numeracao=True'.
+#    - Quando 'aplicar_numeracao=False' (para MKT), a função apenas
+#      retorna o título em negrito, sem adicionar números.
+#    - Isso garante que o MKT não tenha números adicionados pelo sistema,
+#      evitando os números circulados.
+# 2. (v26.41) Mantida a separação: ANVISA (ref) usa 'aplicar_numeracao=True',
+#    MKT (belfar) usa 'aplicar_numeracao=False'.
 # 3. (v26.40) Mantido o filtro que remove linhas sem letras (para MKT).
 
 # --- IMPORTS ---
@@ -23,13 +24,15 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.41 - CORRIGIDO) -----------------
-def formatar_html_para_leitura(html_content, aplicar_numeracao=False): # <--- MUDANÇA AQUI
+# ----------------- FORMATAÇÃO HTML (v26.42 - CORRIGIDO) -----------------
+def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
     
+    # Substitui quebras de linha duplas por um marcador temporário para parágrafos
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
     
+    # Lista de padrões de títulos a serem formatados (ordem importa para regex)
     titulos_lista = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
@@ -53,42 +56,46 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False): # <--- MU
         r"(PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)"
     ]
     
-    # Lógica de Numeração Condicional (para o arquivo ANVISA)
     def limpar_e_numerar_titulo(match):
         titulo = match.group(0) 
         
+        # Remove tags de marcação temporárias e espaços extras
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
-        # --- INÍCIO DA MUDANÇA v26.41 ---
-        # Só aplica números se a flag for True (ANVISA) E o título já não tiver número
-        if not re.match(r'^\d+\.', titulo_limpo) and aplicar_numeracao:
-        # --- FIM DA MUDANÇA v26.41 ---
-            titulo_upper = titulo_limpo.upper()
-            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
-            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
-            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
-            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
-            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
-            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
-            elif 'COMO DEVO USAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
-            elif 'ESQUECER' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
-            elif 'QUAIS OS MALES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
-            elif 'QUANTIDADE MAIOR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
+        # --- INÍCIO DA MUDANÇA v26.42 ---
+        # A lógica de adicionar números agora SÓ acontece se aplicar_numeracao for True (ANVISA)
+        if aplicar_numeracao:
+            # Só adiciona números se o título ainda não tiver um número no início
+            if not re.match(r'^\d+\.', titulo_limpo):
+                titulo_upper = titulo_limpo.upper()
+                if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+                elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
+                elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
+                elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
+                elif 'O QUE DEVO SABER ANTES' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
+                elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
+                elif 'COMO DEVO USAR' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
+                elif 'ESQUECER' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
+                elif 'QUAIS OS MALES' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
+                elif 'QUANTIDADE MAIOR' in titulo_upper:
+                    return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
         
-        # Caso padrão (sem adicionar números, ex: MKT ou títulos já numerados)
+        # Se aplicar_numeracao for False (MKT) OU o título já estiver numerado,
+        # apenas retorna o título em negrito.
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+        # --- FIM DA MUDANÇA v26.42 ---
 
+    # Aplica a função de limpeza e numeração (condicional) a todos os títulos
     for titulo_pattern in titulos_lista:
         html_content = re.sub(
             titulo_pattern,
@@ -97,17 +104,21 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False): # <--- MU
             flags=re.IGNORECASE
         )
 
+    # Formata itens de lista que começam com - o *
     html_content = re.sub(
         r'(\n)(\s*[-–•*])',
         r'[[LIST_ITEM]]\2',
         html_content
     )
 
+    # Remove quebras de linha remanescentes
     html_content = html_content.replace('\n', ' ')
 
+    # Substitui marcadores temporários por tags HTML finais
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
     
+    # Limpa quebras de linha excessivas
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
     
@@ -857,4 +868,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.41 | Correção de Numeração (MKT)")
+st.caption("Sistema de Auditoria de Bulas v26.42 | Correção de Posição de Numeração (MKT)")
