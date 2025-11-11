@@ -251,9 +251,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # --- INÍCIO DA CORREÇÃO v26.40 ---
+                # --- INÍCIO DA CORREÇÃO v26.40 (RE-ADICIONADO) ---
                 # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '1.', '190', '*', '...')
-                #    Esta é a lógica do v26.37 que corrige os números flutuantes.
                 if not re.search(r'[a-zA-Z]', linha_limpa):
                     continue
                 # --- FIM DA CORREÇÃO v26.40 ---
