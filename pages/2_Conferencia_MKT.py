@@ -12,7 +12,160 @@ import re
 import difflib
 import unicodedata
 import io
+def formatar_html_para_leitura(html_content):
+    """
+    Formata o texto "fluído" (sort=True) para um HTML "bonito".
+    (v26.26) - Regras de regex quebram em partes menores e usam [\s\S]
+    para formatar títulos, mesmo se houver ruído ou quebras de linha.
+    """
+    if html_content is None:
+        return ""
+    
+    html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
+    
+    titulos_lista = [
+        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
+        "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
+        
+        r"(9\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}FAZER[\s\S]{0,3}SE[\s\S]{0,3}ALGUEM[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        r"(O[\s\S]{0,3}QUE[\s\S]{0,3}FAZER[\s\S]{0,3}SE[\s\S]{0,3}ALGUEM[\s\S]{0,3}USAR[\s\S]{0,3}UMA[\s\S]{0,3}QUANTIDADE[\s\S]{0,3}MAIOR[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        
+        r"(8\.[\s\S]{0,3}QUAIS[\s\S]{0,3}OS[\s\S]{0,3}MALES[\s\S]{0,200}ME[\s\S]{0,3}CAUSAR\??)",
+        r"(QUAIS[\s\S]{0,3}OS[\s\S]{0,3}MALES[\s\S]{0,3}QUE[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}PODE[\s\S]{0,3}ME[\s\S]{0,3}CAUSAR\??)",
+        
+        r"(7\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}FAZER[\s\S]{0,3}QUANDO[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        r"(O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}FAZER[\s\S]{0,3}QUANDO[\s\S]{0,3}EU[\s\S]{0,3}ME[\s\S]{0,3}ESQUECER[\s\S]{0,3}DE[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        
+        r"(6\.[\s\S]{0,3}COMO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        r"(COMO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        
+        r"(5\.[\s\S]{0,3}ONDE,?[\s\S]{0,3}COMO[\s\S]{0,3}E[\s\S]{0,3}POR[\s\S]{0,3}QUANTO[\s\S]{0,3}TEMPO[\s\S]{0,200}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        r"(ONDE,?[\s\S]{0,3}COMO[\s\S]{0,3}E[\s\S]{0,3}POR[\s\S]{0,3}QUANTO[\s\S]{0,3}TEMPO[\s\S]{0,3}POSSO[\s\S]{0,3}GUARDAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        
+        r"(4\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}SABER[\s\S]{0,3}ANTES[\s\S]{0,200}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        r"(O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}SABER[\s\S]{0,3}ANTES[\s\S]{0,3}DE[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        
+        r"(3\.[\s\S]{0,3}QUANDO[\s\S]{0,3}NÃO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        r"(QUANDO[\s\S]{0,3}NÃO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        
+        r"(2\.[\s\S]{0,3}COMO[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}FUNCIONA\??)",
+        r"(COMO[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}FUNCIONA\??)",
+        
+        r"(1\.[\s\S]{0,3}PARA[\s\S]{0,3}QUE[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,200}INDICADO\??)",
+        r"(PARA[\s\S]{0,3}QUE[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}É[\s\S]{0,3}INDICADO\??)"
+    ]
+    
+    regex_titulos = r'(' + '|'.join(titulos_lista) + r')'
 
+    def limpar_titulo(match):
+        titulo = match.group(1)
+        # Remove tags HTML do título antes de aplicar o <strong>
+        titulo_limpo = re.sub(r'<mark.*?>|</mark>', '', titulo)
+        # Remove espaços extras
+        titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+        return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+
+    html_content = re.sub(
+        regex_titulos,
+        limpar_titulo,
+        html_content,
+        flags=re.IGNORECASE
+    )
+
+    html_content = re.sub(
+        r'(\n)(\s*[-–•*])',
+        r'[[LIST_ITEM]]\2',
+        html_content
+    )
+
+    html_content = html_content.replace('\n', ' ')
+
+    html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
+    html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
+    
+    html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
+    html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
+    
+    return html_content
+
+
+def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia=False):
+    texto_trabalho = texto_original
+    
+    # 1. Marca Amarelo (Divergências)
+    if secoes_problema_lista_dicionarios:
+        for diff in secoes_problema_lista_dicionarios:
+            if diff['status'] != 'diferente':
+                continue
+                
+            conteudo_ref = diff['conteudo_ref']
+            conteudo_belfar = diff['conteudo_belfar']
+            conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
+            
+            if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
+                conteudo_marcado = marcar_diferencas_palavra_por_palavra(
+                    conteudo_ref, conteudo_belfar, eh_referencia
+                )
+                texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_marcado, 1)
+
+    # 2. Marca Rosa (Ortografia)
+    if erros_ortograficos and not eh_referencia:
+        for erro in erros_ortograficos:
+            pattern = r'\b(' + re.escape(erro) + r')\b(?![^<]*?>)'
+            texto_trabalho = re.sub(
+                pattern,
+                r"<mark style='background-color: #FFDDC1; padding: 2px;'>\1</mark>",
+                texto_trabalho,
+                flags=re.IGNORECASE
+            )
+    
+    # 3. Formata TODOS os títulos das seções em negrito (ANTES da marca ANVISA)
+    titulos_secoes = [
+        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
+        r"9\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}FAZER[\s\S]{0,3}SE[\s\S]{0,3}ALGUEM[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??",
+        r"8\.[\s\S]{0,3}QUAIS[\s\S]{0,3}OS[\s\S]{0,3}MALES[\s\S]{0,200}ME[\s\S]{0,3}CAUSAR\??",
+        r"7\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}FAZER[\s\S]{0,3}QUANDO[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??",
+        r"6\.[\s\S]{0,3}COMO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??",
+        r"5\.[\s\S]{0,3}ONDE,?[\s\S]{0,3}COMO[\s\S]{0,3}E[\s\S]{0,3}POR[\s\S]{0,3}QUANTO[\s\S]{0,3}TEMPO[\s\S]{0,200}ESTE[\s\S]{0,3}MEDICAMENTO\??",
+        r"4\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}SABER[\s\S]{0,3}ANTES[\s\S]{0,200}ESTE[\s\S]{0,3}MEDICAMENTO\??",
+        r"3\.[\s\S]{0,3}QUANDO[\s\S]{0,3}NÃO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??",
+        r"2\.[\s\S]{0,3}COMO[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}FUNCIONA\??",
+        r"1\.[\s\S]{0,3}PARA[\s\S]{0,3}QUE[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,200}INDICADO\??"
+    ]
+    
+    for titulo_pattern in titulos_secoes:
+        def formatar_titulo(match):
+            titulo_encontrado = match.group(0)
+            # Remove qualquer tag <mark> ou <strong> existente
+            titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo_encontrado)
+            # Remove espaços extras
+            titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+            return f'<strong>{titulo_limpo}</strong>'
+        
+        texto_trabalho = re.sub(
+            titulo_pattern,
+            formatar_titulo,
+            texto_trabalho,
+            flags=re.IGNORECASE
+        )
+            
+    # 4. Marca Azul (ANVISA) POR ÚLTIMO
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
+    
+    def remove_marks_da_data(match):
+        frase_anvisa = match.group(1)
+        frase_limpa = re.sub(r'<mark.*?>|</mark>', '', frase_anvisa)
+        return f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_limpa}</mark>"
+
+    texto_trabalho = re.sub(
+        regex_anvisa,
+        remove_marks_da_data,
+        texto_trabalho,
+        count=1,
+        flags=re.IGNORECASE
+    )
+            
+    return texto_trabalho
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
