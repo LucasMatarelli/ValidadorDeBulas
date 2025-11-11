@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.28 (Correção de SyntaxError)
-# 1. (v26.28) Corrigido 'SyntaxError' ao remover a definição duplicada de 'marcar_divergencias_html'.
-# 2. (v26.28) Movidos todos os imports para o topo do arquivo para 'boa prática' e compatibilidade.
+# Versão v26.29 (Correção Definitiva do SyntaxError)
+# 1. (v26.29) REMOVIDA a definição duplicada de 'marcar_divergencias_html' que causava o erro.
+# 2. (v26.28) Movidos todos os imports para o topo do arquivo.
 # 3. (v26.27) Lógica de formatação unificada e Regex da Seção 9 corrigida.
 
 # --- IMPORTS ---
@@ -578,7 +578,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 'secao': secao,  
                 'status': 'faltante',  
                 'conteudo_ref': conteudo_ref,  
-                'conteudo_belfar': ""
+                'conteudo_bFalsfar': ""
             })
             continue
 
@@ -922,4 +922,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.28 | Correção de SyntaxError")
+st.caption("Sistema de Auditoria de Bulas v26.29 | Correção Definitiva de SyntaxError")
