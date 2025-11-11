@@ -1,6 +1,11 @@
 # pages/2_Conferencia_MKT.py
-# Versão v26.31 (Versão Limpa: Sem comentários + Regex Simplificada)
+#
+# Versão v26.32 (Correção Crítica de SyntaxError)
+# 1. (v26.32) Corrigido 'SyntaxError: expected 'except' or 'finally' block'.
+# 2. (v26.32) A linha 'return texto, None' foi movida para DENTRO do bloco 'try'
+#    na função 'extrair_texto', corrigindo a indentação.
 
+# --- IMPORTS ---
 import re
 import difflib
 import unicodedata
@@ -12,6 +17,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
+# ----------------- FORMATAÇÃO HTML (v26.27) -----------------
 def formatar_html_para_leitura(html_content):
     if html_content is None:
         return ""
@@ -95,6 +101,7 @@ def formatar_html_para_leitura(html_content):
     
     return html_content
 
+# ----------------- MARCAÇÃO DE DIVERGÊNCIAS (v26.27) -----------------
 def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
     
@@ -140,6 +147,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
             
     return texto_trabalho
 
+# ----------------- MODELO NLP -----------------
 @st.cache_resource
 def carregar_modelo_spacy():
     try:
@@ -150,6 +158,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
+# ----------------- EXTRAÇÃO (v26.32 - CORRIGIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -239,11 +248,15 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'\n{3,}', '\n\n', texto)  
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
-
-    return texto, None
+        
+        # --- ESTA É A CORREÇÃO (v26.32) ---
+        # A linha 'return' agora está DENTRO do 'try'
+        return texto, None
+    
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
+# ----------------- FUNÇÕES RESTANTES (Sem alterações) -----------------
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
@@ -809,9 +822,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             elif not texto_ref or not texto_belfar:
                  st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
+                gerar_relatorio_final(texto_ref, texto_bMKT", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.31")
+st.caption("Sistema de Auditoria de Bulas v26.32 | Correção de try/except")
