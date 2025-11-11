@@ -1,17 +1,23 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.27 (Lógica de Formatação Unificada + Correção Seção 9)
-# 1. (v26.27) Corrigido bug de formatação duplicada (removida 'formatar_html_para_leitura' interna).
-# 2. (v26.27) Centralizada toda a lógica de formatação de títulos na função global.
-# 3. (v26.27) Regex da Seção 9 agora tolera ruído (ex: "indicada mm deste").
-# 4. (v26.26) Títulos da ANVISA agora enumerados como no MKT
-# 5. (v26.26) Filtro aprimorado para "New Roman" e "BUL_CLORIDRATO_DE_NA 190"
+# Versão v26.28 (Correção de SyntaxError)
+# 1. (v26.28) Corrigido 'SyntaxError' ao remover a definição duplicada de 'marcar_divergencias_html'.
+# 2. (v26.28) Movidos todos os imports para o topo do arquivo para 'boa prática' e compatibilidade.
+# 3. (v26.27) Lógica de formatação unificada e Regex da Seção 9 corrigida.
 
 # --- IMPORTS ---
 import re
 import difflib
 import unicodedata
 import io
+import streamlit as st
+import fitz  # PyMuPDF
+import docx
+import spacy
+from thefuzz import fuzz
+from spellchecker import SpellChecker
+
+# ----------------- FORMATAÇÃO HTML (v26.27) -----------------
 def formatar_html_para_leitura(html_content):
     """
     Formata o texto "fluído" (sort=True) para um HTML "bonito".
@@ -124,7 +130,12 @@ def formatar_html_para_leitura(html_content):
     return html_content
 
 
+# ----------------- MARCAÇÃO DE DIVERGÊNCIAS (v26.27) -----------------
 def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia=False):
+    """
+    Esta função aplica APENAS as marcas coloridas (Amarelo, Rosa, Azul).
+    A formatação de títulos (negrito, numeração) é feita por 'formatar_html_para_leitura'.
+    """
     texto_trabalho = texto_original
     
     # 1. Marca Amarelo (Divergências)
@@ -155,7 +166,6 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
             )
             
     # 3. (REMOVIDO - v26.27) Bloco de formatação de títulos removido daqui.
-    #    A formatação agora é feita exclusivamente pela 'formatar_html_para_leitura' global.
         
     # 4. Marca Azul (ANVISA) POR ÚLTIMO
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
@@ -174,12 +184,6 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
     )
             
     return texto_trabalho
-import streamlit as st
-import fitz  # PyMuPDF
-import docx
-import spacy
-from thefuzz import fuzz
-from spellchecker import SpellChecker
 
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
@@ -716,60 +720,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-
-# ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
-def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia=False):
-    texto_trabalho = texto_original
-    
-    # 1. Marca Amarelo (Divergências)
-    if secoes_problema_lista_dicionarios:
-        for diff in secoes_problema_lista_dicionarios:
-            if diff['status'] != 'diferente':
-                continue
-                
-            conteudo_ref = diff['conteudo_ref']
-            conteudo_belfar = diff['conteudo_belfar']
-            conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
-            
-            if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
-                conteudo_marcado = marcar_diferencas_palavra_por_palavra(
-                    conteudo_ref, conteudo_belfar, eh_referencia
-                )
-                texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_marcado, 1)
-
-    # 2. Marca Rosa (Ortografia)
-    if erros_ortograficos and not eh_referencia:
-        for erro in erros_ortograficos:
-            pattern = r'\b(' + re.escape(erro) + r')\b(?![^<]*?>)'
-            texto_trabalho = re.sub(
-                pattern,
-                r"<mark style='background-color: #FFDDC1; padding: 2px;'>\1</mark>",
-                texto_trabalho,
-                flags=re.IGNORECASE
-            )
-            
-    # 3. (REMOVIDO - v26.27) Bloco de formatação de títulos removido daqui.
-    #    A formatação agora é feita exclusivamente pela 'formatar_html_para_leitura' global.
-        
-    # 4. Marca Azul (ANVISA) POR ÚLTIMO
-    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
-    
-    def remove_marks_da_data(match):
-        frase_anvisa = match.group(1)
-        frase_limpa = re.sub(r'<mark.*?>|</mark>', '', frase_anvisa)
-        return f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_limpa}</mark>"
-
-    texto_trabalho = re.sub(
-        regex_anvisa,
-        remove_marks_da_data,
-        texto_trabalho,
-        count=1,
-        flags=re.IGNORECASE
-    )
-            
-    return texto_trabalho
-
-
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
@@ -802,10 +752,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
-    
-    # (REMOVIDO - v26.27) Definição 'formatar_html_para_leitura' interna.
-    # O script agora usará a função global (v26.27) definida no topo do arquivo.
-
     expander_caixa_style = (
         "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
         "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
@@ -838,7 +784,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
                 
-                # (v26.27) Esta chamada agora usa a função 'formatar_html_para_leitura' GLOBAL
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
@@ -856,7 +801,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
 
             with st.expander(expander_title):
-                # (v26.27) Esta chamada agora usa a função 'formatar_html_para_leitura' GLOBAL
                 expander_html_ref = formatar_html_para_leitura(conteudo_ref_str)
                 expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str)
 
@@ -900,7 +844,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # (v26.27) Estas chamadas agora usam a função 'formatar_html_para_leitura' GLOBAL
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
 
@@ -979,4 +922,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.27 | Lógica de Formatação Unificada")
+st.caption("Sistema de Auditoria de Bulas v26.28 | Correção de SyntaxError")
