@@ -1,13 +1,16 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.43 (Correção Definitiva do Filtro MKT)
-# 1. (v26.43) Em 'extrair_texto':
-#    - O filtro que remove linhas sem letras (ex: '1.', '2.')
-#      agora é CONDICIONAL e só é aplicado se 'is_marketing_pdf=True'.
-#    - Isso impede que o filtro remova linhas do arquivo ANVISA
-#      e cause problemas na formatação final.
-# 2. (v26.42) Mantida a flag 'aplicar_numeracao' (True para ANVISA, False para MKT)
-#    na função 'formatar_html_para_leitura' para não re-adicionar números no MKT.
+# Versão v26.44 (Correção Definitiva Numeração MKT v2)
+# 1. (v26.44) Em 'extrair_texto':
+#    - ADICIONADO um novo filtro (Filtro 0) que roda ANTES
+#      de 'padrao_ruido_linha'.
+#    - Este filtro é específico para o MKT (is_marketing_pdf=True)
+#      e usa 're.fullmatch(r'\d+\.', linha_strip)' para remover
+#      linhas que são *exclusivamente* números com ponto (ex: "1.", "2.").
+# 2. (v26.43) MANTIDO o filtro genérico que remove outras linhas
+#    sem letras (ex: "...", "*", "190").
+# 3. (v26.42) MANTIDA a flag 'aplicar_numeracao=False' para o MKT
+#    na formatação HTML.
 
 # --- IMPORTS ---
 import re
@@ -32,7 +35,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
         r"(9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
-        r"(O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
+        r"(O\s+QUE\s+FAZER\s+SE\s+ALGUU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
         r"(8\.?\s*QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
         r"(QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
         r"(7\.?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
@@ -44,7 +47,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         r"(4\.?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         r"(O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         r"(3\.?\s*QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
-        r"(QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICamento\??)",
+        r"(QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         r"(2\.?\s*COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
         r"(COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
         r"(1\.?\s*PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)",
@@ -164,7 +167,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.43 - CORRIGIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.44 - CORRIGIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -203,7 +206,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
-            # --- FILTRO DE RUÍDO (v26.40) ---
+            # --- FILTRO DE RUÍDO ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha_regex = (
@@ -245,6 +248,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             linhas_filtradas = []
             for linha in linhas:
                 linha_strip = linha.strip()
+
+                # --- INÍCIO DA CORREÇÃO v26.44 ---
+                # Filtro 0: Remove linhas que são SÓ números e pontos (ex: "1.", "2.")
+                # Isto é para o MKT que tem números em linhas separadas.
+                if is_marketing_pdf and re.fullmatch(r'\d+\.', linha_strip):
+                    continue
+                # --- FIM DA CORREÇÃO v26.44 ---
                 
                 # 1. Filtra linhas de ruído conhecidas
                 if padrao_ruido_linha.search(linha_strip):
@@ -253,12 +263,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # --- INÍCIO DA CORREÇÃO v26.43 ---
-                # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '1.', '190', '*', '...')
-                #    Este filtro SÓ deve ser aplicado no arquivo MKT.
+                # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '190', '*', '...')
                 if is_marketing_pdf and not re.search(r'[a-zA-Z]', linha_limpa):
                     continue
-                # --- FIM DA CORREÇÃO v26.43 ---
 
                 # 4. Adiciona a linha
                 if linha_limpa:
@@ -447,7 +454,8 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 best_canonico = canonico
         
         if best_score >= limiar_score:
-            if not mapa or mapa[-1]['canonico'] != best_canonico:
+            if not
+ mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
                     'canonico': best_canonico,
                     'titulo_encontrado': linha_limpa,
@@ -848,4 +856,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.43 | Correção de Filtro (MKT)")
+st.caption("Sistema de Auditoria de Bulas v26.44 | Correção Específica de Numeração (MKT)")
