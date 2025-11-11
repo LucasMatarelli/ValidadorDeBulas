@@ -1,14 +1,11 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v32 (Baseado no v26.9 do usuário)
+# Versão: v33 (Baseado no v32)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v32: CORRIGE o bug 'obter_dados_secao' que não pegava conteúdo na mesma linha do título (caixas vazias).
-# v32: Mantém o OCR Forçado (psm 3) para AMBOS os PDFs.
-# v32: Mantém 'melhorar_layout_grafica' (original, conservador) para corrigir e formatar.
-# v32: Mantém o Relatório Completo (mostra todas as seções).
-# v32: Mantém a Comparação Literal.
-# v32 (Gemini patch 5): CORRIGE '1so' para 'uso' (em vez de 'usso')
-# v32 (Gemini patch 5): ADICIONA 'lipirona' para 'dipirona'
-# v32 (Gemini patch 5): Mantém a correção da Seção 6 e todos os outros filtros.
+# v33: ATUALIZA OCR para --psm 6 (Bloco de Texto) e --oem 3 (LSTM)
+# v33: ADICIONA 'preserve_interword_spaces=1' para corrigir palavras cortadas/juntadas.
+# v33: CORRIGE bug do "último tópico" (seções 7,8,9 sumindo) causado pelo layout psm 3.
+# v33: ADICIONA correções de regex da imagem (vezes, os, do, aplicar, zincica, no).
+# v33: Mantém a Comparação Literal e Relatório Completo.
 
 # --- IMPORTS ---
 
@@ -54,17 +51,16 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [ATUALIZADO - v32] CORRETOR E EMBELEZADOR DE OCR -----------------
-# ----------------- [NOVO - v33] CORRETOR DE ERROS OCR EXPANDIDO -----------------
+# ----------------- [ATUALIZADO - v33] CORRETOR DE ERROS OCR EXPANDIDO -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
-    v33: Expandido com correções completas baseadas no PDF real
+    v33: Expandido com correções da imagem (vezes, os, do, etc.)
     """
     if not texto:
         return ""
     
-    # --- [INÍCIO DA CORREÇÃO v5] ---
+    # --- [INÍCIO DA CORREÇÃO v5/v32] ---
     correcoes = {
         # Correções de palavras compostas e nomes
         r"(?i)\b(3|1)lfar\b": "Belfar",
@@ -109,6 +105,15 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\broblemas\b": "problemas",
         r"(?i)\brávidas\b": "grávidas",
         r"(?i)\bslaucoma\b": "glaucoma",
+        
+        # --- [INÍCIO NOVAS CORREÇÕES v33 - Imagem dbaf5d.png] ---
+        r"(?i)\b2\s+a\s+5\s+vez\b": "2 a 5 vezes", # "2 a 5 vez" -> "2 a 5 vezes"
+        r"(?i)\bapós\s+sintomas\b": "após os sintomas", # "após sintomas" -> "após os sintomas"
+        r"(?i)\babsorção\s+medicamento\b": "absorção do medicamento", # "absorção medicamento" -> "absorção do medicamento"
+        r"(?i)\bvocê\s+aplic\s+sulfato\b": "você aplicar sulfato", # "você aplic sulfato" -> "você aplicar sulfato"
+        r"(?i)\bbacitracina\s+zinci\b": "bacitracina zincica", # "bacitracina zinci" -> "bacitracina zincica"
+        r"(?i)\bpoucos\s+dias;1\b": "poucos dias; no", # "poucos dias;1" -> "poucos dias; no"
+        # --- [FIM NOVAS CORREÇÕES v33] ---
         
         # Correções de palavras específicas
         r"(?i)\bmecicamento\b": "medicamento",
@@ -312,13 +317,15 @@ def melhorar_layout_grafica(texto: str) -> str:
 
 
 # ----------------- [ATUALIZADO - v33] OCR COM MELHOR CONFIGURAÇÃO -----------------
-def extrair_pdf_ocr_colunas_v32(arquivo_bytes: bytes) -> str:
+def extrair_pdf_ocr_colunas_v33(arquivo_bytes: bytes) -> str:
     """
     v33: OCR otimizado com configurações para melhor precisão
+    Usa --psm 6 (Bloco de Texto) e preserve_interword_spaces
+    para corrigir palavras cortadas/juntadas.
     """
     texto_total = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR em {len(doc)} página(s)...")
+        st.info(f"Forçando OCR (v33: psm 6) em {len(doc)} página(s)...")
         for i, page in enumerate(doc):
             rect = page.rect
             margin_y = 20
@@ -327,9 +334,10 @@ def extrair_pdf_ocr_colunas_v32(arquivo_bytes: bytes) -> str:
             rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
             rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
             
-            # Configuração OCR otimizada para português
-            # --psm 6: Assume um bloco uniforme de texto
+            # --- MUDANÇA v33: Configuração OCR Otimizada ---
+            # --psm 6: Assume um bloco uniforme de texto (MUITO MELHOR que 3)
             # --oem 3: Usa LSTM + Legacy (melhor precisão)
+            # -c preserve_interword_spaces=1: IMPEDE O CORTE/JUNÇÃO de palavras (ex: "aplic ar" -> "aplicar")
             ocr_config = r'--psm 6 --oem 3 -c preserve_interword_spaces=1'
             
             # OCR da Coluna 1
@@ -345,44 +353,16 @@ def extrair_pdf_ocr_colunas_v32(arquivo_bytes: bytes) -> str:
             texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
     
     return texto_total
-# ----------------- [NOVO - v32] LÓGICA DE EXTRAÇÃO ÚNICA -----------------
-def extrair_pdf_ocr_colunas_v32(arquivo_bytes: bytes) -> str:
-    """
-    Força a extração de OCR em 2 colunas para QUALQUER PDF.
-    Usa --psm 3 (Auto Layout) para melhor detecção.
-    """
-    texto_total = ""
-    with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR em {len(doc)} página(s) (pode ser lento)...")
-        for i, page in enumerate(doc):
-            rect = page.rect
-            margin_y = 20
-            # Define as duas colunas
-            rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
-            rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
-            
-            # --- MUDANÇA v32: Usa --psm 3 (Auto Layout) ---
-            # Isso é melhor para detectar parágrafos e colunas automaticamente.
-            ocr_config = r'--psm 3' 
-            
-            # OCR da Coluna 1
-            pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
-            img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
-            texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
-            
-            # OCR da Coluna 2
-            pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
-            img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
-            texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
-            
-            texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
-    return texto_total
+
+# ----------------- [REMOVIDA FUNÇÃO DUPLICADA v32] -----------------
+# A função extrair_pdf_ocr_colunas_v32 que usava --psm 3 foi removida.
+# A v33 acima é a única ativa.
 
 # ----------------- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
 def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
     """
     Função principal de extração.
-    v32: SEMPRE força OCR para PDFs.
+    v33: SEMPRE força OCR (v33) para PDFs.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -393,9 +373,9 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
         arquivo_bytes = arquivo.read()
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v32 ---
-            # SEMPRE usar OCR por colunas para TODOS os PDFs
-            texto = extrair_pdf_ocr_colunas_v32(arquivo_bytes)
+            # --- MUDANÇA v33 ---
+            # SEMPRE usar OCR v33 (psm 6) para TODOS os PDFs
+            texto = extrair_pdf_ocr_colunas_v33(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
             st.info("Extraindo texto de DOCX...")
@@ -498,6 +478,10 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
 
 # ----------------- TRUNCAR APÓS ANVISA -----------------
 def truncar_apos_anvisa(texto: str) -> str:
+    """
+    v33: Esta função agora deve funcionar corretamente, pois o OCR (psm 6)
+    deve manter a data da ANVISA no final do documento, e não no meio.
+    """
     if not isinstance(texto, str):
         return texto
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -606,7 +590,7 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     return f"anchor-{prefix}-{norm_safe}"
 
 
-# --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA] ---
+# --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA (Mantida)] ---
 # Esta função 'mapear_secoes' é a v33 robusta, que recalcula os índices
 # para bater com o split('\n') original (que inclui linhas vazias)
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
@@ -741,14 +725,14 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     return mapa_final
 
 
-# --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA] ---
+# --- [INÍCIO DA CORREÇÃO v33 - BUG SEÇÃO 6 VAZIA (Mantida)] ---
 # Esta função 'obter_dados_secao' é a v33 robusta, que usa o mapa
 # de seções (calculado acima) para definir os limites de início e fim.
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
     v33 (Gemini): Usa os índices do mapa_secoes para definir o fim da seção,
-                         corrigindo o bug do conteúdo vazio (Seção 6).
+                  corrigindo o bug do conteúdo vazio (Seção 6).
     """
 
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -761,11 +745,11 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         
         # O 'lines_consumed' (v32) diz respeito a quantas linhas o TÍTULO ocupa (1, 2 ou 3)
         lines_consumed_titulo = secao_mapa.get('lines_consumed', 1)
-             
+              
         # Pega a linha original onde o título foi encontrado
         if linha_inicio >= len(linhas_texto):
              return False, None, "" # Segurança
-             
+              
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
         # Encontra o conteúdo que está NA MESMA LINHA do título
@@ -840,11 +824,11 @@ def verificar_secoes_e_conteudo(texto_ref: str, texto_belfar: str, tipo_bula: st
                 # Encontrou um título similar, vamos tentar pegar o conteúdo dele
                 for m_similar in mapa_belfar:
                      if m_similar['titulo_encontrado'] == melhor_titulo_encontrado:
-                         # Pega o 'canonico' do mapa (pode não ser o 'secao' que buscamos)
-                         _, titulo_belfar, conteudo_belfar = obter_dados_secao(m_similar['canonico'], mapa_belfar, linhas_belfar, tipo_bula)
-                         encontrou_belfar = True
-                         diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar})
-                         break
+                          # Pega o 'canonico' do mapa (pode não ser o 'secao' que buscamos)
+                          _, titulo_belfar, conteudo_belfar = obter_dados_secao(m_similar['canonico'], mapa_belfar, linhas_belfar, tipo_bula)
+                          encontrou_belfar = True
+                          diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar})
+                          break
             else:
                 secoes_faltantes.append(secao)
                 continue
@@ -1253,7 +1237,7 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v31
+Gerado pelo sistema de Auditoria de Bulas — v33
 </footer>
 </body>
 </html>
@@ -1279,15 +1263,15 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v31 - Forçando OCR)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v33 - Forçando OCR psm 6)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v31] ---
-            # Extração da Referência (SEMPRE OCR)
+            # --- [MUDANÇA v33] ---
+            # Extração da Referência (SEMPRE OCR v33)
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             
-            # Extração da Gráfica (SEMPRE OCR)
+            # Extração da Gráfica (SEMPRE OCR v33)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
             # --- [FIM DA MUDANÇA] ---
             
@@ -1305,4 +1289,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v31 | OCR Forçado (psm 3) + Embelezador de Layout")
+st.caption("Sistema de Auditoria de Bulas v33 | OCR Forçado (psm 6) + Embelezador de Layout")
