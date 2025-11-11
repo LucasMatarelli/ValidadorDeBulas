@@ -1,16 +1,13 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.42 (Correção Posição Numeração MKT)
-# 1. (v26.42) Em 'formatar_html_para_leitura' (subfunção 'limpar_e_numerar_titulo'):
-#    - A lógica de adicionar números (1., 2.) foi movida para DENTRO
-#      do condicional 'aplicar_numeracao=True'.
-#    - Quando 'aplicar_numeracao=False' (para MKT), a função apenas
-#      retorna o título em negrito, sem adicionar números.
-#    - Isso garante que o MKT não tenha números adicionados pelo sistema,
-#      evitando os números circulados.
-# 2. (v26.41) Mantida a separação: ANVISA (ref) usa 'aplicar_numeracao=True',
-#    MKT (belfar) usa 'aplicar_numeracao=False'.
-# 3. (v26.40) Mantido o filtro que remove linhas sem letras (para MKT).
+# Versão v26.43 (Correção Definitiva do Filtro MKT)
+# 1. (v26.43) Em 'extrair_texto':
+#    - O filtro que remove linhas sem letras (ex: '1.', '2.')
+#      agora é CONDICIONAL e só é aplicado se 'is_marketing_pdf=True'.
+#    - Isso impede que o filtro remova linhas do arquivo ANVISA
+#      e cause problemas na formatação final.
+# 2. (v26.42) Mantida a flag 'aplicar_numeracao' (True para ANVISA, False para MKT)
+#    na função 'formatar_html_para_leitura' para não re-adicionar números no MKT.
 
 # --- IMPORTS ---
 import re
@@ -24,15 +21,13 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.42 - CORRIGIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.42 - MANTIDO) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
     
-    # Substitui quebras de linha duplas por um marcador temporário para parágrafos
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
     
-    # Lista de padrões de títulos a serem formatados (ordem importa para regex)
     titulos_lista = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
@@ -49,7 +44,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         r"(4\.?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         r"(O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         r"(3\.?\s*QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
-        r"(QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICamento\??)",
         r"(2\.?\s*COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
         r"(COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
         r"(1\.?\s*PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)",
@@ -59,14 +54,10 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     def limpar_e_numerar_titulo(match):
         titulo = match.group(0) 
         
-        # Remove tags de marcação temporárias e espaços extras
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
-        # --- INÍCIO DA MUDANÇA v26.42 ---
-        # A lógica de adicionar números agora SÓ acontece se aplicar_numeracao for True (ANVISA)
         if aplicar_numeracao:
-            # Só adiciona números se o título ainda não tiver um número no início
             if not re.match(r'^\d+\.', titulo_limpo):
                 titulo_upper = titulo_limpo.upper()
                 if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
@@ -90,12 +81,8 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
                 elif 'QUANTIDADE MAIOR' in titulo_upper:
                     return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
         
-        # Se aplicar_numeracao for False (MKT) OU o título já estiver numerado,
-        # apenas retorna o título em negrito.
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
-        # --- FIM DA MUDANÇA v26.42 ---
 
-    # Aplica a função de limpeza e numeração (condicional) a todos os títulos
     for titulo_pattern in titulos_lista:
         html_content = re.sub(
             titulo_pattern,
@@ -104,21 +91,17 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
             flags=re.IGNORECASE
         )
 
-    # Formata itens de lista que começam com - o *
     html_content = re.sub(
         r'(\n)(\s*[-–•*])',
         r'[[LIST_ITEM]]\2',
         html_content
     )
 
-    # Remove quebras de linha remanescentes
     html_content = html_content.replace('\n', ' ')
 
-    # Substitui marcadores temporários por tags HTML finais
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
     
-    # Limpa quebras de linha excessivas
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
     
@@ -181,7 +164,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.40 - MANTIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.43 - CORRIGIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -220,7 +203,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
-            # --- FILTRO DE RUÍDO (v26.40 - APRIMORADO) ---
+            # --- FILTRO DE RUÍDO (v26.40) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha_regex = (
@@ -270,11 +253,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # --- INÍCIO DA CORREÇÃO v26.40 (RE-ADICIONADO) ---
+                # --- INÍCIO DA CORREÇÃO v26.43 ---
                 # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '1.', '190', '*', '...')
-                if not re.search(r'[a-zA-Z]', linha_limpa):
+                #    Este filtro SÓ deve ser aplicado no arquivo MKT.
+                if is_marketing_pdf and not re.search(r'[a-zA-Z]', linha_limpa):
                     continue
-                # --- FIM DA CORREÇÃO v26.40 ---
+                # --- FIM DA CORREÇÃO v26.43 ---
 
                 # 4. Adiciona a linha
                 if linha_limpa:
@@ -726,10 +710,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
                 
-                # --- INÍCIO DA MUDANÇA v26.41 ---
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, aplicar_numeracao=True)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, aplicar_numeracao=False)
-                # --- FIM DA MUDANÇA v26.41 ---
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -745,10 +727,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
 
             with st.expander(expander_title):
-                # --- INÍCIO DA MUDANÇA v26.41 ---
                 expander_html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
                 expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
-                # --- FIM DA MUDANÇA v26.41 ---
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -790,10 +770,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # --- INÍCIO DA MUDANÇA v26.41 ---
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
-    # --- FIM DA MUDANÇA v26.41 ---
 
 
     caixa_style = (
@@ -846,12 +824,14 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
+            # ANVISA é extraído com 'is_marketing_pdf=False'
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
             if not erro_ref:
                 texto_ref = corrigir_quebras_em_titulos(texto_ref)  
                 texto_ref = truncar_apos_anvisa(texto_ref)
             
+            # MKT é extraído com 'is_marketing_pdf=True'
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
             if not erro_belfar:
@@ -868,4 +848,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.42 | Correção de Posição de Numeração (MKT)")
+st.caption("Sistema de Auditoria de Bulas v26.43 | Correção de Filtro (MKT)")
