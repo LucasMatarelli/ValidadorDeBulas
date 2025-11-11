@@ -1,9 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.32 (Correção Crítica de SyntaxError)
-# 1. (v26.32) Corrigido 'SyntaxError: expected 'except' or 'finally' block'.
-# 2. (v26.32) A linha 'return texto, None' foi movida para DENTRO do bloco 'try'
-#    na função 'extrair_texto', corrigindo a indentação.
+# Versão v26.33 (Correção de Múltiplos Erros)
+# 1. (v26.33) Corrigido o 'SyntaxError: unterminated string literal' na chamada final de 'gerar_relatorio_final'.
+# 2. (v26.32) Mantida a correção do 'SyntaxError' no bloco 'try/except' da 'extrair_texto'.
 
 # --- IMPORTS ---
 import re
@@ -249,8 +248,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
         
-        # --- ESTA É A CORREÇÃO (v26.32) ---
-        # A linha 'return' agora está DENTRO do 'try'
+        # Correção v26.32: O 'return' está DENTRO do 'try'
         return texto, None
     
     except Exception as e:
@@ -822,9 +820,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             elif not texto_ref or not texto_belfar:
                  st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
-                gerar_relatorio_final(texto_ref, texto_bMKT", tipo_bula_selecionado)
+                # --- ESTA É A CORREÇÃO (v26.33) ---
+                # A linha abaixo está agora com os argumentos corretos.
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.32 | Correção de try/except")
+st.caption("Sistema de Auditoria de Bulas v26.33 | Correção de Múltiplos Erros")
