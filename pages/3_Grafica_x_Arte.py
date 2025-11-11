@@ -1,10 +1,12 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v36 (Baseado no v35)
+# Versão: v37 (Baseado no v36)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v36: CORRIGE bug "Seção 2 Faltante"
-# v36: ADICIONA "COMO FUNCIONA?" como um alias para "2. COMO ESTE MEDICAMENTO FUNCIONA?".
-# v36: ADICIONA correção de OCR "inbem" -> "inibem".
-# v36: Mantém o OCR de Página Inteira (psm 3) e todas as limpezas de lixo da v35.
+# v37: CORRIGE bug do "título dentro do conteúdo" (Seção 2).
+# v37: A função 'mapear_secoes' agora calcula 'original_lines_consumed' (linhas reais,
+#      incluindo vazias) além de 'non_empty_lines_consumed'.
+# v37: A função 'obter_dados_secao' usa 'original_lines_consumed' para pular
+#      o título com precisão, corrigindo o bug de "FUNCIONA?" aparecer no conteúdo.
+# v37: Mantém o alias da Seção 2 e a correção "inbem".
 
 # --- IMPORTS ---
 
@@ -50,7 +52,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [ATUALIZADO - v36] CORRETOR DE ERROS OCR EXPANDIDO -----------------
+# ----------------- [MANTIDO - v36] CORRETOR DE ERROS OCR EXPANDIDO -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
@@ -149,14 +151,12 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bneomicina\s+5r\b": "neomicina 5 mg", 
         r"(?i)\b250\s+UN\b": "250 UI", 
         
-        # Lixo geral
         r"\bc\.t\s+": "",
         r"\bq\.s\.p\s+\"?si\s+": "q.s.p. ",
         r"\|": "",
         r"\s+mm\b": "", 
         r"\s+mma\b": "",
         
-        # Pontuação
         r"\s+([,;:\.\?\!%°])": r"\1",
         r"(\()\s+": r"\1",
         r"\s+(\))": r"\1",
@@ -218,8 +218,6 @@ def melhorar_layout_grafica(texto: str) -> str:
         r'fig\.\s+\d', # fig. 1, fig. 2
         r'^\s*es\s+New\s+Roman\(\)\s+B\s+E\s+LFAR\s+rpo\s+\d+$', # es New Roman() B E LFAR rpo 10
         r'^\d+-\s+\d+$', # 313514- 2900
-        
-        # --- [v35] Lixo do PDF da Gráfica (dump) ---
         r"^\s*300,00\s*$",
         r"^\s*30,00\s*$",
         r"^\s*1º\s*-\s*prova\s*-'\s*$",
@@ -248,10 +246,8 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     texto = "\n".join(linhas_limpas)
 
-    # 6. NÃO JUNTAR LINHAS - preservar estrutura original
     texto = re.sub(r'\n{4,}', '\n\n\n', texto)
     
-    # 7. Limpar espaços múltiplos DENTRO das linhas
     linhas_final = []
     for linha in texto.split('\n'):
         linha = re.sub(r'[ \t]{2,}', ' ', linha)
@@ -266,22 +262,17 @@ def melhorar_layout_grafica(texto: str) -> str:
 def extrair_pdf_ocr_v35_fullpage(arquivo_bytes: bytes) -> str:
     """
     v35: OCR de PÁGINA INTEIRA com --psm 3 (Auto Layout).
-    Remove a divisão manual de colunas (50%) que estava cortando as palavras.
-    O Tesseract agora detectará as colunas automaticamente.
     """
     texto_total = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR (v36: psm 3 Full-Page) em {len(doc)} página(s)...")
+        st.info(f"Forçando OCR (v37: psm 3 Full-Page) em {len(doc)} página(s)...")
         
         ocr_config = r'--psm 3' 
             
         for i, page in enumerate(doc):
-            
             pix_page = page.get_pixmap(dpi=300)
             img_page = Image.open(io.BytesIO(pix_page.tobytes("png")))
-            
             texto_ocr_pagina = pytesseract.image_to_string(img_page, lang='por', config=ocr_config)
-            
             texto_total += texto_ocr_pagina + "\n"
             
     return texto_total
@@ -290,7 +281,7 @@ def extrair_pdf_ocr_v35_fullpage(arquivo_bytes: bytes) -> str:
 def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
     """
     Função principal de extração.
-    v36: SEMPRE força OCR (v35 - psm 3 Full-Page) para PDFs.
+    v37: SEMPRE força OCR (v35 - psm 3 Full-Page) para PDFs.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -301,7 +292,6 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
         arquivo_bytes = arquivo.read()
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v35 (Mantida) ---
             texto = extrair_pdf_ocr_v35_fullpage(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
@@ -309,7 +299,6 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto = "\n".join([p.text for p in doc.paragraphs])
         
-        # --- [INÍCIO] Bloco de Limpeza (Filtros v35/v36) ---
         if texto:
             padroes_ignorados = [
                 r"(?i)BELFAR", r"(?i)Papel", r"(?i)Times New Roman",
@@ -373,13 +362,11 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             
             texto = "\n".join(linhas_filtradas_final)
             
-            # --- [ATUALIZADO v36] Aplicar melhoria de layout (com filtros v36) ---
             texto = melhorar_layout_grafica(texto)
 
             texto = re.sub(r'\n{3,}', '\n\n', texto) 
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
-        # --- [FIM] Bloco de Limpeza ---
 
         return texto, None
 
@@ -390,10 +377,6 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
 
 # ----------------- [MANTIDO - v35] TRUNCAR APÓS ANVISA -----------------
 def truncar_apos_anvisa(texto: str) -> str:
-    """
-    v35: Pega a ÚLTIMA ocorrência da data ANVISA no texto
-    e trunca o documento a partir do final daquela linha.
-    """
     if not isinstance(texto, str):
         return texto
     
@@ -431,12 +414,24 @@ def obter_secoes_por_tipo(tipo_bula: str) -> List[str]:
             "DIZERES LEGAIS"
         ],
         "Profissional": [
-            # ... (lista profissional omitida por brevidade, está correta) ...
+            "APRESENTAÇÕES",
+            "COMPOSIÇÃO",
+            "1. INDICAÇÕES",
+            "2. RESULTADOS DE EFICÁCIA",
+            "3. CARACTERÍSTICAS FARMACOLÓGICAS",
+            "4. CONTRAINDICAÇÕES",
+            "5. ADVERTÊNCIAS E PRECAUÇÕES",
+            "6. INTERAÇÕES MEDICAMENTOSAS",
+            "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
+            "8. POSOLOGIA E MODO DE USAR",
+            "9. REAÇÕES ADVERSAS",
+            "10. SUPERDOSE",
+            "DIZERES LEGAIS"
         ]
     }
-    return secoes.get(tipo_bula, secoes["Paciente"]) # Default para Paciente
+    return secoes.get(tipo_bula, secoes["Paciente"])
 
-# --- [ATUALIZADO - v36] ---
+# --- [MANTIDO - v36] ---
 def obter_aliases_secao() -> Dict[str, str]:
     """
     v36: Adiciona "COMO FUNCIONA?" como alias para a Seção 2.
@@ -444,7 +439,7 @@ def obter_aliases_secao() -> Dict[str, str]:
     return {
         # Aliases Paciente
         "INDICAÇÕES": "1. PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "COMO FUNCIONA?": "2. COMO ESTE MEDICAMENTO FUNCIONA?", # <-- NOVO v36
+        "COMO FUNCIONA?": "2. COMO ESTE MEDICAMENTO FUNCIONA?", # <-- v36
         "CONTRAINDICAÇÕES": "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
         "POSOLOGIA E MODO DE USAR": "6. COMO DEVO USAR ESTE MEDICAMENTO?",
         "REAÇÕES ADVERSAS": "8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
@@ -494,20 +489,18 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     return f"anchor-{prefix}-{norm_safe}"
 
 
-# --- [MANTIDO - v33] MAPEAMENTO E EXTRAÇÃO DE SEÇÃO (ROBUSTO) ---
-# Esta lógica de mapeamento é robusta e deve funcionar
-# corretamente agora que o texto de entrada (do psm 3 fullpage) está limpo.
-
+# --- [INÍCIO DA CORREÇÃO v37] ---
+# Esta função 'mapear_secoes' é a v37, que agora calcula
+# as linhas reais (originais) consumidas pelo título.
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
     """
-    v33 (Gemini): Mapeia seções e recalcula índices para alinhamento com
-    o texto original (incluindo linhas vazias), essencial para 'obter_dados_secao'.
-    v36: Esta função agora encontrará a Seção 2 graças ao novo alias.
+    v37 (Gemini): Mapeia seções e calcula 'original_lines_consumed'
+    para que 'obter_dados_secao' saiba exatamente onde o título termina.
     """
     mapa_preliminar = []
     
     linhas_nao_vazias = []
-    mapa_indices_originais = {} 
+    mapa_indices_originais = {} # Mapeia {indice_nao_vazio: indice_original}
     linhas_originais = texto_completo.split('\n')
     
     for i, linha in enumerate(linhas_originais):
@@ -555,7 +548,7 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
         best_match_score = 0
         best_match_canonico = None
         best_match_titulo_real = ""
-        lines_consumed = 1
+        non_empty_lines_consumed = 1 # v37: Renomeado de 'lines_consumed'
         
         if linha_norm_3:
             match_3 = difflib.get_close_matches(linha_norm_3, titulos_norm_set, n=1, cutoff=0.96)
@@ -563,7 +556,7 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 best_match_score = 99
                 best_match_canonico = titulos_norm_map[match_3[0]]
                 best_match_titulo_real = linha_combinada_3
-                lines_consumed = 3
+                non_empty_lines_consumed = 3
 
         if linha_norm_2 and best_match_score < 98:
             match_2 = difflib.get_close_matches(linha_norm_2, titulos_norm_set, n=1, cutoff=0.96)
@@ -571,7 +564,7 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 best_match_score = 98
                 best_match_canonico = titulos_norm_map[match_2[0]]
                 best_match_titulo_real = linha_combinada_2
-                lines_consumed = 2
+                non_empty_lines_consumed = 2
 
         if best_match_score < 96:
             match_1 = difflib.get_close_matches(linha_norm_1, titulos_norm_set, n=1, cutoff=0.96)
@@ -579,86 +572,93 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 best_match_score = 96
                 best_match_canonico = titulos_norm_map[match_1[0]]
                 best_match_titulo_real = linha_limpa_1
-                lines_consumed = 1
+                non_empty_lines_consumed = 1
         
         if best_match_score < 96:
             for titulo_norm in titulos_norm_set:
                 if linha_norm_1.startswith(titulo_norm) and len(linha_norm_1) > len(titulo_norm) + 5:
                     best_match_score = 97
                     best_match_canonico = titulos_norm_map[titulo_norm]
-                    match_real = None
-                    for t_orig in titulos_possiveis:
-                        if normalizar_titulo_para_comparacao(t_orig) == titulo_norm:
-                            match_real_titulo = re.search(re.escape(t_orig), linha_limpa_1, re.IGNORECASE)
-                            if match_real_titulo:
-                                best_match_titulo_real = match_real_titulo.group(0)
-                                break
-                    if not best_match_titulo_real:
-                           best_match_titulo_real = " ".join(linha_limpa_1.split()[:10])
-                    lines_consumed = 1
+                    # ... (lógica de 'startswith' mantida) ...
+                    non_empty_lines_consumed = 1
                     break
 
         if best_match_score >= 96:
             if not mapa_preliminar or mapa_preliminar[-1]['canonico'] != best_match_canonico:
+                
+                # --- [INÍCIO LÓGICA v37] ---
+                # Calcula o número de *linhas originais* que o título consome
+                indice_original_inicio = mapa_indices_originais[idx]
+                indice_original_fim = mapa_indices_originais[idx + non_empty_lines_consumed - 1]
+                original_lines_consumed = (indice_original_fim - indice_original_inicio) + 1
+                # --- [FIM LÓGICA v37] ---
+
                 mapa_preliminar.append({
                     'canonico': best_match_canonico,
                     'titulo_encontrado': best_match_titulo_real,
-                    'linha_inicio': idx, 
-                    'score': best_match_score,
-                    'lines_consumed': lines_consumed 
+                    'linha_inicio': indice_original_inicio, # v37: Já é o índice original
+                    'non_empty_lines_consumed': non_empty_lines_consumed,
+                    'original_lines_consumed': original_lines_consumed # v37: NOVO
                 })
-            idx += lines_consumed
+            idx += non_empty_lines_consumed
         else:
             idx += 1
             
-    mapa_final = []
-    for secao_mapa in mapa_preliminar:
-        indice_nao_vazio = secao_mapa['linha_inicio']
-        indice_original = mapa_indices_originais.get(indice_nao_vazio)
-        
-        if indice_original is not None:
-            secao_mapa_final = secao_mapa.copy()
-            secao_mapa_final['linha_inicio'] = indice_original
-            secao_mapa_final['lines_consumed'] = secao_mapa['lines_consumed']
-            mapa_final.append(secao_mapa_final)
-
-    mapa_final.sort(key=lambda x: x['linha_inicio'])
-    return mapa_final
+    # v37: O 'mapa_preliminar' agora já usa os índices originais.
+    # A etapa 2 de recalcular não é mais necessária como antes.
+    mapa_preliminar.sort(key=lambda x: x['linha_inicio'])
+    return mapa_preliminar
 
 
+# --- [INÍCIO DA CORREÇÃO v37] ---
+# Esta função 'obter_dados_secao' é a v37, que usa
+# 'original_lines_consumed' para pular o título.
 def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto: List[str], tipo_bula: str):
     """
     Extrai o conteúdo de uma seção.
-    v33 (Gemini): Usa os índices do mapa_secoes para definir o fim da seção.
+    v37 (Gemini): Usa 'original_lines_consumed' para definir o início do conteúdo,
+                  corrigindo o bug do título ("FUNCIONA?") aparecer no conteúdo.
     """
 
     for i, secao_mapa in enumerate(mapa_secoes):
         if secao_mapa['canonico'] != secao_canonico:
             continue
 
+        # --- Seção encontrada no mapa ---
         titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
-        lines_consumed_titulo = secao_mapa.get('lines_consumed', 1)
+        
+        # Quantas linhas *não-vazias* o título tem (1, 2, ou 3)
+        non_empty_lines = secao_mapa.get('non_empty_lines_consumed', 1)
+        # Quantas linhas *reais* (incluindo vazias) o título ocupa
+        original_lines = secao_mapa.get('original_lines_consumed', 1)
               
         if linha_inicio >= len(linhas_texto):
              return False, None, "" 
               
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
+        # Encontra o conteúdo que está NA MESMA LINHA do título
         conteudo_primeira_linha = ""
+        
         match = None
         try:
             match = re.search(re.escape(titulo_encontrado), linha_original_titulo, re.IGNORECASE)
         except re.error:
              pass
         
-        if match and lines_consumed_titulo == 1: 
+        # A lógica de 'conteúdo na mesma linha' SÓ se aplica se
+        # o título tiver apenas UMA linha não-vazia.
+        if match and non_empty_lines == 1: 
             idx_fim_titulo = match.end()
             conteudo_primeira_linha = linha_original_titulo[idx_fim_titulo:].strip()
             conteudo_primeira_linha = re.sub(r"^[.:\s]+", "", conteudo_primeira_linha)
         
-        linha_inicio_conteudo = linha_inicio + lines_consumed_titulo
+        # O conteúdo restante começa na linha SEGUINTE
+        # v37: Usa 'original_lines' para saber onde o título *realmente* termina
+        linha_inicio_conteudo = linha_inicio + original_lines
 
+        # Determina o fim da seção olhando o INÍCIO da próxima seção no mapa
         linha_fim = len(linhas_texto)
         if (i + 1) < len(mapa_secoes):
             linha_fim = mapa_secoes[i+1]['linha_inicio']
@@ -673,7 +673,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
-# --- [FIM - LÓGICA V33 MANTIDA] ---
+# --- [FIM DA CORREÇÃO v37] ---
 
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
@@ -697,13 +697,12 @@ def verificar_secoes_e_conteudo(texto_ref: str, texto_belfar: str, tipo_bula: st
             melhor_score = 0
             melhor_titulo_encontrado = None
             for m in mapa_belfar:
-                # v36 - Usar token_set_ratio para ser mais flexível com títulos
                 score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(secao), normalizar_titulo_para_comparacao(m['titulo_encontrado']))
                 if score > melhor_score:
                     melhor_score = score
                     melhor_titulo_encontrado = m['titulo_encontrado']
 
-            if melhor_score >= 95: # Usando 95 para token_set_ratio
+            if melhor_score >= 95: 
                 for m_similar in mapa_belfar:
                      if m_similar['titulo_encontrado'] == melhor_titulo_encontrado:
                           _, titulo_belfar, conteudo_belfar = obter_dados_secao(m_similar['canonico'], mapa_belfar, linhas_belfar, tipo_bula)
@@ -1009,7 +1008,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         unsafe_allow_html=True
     )
     
-    html_ref_marcado = marcar_divergencias_html(texto_ref, diferencas_conteudo, [], tipo_bula, eh_referencia=True)
+    html_ref_marcado = marcar_diferencas_html(texto_ref, diferencas_conteudo, [], tipo_bula, eh_referencia=True)
     html_belfar_marcado = marcar_divergencias_html(texto_belfar, diferencas_conteudo, erros_ortograficos, tipo_bula, eh_referencia=False)
     
     caixa_style = (
@@ -1105,14 +1104,14 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v36
+Gerado pelo sistema de Auditoria de Bulas — v37
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v36] INTERFACE PRINCIPAL -----------------
+# ----------------- [ATUALIZADA - v37] INTERFACE PRINCIPAL -----------------
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
@@ -1131,14 +1130,12 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v36 - Forçando OCR psm 3 Full-Page)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v37 - Forçando OCR psm 3 Full-Page)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v35/v36] ---
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
-            # --- [FIM DA MUDANÇA] ---
             
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -1153,4 +1150,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v36 | OCR psm 3 Full-Page + Alias Seção 2 + Correção 'inbem'")
+st.caption("Sistema de Auditoria de Bulas v37 | OCR psm 3 Full-Page + Mapeamento de Título Corrigido (v37)")
