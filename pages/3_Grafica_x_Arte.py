@@ -1,11 +1,12 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v39 (Baseado no v38)
+# Versão: v40 (Baseado no v39)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v39: CORRIGE o display do título na "Visualização Lado a Lado".
-# v39: ADICIONA nova função 'substituir_titulos_por_canonicos' para trocar
-#      os títulos-alias pelos canônicos no texto completo ANTES da exibição final.
-# v39: 'gerar_relatorio_final' agora usa essa função antes de chamar 'marcar_divergencias_html'.
-# v39: Mantém a correção do NameError da v38 e toda a lógica de OCR/Mapeamento.
+# v40: CORRIGE A LÓGICA de 'substituir_titulos_por_canonicos'.
+# v40: A v39 falhava ao tentar substituir títulos-alias que
+#      ocupavam múltiplas linhas (ex: "2. COMO\n\nFUNCIONA?").
+# v40: A nova lógica usa 'linha_inicio' e 'original_lines_consumed'
+#      para substituir as linhas exatas pelo título canônico.
+# v40: Isso corrige o bug do título na "Visualização Lado a Lado".
 
 # --- IMPORTS ---
 
@@ -234,7 +235,7 @@ def melhorar_layout_grafica(texto: str) -> str:
 def extrair_pdf_ocr_v35_fullpage(arquivo_bytes: bytes) -> str:
     texto_total = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR (v39: psm 3 Full-Page) em {len(doc)} página(s)...")
+        st.info(f"Forçando OCR (v40: psm 3 Full-Page) em {len(doc)} página(s)...")
         
         ocr_config = r'--psm 3' 
             
@@ -411,7 +412,7 @@ def obter_aliases_secao() -> Dict[str, str]:
         "POSOLOGIA E MODO DE USAR": "8. POSOLOGIA E MODO DE USAR",
         "REAÇÕES ADVERSAS": "9. REAÇÕES ADVERSAS",
         "SUPERDOSE": "10. SUPERDOSE",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
+        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7. CUIDADOS DE ARMAZENamento DO MEDICAMENTO",
     }
 
 def obter_secoes_ignorar_ortografia() -> List[str]:
@@ -548,13 +549,13 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 indice_original_inicio = mapa_indices_originais.get(idx)
                 if indice_original_inicio is None:
                     idx += non_empty_lines_consumed
-                    continue # Segurança, deve nunca acontecer
+                    continue 
 
                 fim_idx_nao_vazio = min(idx + non_empty_lines_consumed - 1, len(mapa_indices_originais) - 1)
                 indice_original_fim = mapa_indices_originais.get(fim_idx_nao_vazio)
                 if indice_original_fim is None:
                     idx += non_empty_lines_consumed
-                    continue # Segurança
+                    continue 
                 
                 original_lines_consumed = (indice_original_fim - indice_original_inicio) + 1
 
@@ -838,50 +839,45 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     return texto_final
 
-# --- [NOVO v39] ---
+# --- [ATUALIZADO - v40] ---
 def substituir_titulos_por_canonicos(texto_completo: str, mapa_secoes: List[Dict]) -> str:
     """
-    v39: Substitui títulos "alias" (ex: 2. COMO FUNCIONA?) no texto
+    v40: Substitui títulos "alias" (ex: 2. COMO FUNCIONA?) no texto
     pelo título canônico (ex: 2. COMO ESTE MEDICAMENTO FUNCIONA?)
     para a exibição final lado-a-lado.
-    """
-    texto_corrigido = texto_completo
     
-    # Itera de trás para frente para não bagunçar os índices de substituição
+    Esta versão (v40) usa os índices de linha para uma substituição robusta
+    de títulos de múltiplas linhas.
+    """
+    linhas = texto_completo.split('\n')
+    
+    # Itera de trás para frente para não bagunçar os índices das linhas
     for secao_mapa in reversed(mapa_secoes): 
         titulo_encontrado = secao_mapa['titulo_encontrado']
         titulo_canonico = secao_mapa['canonico']
         
-        # Normaliza para uma comparação simples
         norm_encontrado = normalizar_titulo_para_comparacao(titulo_encontrado)
         norm_canonico = normalizar_titulo_para_comparacao(titulo_canonico)
 
         if norm_encontrado != norm_canonico:
-            # Tenta substituir o título encontrado (exato) pelo canônico
-            # Usa re.escape para lidar com caracteres especiais como '?'
-            try:
-                # Cria um padrão que encontra o título exato, ignorando o caso
-                pattern = re.compile(re.escape(titulo_encontrado), re.IGNORECASE)
-                
-                # Substitui apenas a primeira ocorrência para segurança
-                # Usa uma função lambda para manter a capitalização original (se possível)
-                # Mas para títulos, é mais seguro forçar o título canônico.
-                
-                # Encontra o match para saber a posição
-                match = pattern.search(texto_corrigido)
-                if match:
-                    # Substitui mantendo a estrutura de linhas (se houver)
-                    # Esta lógica é mais simples e segura:
-                    texto_corrigido = texto_corrigido[:match.start()] + titulo_canonico + texto_corrigido[match.end():]
-
-            except re.error:
-                # Fallback se o 'titulo_encontrado' for um regex inválido (raro)
-                pass # É melhor não fazer a substituição do que quebrar
-                
-    return texto_corrigido
+            # O título foi um 'alias' e precisa ser substituído
+            linha_inicio = secao_mapa['linha_inicio']
+            linhas_consumidas = secao_mapa['original_lines_consumed']
+            
+            # Substitui a primeira linha do título pelo título canônico
+            if linha_inicio < len(linhas):
+                linhas[linha_inicio] = titulo_canonico
+            
+            # Limpa as linhas restantes que faziam parte do título antigo
+            for i in range(1, linhas_consumidas):
+                if (linha_inicio + i) < len(linhas):
+                    linhas[linha_inicio + i] = "" # Apaga a linha
+                    
+    return "\n".join(linhas)
+# --- [FIM DA CORREÇÃO v40] ---
 
 
-# ----------------- [ATUALIZADO - v39] RELATÓRIO E EXPORTAÇÃO -----------------
+# ----------------- [ATUALIZADO - v40] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -949,13 +945,10 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
 
         diff = mapa_diferencas.get(secao)
         
-        # --- [Mantido - v38] ---
-        # Lógica de exibição do título corrigida
         if diff:
             expander_title = f"📄 {secao} - ❌ CONTEÚDO DIVERGENTE"
         else:
             expander_title = f"📄 {secao} - ✅ CONTEÚDO IDÊNTICO"
-        # --- [FIM] ---
             
         with st.expander(expander_title, expanded=bool(diff)): 
             anchor_id_ref = _create_anchor_id(secao, "ref")
@@ -998,7 +991,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         unsafe_allow_html=True
     )
     
-    # --- [INÍCIO DA CORREÇÃO v39] ---
+    # --- [INÍCIO DA CORREÇÃO v40] ---
     # Substitui os títulos-alias pelos títulos canônicos
     # ANTES de passar para a função de marcação de HTML.
     texto_ref_com_titulos_corretos = substituir_titulos_por_canonicos(texto_ref, mapa_ref)
@@ -1018,7 +1011,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         tipo_bula, 
         eh_referencia=False
     )
-    # --- [FIM DA CORREÇÃO v39] ---
+    # --- [FIM DA CORREÇÃO v40] ---
     
     caixa_style = (
         "height: 700px; overflow-y: auto; border: 2px solid #999; border-radius: 4px; "
@@ -1047,8 +1040,8 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
         erros_ortograficos=erros_ortograficos,
         secoes_faltantes=secoes_faltantes,
         diferencas_conteudo=diferencas_conteudo,
-        html_ref=html_ref_marcado, # Passa o HTML já corrigido
-        html_belfar=html_belfar_marcado # Passa o HTML já corrigido
+        html_ref=html_ref_marcado, 
+        html_belfar=html_belfar_marcado 
     )
 
 
@@ -1110,14 +1103,14 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v39
+Gerado pelo sistema de Auditoria de Bulas — v40
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v39] INTERFACE PRINCIPAL -----------------
+# ----------------- [ATUALIZADA - v40] INTERFACE PRINCIPAL -----------------
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
@@ -1136,7 +1129,7 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v39 - Forçando OCR psm 3 Full-Page)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v40 - Forçando OCR psm 3 Full-Page)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
@@ -1151,10 +1144,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
             else:
-                # v39: A função gerar_relatorio_final agora está corrigida
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arte Vigente", "PDF da Gráfica", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v39 | Correção de Display de Título Lado-a-Lado")
+st.caption("Sistema de Auditoria de Bulas v40 | Correção de Substituição de Título (v40)")
