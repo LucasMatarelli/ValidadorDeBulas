@@ -1,11 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.38 (Lógica de Numeração Restaurada)
-# 1. (v26.38) RESTAURADA a lógica 'if not re.match...' em 'formatar_html_para_leitura'
-#    para ADICIONAR números (1., 2.) APENAS se estiverem faltando (Corrigindo o Arquivo ANVISA).
-# 2. (v26.37) MANTIDO o filtro 'if not re.search(r'[a-zA-Z]', ...)' em 'extrair_texto'
-#    para REMOVER os números flutuantes (Corrigindo o Arquivo MKT).
-# 3. (v26.34) Mantida a correção do 'IndexError' (match.group(0)).
+# Versão v26.39 (Correção Definitiva de Números Flutuantes)
+# 1. (v26.39) Adicionada lógica 're.fullmatch(r'\s*\d+\.?\s*', ...)' em 'extrair_texto'
+#    para remover linhas que são APENAS números (ex: '1.', '2.', '190').
+# 2. (v26.38) MANTIDA a lógica em 'formatar_html_para_leitura' que
+#    adiciona números (1., 2.) APENAS se estiverem faltando (para o ANVISA).
 
 # --- IMPORTS ---
 import re
@@ -19,7 +18,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.38 - CORRIGIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.38 - MANTIDO) -----------------
 def formatar_html_para_leitura(html_content):
     if html_content is None:
         return ""
@@ -49,15 +48,13 @@ def formatar_html_para_leitura(html_content):
         r"(PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)"
     ]
     
-    # --- LÓGICA DE NUMERAÇÃO RESTAURADA (v26.38) ---
     def limpar_e_numerar_titulo(match):
-        titulo = match.group(0) # Pega o título como foi encontrado
+        titulo = match.group(0) 
         
-        # Apenas limpa tags e espaços
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
-        # --- LÓGICA DE ADICIONAR NÚMERO (SE FALTAR) ---
+        # Lógica de ADICIONAR NÚMERO (SE FALTAR) - v26.38
         if not re.match(r'^\d+\.', titulo_limpo):
             titulo_upper = titulo_limpo.upper()
             if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
@@ -81,7 +78,6 @@ def formatar_html_para_leitura(html_content):
             elif 'QUANTIDADE MAIOR' in titulo_upper:
                 return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
         
-        # Se o número já existir, apenas retorna limpo e em negrito
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
 
     for titulo_pattern in titulos_lista:
@@ -165,7 +161,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.37 - FILTRO MANTIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.39 - CORRIGIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -204,7 +200,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
-            # --- FILTRO DE RUÍDO (v26.37 - APRIMORADO) ---
+            # --- FILTRO DE RUÍDO (v26.39 - APRIMORADO) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha_regex = (
@@ -254,13 +250,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # --- FILTRO v26.37 (MANTIDO) ---
-                # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '1.', '190', '*', '...')
-                if not re.search(r'[a-zA-Z]', linha_limpa):
+                # --- INÍCIO DA CORREÇÃO v26.39 ---
+                # 3. Filtra linhas que são APENAS números ou números com ponto
+                if re.fullmatch(r'\s*\d+\.?\s*', linha_limpa):
                     continue
-                # --- FIM DO FILTRO ---
+                # --- FIM DA CORREÇÃO v26.39 ---
 
-                # 4. Adiciona a linha
+                # 4. Adiciona a linha se ela tiver conteúdo
                 if linha_limpa:
                     linhas_filtradas.append(linha_limpa)
             
@@ -572,7 +568,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             if encontrou and conteudo:
                 texto_filtrado_para_checar.append(conteudo)
 
-        texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
+        texto_final_para_checar = '\n'.join(texto_final_para_checar)
         
         if not texto_final_para_checar:
             return []
@@ -846,4 +842,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.38 | Numeração Condicional Restaurada")
+st.caption("Sistema de Auditoria de Bulas v26.39 | Correção de Filtro (fullmatch)")
