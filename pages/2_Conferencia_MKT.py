@@ -1,11 +1,12 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.34 (Correção Crítica de 'IndexError: no such group')
-# 1. (v26.34) Corrigido o 'IndexError' na linha 50.
-# 2. (v26.34) Alterado 'match.group(1)' para 'match.group(0)' na função
-#    'limpar_e_numerar_titulo' para capturar todos os tipos de padrões.
-# 3. (v26.33) Mantida a correção do 'SyntaxError' da string não terminada.
-# 4. (v26.32) Mantida a correção do 'SyntaxError' no bloco 'try/except'.
+# Versão v26.35 (Filtros de Ruído Aprimorados)
+# 1. (v26.35) Adicionado filtro em 'padrao_ruido_linha' para remover linhas
+#    que são APENAS números (ex: '1.', '2.', '190').
+# 2. (v26.35) Adicionado filtro em 'padrao_ruido_inline' para remover 'mm'
+#    solto (corrige o Título 9).
+# 3. (v26.35) Adicionado filtro bônus para ruídos '190' e '300' inline.
+# 4. (v26.34) Mantida a correção do 'IndexError' (match.group(0)).
 
 # --- IMPORTS ---
 import re
@@ -19,7 +20,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.34 - CORRIGIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.34) -----------------
 def formatar_html_para_leitura(html_content):
     if html_content is None:
         return ""
@@ -50,8 +51,6 @@ def formatar_html_para_leitura(html_content):
     ]
     
     def limpar_e_numerar_titulo(match):
-        # --- ESTA É A CORREÇÃO (v26.34) ---
-        # Trocado de match.group(1) para match.group(0)
         titulo = match.group(0)
         
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
@@ -163,7 +162,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.32 - CORRIGIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.35 - FILTROS CORRIGIDOS) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -202,6 +201,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
+            # --- FILTRO DE RUÍDO (v26.35 - APRIMORADO) ---
+            
+            # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha_regex = (
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
@@ -216,9 +218,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|cloridrato de ambroxo\s*$'
                 r'|Normal e Negrito\. Co\s*$'
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL'
+                r'|^\s*\d+\.?\s*$'  # <-- v26.35: Remove '1.' '2.' '190' etc. em linhas próprias
+                r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*' # <-- v26.35: Remove '190 CLORIDRATO...'
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
+            # Padrão 2: Remove FRAGMENTOS de ruído (v26.35 - APRIMORADO)
             padrao_ruido_inline_regex = (
                 r'BUL_CLORIDRATO_DE_NA[\s\S]{0,20}?\d+'  
                 r'|New[\s\S]{0,10}?Roman[\s\S]{0,50}?(?:mm|\d+)'
@@ -228,6 +233,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|es New Roman.*?'  
                 r'|rpo \d+.*?'  
                 r'|olL: Times New Roman.*?'
+                r'|(?<=\s)\d{3}(?=\s[a-zA-Z])' # <-- v26.35: Remove '190' e '300' inline
+                r'|(?<=\s)mm(?=\s)' # <-- v26.35: Remove ' mm ' inline (corrige Título 9)
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
             
@@ -243,7 +250,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                if len(linha_limpa) > 1 or (len(linha_limpa) == 1 and linha_limpa.isdigit()):
+                # Lógica de manter a linha (simplificada)
+                if len(linha_limpa) > 1:
                     linhas_filtradas.append(linha_limpa)
                 elif linha_limpa.isupper() and len(linha_limpa) > 0:
                     linhas_filtradas.append(linha_limpa)
@@ -830,4 +838,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.34 | Correção de 'IndexError'")
+st.caption("Sistema de Auditoria de Bulas v26.35 | Filtros de Ruído Aprimorados")
