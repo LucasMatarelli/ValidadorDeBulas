@@ -1,16 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.44 (Correção Definitiva Numeração MKT v2)
-# 1. (v26.44) Em 'extrair_texto':
-#    - ADICIONADO um novo filtro (Filtro 0) que roda ANTES
-#      de 'padrao_ruido_linha'.
-#    - Este filtro é específico para o MKT (is_marketing_pdf=True)
-#      e usa 're.fullmatch(r'\d+\.', linha_strip)' para remover
-#      linhas que são *exclusivamente* números com ponto (ex: "1.", "2.").
-# 2. (v26.43) MANTIDO o filtro genérico que remove outras linhas
-#    sem letras (ex: "...", "*", "190").
-# 3. (v26.42) MANTIDA a flag 'aplicar_numeracao=False' para o MKT
-#    na formatação HTML.
+# Versão v26.45 (Correção de SyntaxError)
+# 1. (v26.45) Em 'mapear_secoes':
+#    - Corrigido um 'SyntaxError' causado por uma quebra de linha
+#      incorreta no 'if not mapa or ...'.
+# 2. (v26.44) Mantido o filtro específico para números
+#    em 'extrair_texto'.
 
 # --- IMPORTS ---
 import re
@@ -35,7 +30,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
         r"(9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
-        r"(O\s+QUE\s+FAZER\s+SE\s+ALGUU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
+        r"(O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
         r"(8\.?\s*QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
         r"(QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
         r"(7\.?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
@@ -167,7 +162,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.44 - CORRIGIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.44 - MANTIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -249,12 +244,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for linha in linhas:
                 linha_strip = linha.strip()
 
-                # --- INÍCIO DA CORREÇÃO v26.44 ---
-                # Filtro 0: Remove linhas que são SÓ números e pontos (ex: "1.", "2.")
-                # Isto é para o MKT que tem números em linhas separadas.
+                # Filtro 0 (v26.44): Remove linhas que são SÓ números e pontos (ex: "1.", "2.")
                 if is_marketing_pdf and re.fullmatch(r'\d+\.', linha_strip):
                     continue
-                # --- FIM DA CORREÇÃO v26.44 ---
                 
                 # 1. Filtra linhas de ruído conhecidas
                 if padrao_ruido_linha.search(linha_strip):
@@ -454,8 +446,10 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 best_canonico = canonico
         
         if best_score >= limiar_score:
-            if not
- mapa or mapa[-1]['canonico'] != best_canonico:
+            # --- INÍCIO DA CORREÇÃO v26.45 ---
+            # A linha abaixo estava quebrada, causando SyntaxError
+            if not mapa or mapa[-1]['canonico'] != best_canonico:
+            # --- FIM DA CORREÇÃO v26.45 ---
                 mapa.append({
                     'canonico': best_canonico,
                     'titulo_encontrado': linha_limpa,
@@ -856,4 +850,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.44 | Correção Específica de Numeração (MKT)")
+st.caption("Sistema de Auditoria de Bulas v26.45 | Correção de SyntaxError")
