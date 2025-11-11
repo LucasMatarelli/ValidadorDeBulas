@@ -1,9 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.37 (Correção Definitiva de Números Flutuantes)
-# 1. (v26.37) Lógica de filtro alterada: Agora, QUALQUER linha que
-#    NÃO contenha letras (A-Z) será descartada.
-# 2. (v26.37) Isso remove '1.', '2.', '3.' etc., sem afetar os títulos.
+# Versão v26.38 (Lógica de Numeração Removida)
+# 1. (v26.38) REMOVIDA toda a lógica de 'if not re.match...' que
+#    adicionava números (1., 2., etc.) aos títulos.
+# 2. (v26.38) O script agora APENAS coloca em negrito o título que
+#    encontrar, preservando a numeração original do arquivo.
+# 3. (v26.37) Mantido o filtro que remove linhas sem letras (corrige '1.' solto).
 
 # --- IMPORTS ---
 import re
@@ -17,7 +19,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.34) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.38 - CORRIGIDO) -----------------
 def formatar_html_para_leitura(html_content):
     if html_content is None:
         return ""
@@ -48,35 +50,18 @@ def formatar_html_para_leitura(html_content):
     ]
     
     def limpar_e_numerar_titulo(match):
-        titulo = match.group(0)
+        # --- INÍCIO DA CORREÇÃO v26.38 ---
+        # Lógica de numeração removida.
         
+        titulo = match.group(0) # Pega o título como foi encontrado
+        
+        # Apenas limpa tags e espaços
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
-        if not re.match(r'^\d+\.', titulo_limpo):
-            titulo_upper = titulo_limpo.upper()
-            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
-            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
-            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
-            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
-            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
-            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
-            elif 'COMO DEVO USAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
-            elif 'ESQUECER' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
-            elif 'QUAIS OS MALES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
-            elif 'QUANTIDADE MAIOR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
-        
+        # Apenas retorna o título limpo e em negrito, preservando o número original
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+        # --- FIM DA CORREÇÃO v26.38 ---
 
     for titulo_pattern in titulos_lista:
         html_content = re.sub(
@@ -248,13 +233,11 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # --- INÍCIO DA CORREÇÃO v26.37 ---
                 # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '1.', '190', '*', '...')
                 if not re.search(r'[a-zA-Z]', linha_limpa):
                     continue
-                # --- FIM DA CORREÇÃO v26.37 ---
 
-                # 4. Adiciona a linha (Lógica antiga de 'len > 1' removida)
+                # 4. Adiciona a linha
                 if linha_limpa:
                     linhas_filtradas.append(linha_limpa)
             
