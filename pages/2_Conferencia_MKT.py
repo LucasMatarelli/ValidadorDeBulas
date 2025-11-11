@@ -348,6 +348,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.strip()
 
         return texto, None
+# Restaura marcadores numéricos temporários
+texto = re.sub(r'__NUMMARK_(\d+\.)__', r'\1', texto)
 
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
