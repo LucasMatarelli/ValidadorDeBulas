@@ -322,9 +322,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
                 # Filtro 0 (v26.44): Remove linhas que são SÓ números e pontos (ex: "1.", "2.")
                # Filtro 0 (v26.53): Mantém linhas numéricas (1., 2., etc.) como marcadores temporários
-  if is_marketing_pdf and re.fullmatch(r'\d+\.', linha_strip):
-    linhas_filtradas.append(f"__NUMMARK_{linha_strip}__")
-    continue
+                if is_marketing_pdf and re.fullmatch(r'\d+\.', linha_strip):
+                linhas_filtradas.append(f"__NUMMARK_{linha_strip}__")
+                    continue
 
                 # 1. Filtra linhas de ruído conhecidas
                 if padrao_ruido_linha.search(linha_strip):
