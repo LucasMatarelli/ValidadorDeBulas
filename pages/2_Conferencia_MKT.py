@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.36 (Correção de Números Flutuantes)
-# 1. (v26.36) Adicionada lógica de 're.fullmatch(r'\s*\d+\.?\s*', ...)' 
-#    para remover linhas que são APENAS números (ex: '1.', '2.').
-# 2. (v26.35) Mantidos os filtros de ruído 'mm' e '190'.
-# 3. (v26.34) Mantida a correção do 'IndexError' (match.group(0)).
+# Versão v26.37 (Correção Definitiva de Números Flutuantes)
+# 1. (v26.37) Lógica de filtro alterada: Agora, QUALQUER linha que
+#    NÃO contenha letras (A-Z) será descartada.
+# 2. (v26.37) Isso remove '1.', '2.', '3.' etc., sem afetar os títulos.
 
 # --- IMPORTS ---
 import re
@@ -160,7 +159,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.36 - CORRIGIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.37 - CORRIGIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -199,7 +198,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
-            # --- FILTRO DE RUÍDO (v26.36 - APRIMORADO) ---
+            # --- FILTRO DE RUÍDO (v26.37 - APRIMORADO) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha_regex = (
@@ -249,16 +248,14 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # --- INÍCIO DA CORREÇÃO v26.36 ---
-                # 3. Filtra linhas que são APENAS números ou números com ponto
-                if re.fullmatch(r'\s*\d+\.?\s*', linha_limpa):
+                # --- INÍCIO DA CORREÇÃO v26.37 ---
+                # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '1.', '190', '*', '...')
+                if not re.search(r'[a-zA-Z]', linha_limpa):
                     continue
-                # --- FIM DA CORREÇÃO v26.36 ---
+                # --- FIM DA CORREÇÃO v26.37 ---
 
-                # 4. Adiciona a linha se ela tiver conteúdo real
-                if len(linha_limpa) > 1:
-                    linhas_filtradas.append(linha_limpa)
-                elif linha_limpa.isupper() and len(linha_limpa) > 0:
+                # 4. Adiciona a linha (Lógica antiga de 'len > 1' removida)
+                if linha_limpa:
                     linhas_filtradas.append(linha_limpa)
             
             texto = "\n".join(linhas_filtradas)
@@ -304,7 +301,7 @@ def obter_secoes_por_tipo(tipo_bula):
             "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
             "6.COMO DEVO USAR ESTE MEDICAMENTO?",
             "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "8.QUAIS OS MALES QUE ESTE MEDICamento PODE ME CAUSAR?",
+            "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
             "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
         ],
@@ -843,4 +840,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.36 | Correção de Números Flutuantes")
+st.caption("Sistema de Auditoria de Bulas v26.37 | Correção de Filtro (Sem Letras)")
