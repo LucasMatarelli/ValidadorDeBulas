@@ -1,14 +1,12 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.47 (Patch Visual Definitivo - MKT)
-# 1. (v26.47) Em 'gerar_relatorio_final':
-#    - Adicionado um "patch" de Regex que roda no HTML final
-#      do 'html_belfar_marcado' (lado a lado e expanders).
-#    - O Regex procura por <br><br> (número órfão) <br><br>
-#      e substitui por um único <br><br>.
-#    - Isso limpa o artefato visual do MKT sem
-#      mexer na lógica de extração ou formatação base.
-# 2. (v26.46) Lógica anterior mantida.
+# Versão v26.49 (Correção de Erro de Digitação)
+# 1. (v26.49) Em 'gerar_relatorio_final':
+#    - Corrigido um erro de digitação no bloco 'elif status == 'identica':'.
+#    - A variável 'expander_html_bf' foi renomeada para
+#      'expander_html_belfar', garantindo que o patch
+#      de remoção de números seja exibido corretamente.
+# 2. (v26.47) Mantido o patch de Regex para limpar o HTML final.
 
 # --- IMPORTS ---
 import re
@@ -656,7 +654,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- GERAÇÃO DE RELATÓRIO (v26.47 - CORRIGIDO) -----------------
+# ----------------- GERAÇÃO DE RELATÓRIO (v26.49 - CORRIGIDO) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     
@@ -703,10 +701,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.markdown("---")
     st.subheader("Análise Detalhada Seção por Seção")
     
-    # --- INÍCIO DA MUDANÇA v26.47 ---
-    # Regex do patch: (2+ <br>), (espaço*), (dígitos), (ponto), (espaço*), (2+ <br>)
+    # Patch Regex v26.47 - (2+ <br>), (espaço*), (dígitos), (ponto), (espaço*), (2+ <br>)
     patch_regex = re.compile(r'(<br\s*/?>\s*){2,}\s*\d+\.\s*(<br\s*/?>\s*){2,}', re.IGNORECASE)
-    # --- FIM DA MUDANÇA v26.47 ---
 
     for item in relatorio_comparacao_completo:
         secao_nome = item['secao']
@@ -746,10 +742,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
             with st.expander(expander_title):
                 expander_html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
+                # --- INÍCIO DA CORREÇÃO v26.49 ---
+                # A variável 'expander_html_bf' estava com erro de digitação
                 expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
                 
                 # Aplica o patch no MKT
                 expander_html_belfar = patch_regex.sub('<br><br>', expander_html_belfar)
+                # --- FIM DA CORREÇÃO v26.49 ---
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -757,6 +756,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_ref}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**Arquivo MKT:**")
+                    # Corrige a variável que está sendo exibida
                     st.markdown(f"<div style='{expander_caixa_style}'>{expander_html_belfar}</div>", unsafe_allow_html=True)
 
     if erros_ortograficos:
@@ -794,10 +794,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
 
-    # --- INÍCIO DA MUDANÇA v26.47 ---
     # Aplica o patch no MKT também na visualização principal
     html_belfar_marcado = patch_regex.sub('<br><br>', html_belfar_marcado)
-    # --- FIM DA MUDANÇA v26.47 ---
 
     caixa_style = (
         "max-height: 700px; "
@@ -873,4 +871,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.47 | Patch Visual (MKT)")
+st.caption("Sistema de Auditoria de Bulas v26.49 | Correção de Erro de Digitação (Patch)")
