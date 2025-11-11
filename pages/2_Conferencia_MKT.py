@@ -236,8 +236,23 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|(?<=\s)mm(?=\s)' # Remove ' mm ' inline (corrige Título 9)
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
-            
+            # --- PATCH v26.51: preserva código "BUL_CLORIDRATO_DE_NAFAZOLINA 190" ---
+# Substitui temporariamente por marcador seguro antes de limpar ruídos
+texto = re.sub(
+    r'(BUL_CLORIDRATO_DE_NAFAZOLINA)\s*(\d{2,4})',
+    r'__KEEPBUL_\1_\2__',
+    texto,
+    flags=re.IGNORECASE
+)
+
             texto = padrao_ruido_inline.sub(' ', texto)
+# Restaura o marcador protegido (mantém o texto visível)
+texto = re.sub(
+    r'__KEEPBUL_(BUL_CLORIDRATO_DE_NAFAZOLINA_\d{2,4})__',
+    lambda m: m.group(1).replace('_', ' '),
+    texto
+)
+
             linhas = texto.split('\n')
             
             linhas_filtradas = []
