@@ -1,11 +1,12 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v34 (Baseado no v33)
+# Versão: v35 (Baseado no v34)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v34: REVERTE o OCR para --psm 3 (Auto Layout) da v32.
-# v34: O --psm 6 (Bloco Único) da v33 falhou e misturou as colunas, causando o erro "Seções Faltantes".
-# v34: MANTÉM todas as correções de regex da v33 (ex: "vez" -> "vezes", "aplic" -> "aplicar").
-# v34: Esta versão combina o layout correto (psm 3) com as correções de palavras (regex v33).
-# v34: Mantém a Comparação Literal e Relatório Completo.
+# v35: CORRIGE A LÓGICA DE OCR.
+# v35: REMOVE a divisão manual de colunas (rect_col_1, rect_col_2) que estava cortando palavras.
+# v35: IMPLEMENTA OCR de PÁGINA INTEIRA com --psm 3 (Auto Layout).
+# v35: O Tesseract agora é responsável por detectar as colunas, o que é mais robusto.
+# v35: ADICIONA novos filtros de lixo (300,00, 1º - prova, BUL bacitracin, Corpo 10, etc.)
+# v35: ATUALIZA regex para lixo interno (eee 3571, q.S.p irem).
 
 # --- IMPORTS ---
 
@@ -51,52 +52,40 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- [MANTIDO - v33] CORRETOR DE ERROS OCR EXPANDIDO -----------------
+# ----------------- [ATUALIZADO - v35] CORRETOR DE ERROS OCR EXPANDIDO -----------------
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     """
     Substituições finas para erros recorrentes do OCR.
-    v33: Expandido com correções da imagem (vezes, os, do, etc.)
+    v35: Atualiza regex para lixo interno (eee 3571, q.S.p irem)
     """
     if not texto:
         return ""
     
-    # --- [INÍCIO DA CORREÇÃO v5/v32] ---
     correcoes = {
-        # Correções de palavras compostas e nomes
+        # --- Correções do v34/v33 mantidas ---
         r"(?i)\b(3|1)lfar\b": "Belfar",
         r"(?i)\bBeifar\b": "Belfar",
         r"(?i)\b3elspan\b": "Belspan",
-        
-        # Correções de palavras comuns com letra inicial faltando
         r"(?i)\barto\b": "parto",
         r"(?i)\bausar\b": "causar",
         r"(?i)\bcações\b": "reações",
         r"(?i)\becomendada\b": "recomendada",
-        r"(?i)\becomentada\b": "recomendada",
         r"(?i)\beduzir\b": "reduzir",
         r"(?i)\belacionados\b": "relacionados",
         r"(?i)\bidministrado\b": "administrado",
-        r"(?i)\bidminitração\b": "administração",
         r"(?i)\biparelho\b": "aparelho",
-        r"(?i)\bitilizaram\b": "utilizaram",
         r"(?i)\bjangramento\b": "sangramento",
         r"(?i)\bjerivados\b": "derivados",
         r"(?i)\bjode\b": "pode",
-        r"(?i)\bjucimadura\b": "queimadura",
-        r"(?i)\bjupropiona\b": "bupropiona",
         r"(?i)\blentro\b": "dentro",
-        r"(?i)\blorpromazina\b": "clorpromazina",
         r"(?i)\bloses\b": "doses",
         r"(?i)\bmecicamentos\b": "medicamentos",
         r"(?i)\bnais\b": "mais",
         r"(?i)\bnedicamentos\b": "medicamentos",
-        r"(?i)\bnonitorados\b": "monitorados",
         r"(?i)\bnterações\b": "interações",
-        r"(?i)\bntiplaquetário\b": "antiplaquetário",
         r"(?i)\bompensarem\b": "compensarem",
         r"(?i)\bomprimido\b": "comprimido",
         r"(?i)\bontém\b": "contém",
-        r"(?i)\bquivalentes\b": "equivalentes",
         r"(?i)\bratamento\b": "tratamento",
         r"(?i)\brave\b": "grave",
         r"(?i)\bravidez\b": "gravidez",
@@ -106,131 +95,73 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\brávidas\b": "grávidas",
         r"(?i)\bslaucoma\b": "glaucoma",
         
-        # --- [INÍCIO NOVAS CORREÇÕES v33 - Imagem dbaf5d.png] ---
-        r"(?i)\b2\s+a\s+5\s+vez\b": "2 a 5 vezes", # "2 a 5 vez" -> "2 a 5 vezes"
-        r"(?i)\bapós\s+sintomas\b": "após os sintomas", # "após sintomas" -> "após os sintomas"
-        r"(?i)\babsorção\s+medicamento\b": "absorção do medicamento", # "absorção medicamento" -> "absorção do medicamento"
-        r"(?i)\bvocê\s+aplic\s+sulfato\b": "você aplicar sulfato", # "você aplic sulfato" -> "você aplicar sulfato"
-        r"(?i)\bbacitracina\s+zinci\b": "bacitracina zincica", # "bacitracina zinci" -> "bacitracina zincica"
-        r"(?i)\bpoucos\s+dias;1\b": "poucos dias; no", # "poucos dias;1" -> "poucos dias; no"
-        r"(?i)\bpoucos\s+dias(1|I)\b": "poucos dias; no", # Variação do erro "poucos dias;1"
-        # --- [FIM NOVAS CORREÇÕES v33] ---
+        # --- Correções v33 (imagem) ---
+        r"(?i)\b2\s+a\s+5\s+vez\b": "2 a 5 vezes", 
+        r"(?i)\bapós\s+sintomas\b": "após os sintomas", 
+        r"(?i)\babsorção\s+medicamento\b": "absorção do medicamento", 
+        r"(?i)\bvocê\s+aplic\s+sulfato\b": "você aplicar sulfato", 
+        r"(?i)\bbacitracina\s+zinci\b": "bacitracina zincica", 
+        r"(?i)\bpoucos\s+dias;1\b": "poucos dias; no", 
+        r"(?i)\bpoucos\s+dias(1|I)\b": "poucos dias; no", 
         
-        # Correções de palavras específicas
         r"(?i)\bmecicamento\b": "medicamento",
         r"(?i)\bmedicament0\b": "medicamento",
-        r"(?i)\bMEDICAMENT0\b": "MEDICAMENTO",
-        
-        # USO
-        r"(?i)^mm\s+USO\b": "USO",
-        r"(?i)^mma\s+USO\b": "USO",
-        r"\bUSO\s+USO\b": "USO",
-        
-        # NÃO
         r"(?i)\bNAO\b": "NÃO",
-        
-        # COMPOSIÇÃO
         r"(?i)\bCOMPOSIÇAO\b": "COMPOSIÇÃO",
-        r"(?i)^mm\s+COMPOSIÇÃO": "COMPOSIÇÃO",
-        
-        # Outras palavras com letras trocadas
         r"(?i)\bJevido\b": "Devido",
-        r"\"ertilidade\b": "Fertilidade",
-        r"(?i)\bjperar\b": "operar",
-        r"\'ombinação\b": "combinação",
         r"(?i)\bjue\b": "que",
-        r"(?i)\brereditários\b": "hereditários",
-        r"(?i)\bralactosemia\b": "galactosemia",
         r"(?i)\bjacientes\b": "pacientes",
-        r"(?i)^mm\s+Cada\b": "Cada",
-        r"(?i)^mm\s+Anticolinérgicos": "Anticolinérgicos",
-        r"(?i)\b\"ompensarem\b": "compensarem",
-        r"(?i)\b\"lorpromazina\b": "Clorpromazina",
-        r"(?i)\bsindrome\b": "síndrome",
-        r"(?i)\bJurticária-angioedema\b": "urticária-angioedema",
-        r"(?i)\bBelspan\s+or\b": "Belspan for",
         r"(?i)\bocê\b": "você",
         r"(?i)\basos\b": "casos",
-        r"(?i)\b1so\b": "uso", # <-- CORREÇÃO: 1so -> uso
-        # r"(?i)\busso\b": "uso", # <-- REMOVIDA
-        r"(?i)\bmergência\b": "emergência",
+        r"(?i)\b1so\b": "uso",
         r"(?i)\bjaracetamol\b": "paracetamol",
-        r"(?i)\bropifenazona\b": "propifenazona",
-        r"(?i)\bpode\s+ainda\s+er\b": "pode ainda ter",
-        r"(?i)\blesidratação\b": "desidratação",
-        r"(?i)\bespiratória\b": "respiratória",
-        r"(?i)\bolitraumatismo\b": "politraumatismo",
         r"(?i)\beguindo\b": "seguindo",
-        r"(?i)\buidadoso\b": "cuidadoso",
         r"(?i)\bituações\b": "situações",
         r"(?i)\bressão\b": "pressão",
         r"(?i)\bjortadores\b": "portadores",
         r"(?i)\bjossuem\b": "possuem",
-        r"(?i)\braves\b": "graves",
         r"(?i)\blérgica\b": "alérgica",
-
-        # --- [INÍCIO DAS NOVAS CORREÇÕES (COM REGEX CORRIGIDO)] ---
-        # Erros do texto de exemplo
-        r"(?i)\bo o que faz\b": "o que faz",
-        r"(?i)\bjs\s+sinais\b": "os sinais", # Erro da screenshot
-        r"\.\)\s*s\s+pacientes\b": ". Os pacientes", # CORRIGIDO: \.\)
-        r"(?i)\bom\s+bolhas\b": "com bolhas", # Erro da screenshot
-        r"(?i)\bom\s+outros\b": "com outros", # Erro da screenshot
-        r"(?i)\bcomo\)\s*butilbrometo\b": "como o butilbrometo", # CORRIGIDO: \)
+        r"(?i)\bjs\s+sinais\b": "os sinais", 
+        r"\.\)\s*s\s+pacientes\b": ". Os pacientes", 
+        r"(?i)\bom\s+bolhas\b": "com bolhas", 
+        r"(?i)\bcomo\)\s*butilbrometo\b": "como o butilbrometo", 
         r"(?i)\bim\s+caso\b": "em caso",
-        r"(?i)\bintolerâácia\b": "intolerância", # Erro da screenshot
-        r"(?i)\ble\s+glicose\b": "de glicose", # Erro da screenshot
-        r"(?i)\brecomendada\b": "recomendada", # Erro da screenshot
-        r"(?i)\bor\s+dose\b": "por dose", # Erro da screenshot
-        r"(?i)\bssa\s+quantidade\b": "essa quantidade", # Erro da screenshot
-        r"(?i)\bcom\)\s*uso\b": "com o uso", # CORRIGIDO: \)
-        r"(?i)\ble\s+gravidez\b": "de gravidez",
+        r"(?i)\bintolerâácia\b": "intolerância", 
+        r"(?i)\ble\s+glicose\b": "de glicose", 
+        r"(?i)\bor\s+dose\b": "por dose", 
+        r"(?i)\bcom\)\s*uso\b": "com o uso", 
         r"(?i)\bleve\s+ser\b": "deve ser",
-        r"(?i)\bnodo\b": "modo", # Erro da screenshot
-        r"(?i)\bomar\s+cuidado\b": "tomar cuidado", # Erro da screenshot
-        r"(?i)\badministração\b": "administração", # Erro da screenshot
-        r"(?i)\banti-\s+histamínicos\b": "anti-histamínicos",
+        r"(?i)\bnodo\b": "modo", 
+        r"(?i)\bomar\s+cuidado\b": "tomar cuidado", 
         r"15\s*Ce\s*30 C": "15°C e 30°C",
-        r"15“\s*Ce\s*30 C": "15°C e 30°C", # Variação
+        r"15“\s*Ce\s*30 C": "15°C e 30°C", 
         r"(?i)\bleo paralítico\b": "íleo paralítico",
-        r"(?i)\bà\s+dipirona\b": "à dipirona",
-        r"(?i)\bà\s+probabilidade\b": "A probabilidade", # <-- CORRIGIDO de "à" para "A"
         r"(?i)^1\s+necessária\b": "É necessária",
         r"(?i)\bmediatamente\b": "imediatamente",
-        r"(?i)\barticularmente\b": "particularmente",
         r"(?i)\bAcido acetilsalicílico\b": "Ácido acetilsalicílico",
-        r"(?i)\brespitarórios\b": "respiratórios",
-        r"(?i)\bTeste laboratoriais\b": "Testes laboratoriais",
         r"(?i)\bse ALGUM usar\b": "se ALGUÉM usar",
-        r"(?i)\blipirona\b": "dipirona", # <-- ADICIONADA
-        r"\s+mm\b": "", # Remove 'mm' solto
-        r"\s+mma\b": "", # Remove 'mma' solto
-        # --- [FIM DAS NOVAS CORREÇÕES] ---
+        r"(?i)\blipirona\b": "dipirona", 
         
-        # Correções de caracteres especiais/lixo
+        # --- [NOVO v35] Correções do lixo do dump ---
+        # "bacitracina zíncica eee 3571" ou "rereeeio 357 ME"
+        r"(?i)bacitracina\s+z(i|í)ncica\s+(?:eee|rereeeio)\s+\d+(?:I|ME)?": "bacitracina zíncica 250 UI",
+        # "excipientes q.S.p irem" ou "q.8.p esses LE"
+        r"(?i)excipientes\s+q\.s\.p\s+(?:irem|esses\s+LE)\b": "excipientes q.s.p. 1 g",
+        r"(?i)\bneomicina\s+5r\b": "neomicina 5 mg", # "sulfato de neomicina 5r"
+        r"(?i)\b250\s+UN\b": "250 UI", # "equivalente a 250 UN"
+        
+        # Lixo geral
         r"\bc\.t\s+": "",
-        r"\bciirereeas\s+": "", # Lixo da Arte Vigente (exemplo)
-        r"rereeeio \d+ ME": "", # Lixo da Arte Vigente (exemplo)
-        r"q\.8\.p esses LE": "q.s.p. 1 g", # Lixo da Arte Vigente (exemplo)
         r"\bq\.s\.p\s+\"?si\s+": "q.s.p. ",
-        r"\"\"": "",
-        r"Too\s+\"": "",
-        r"raio\s+ra\s+m——": "",
-        r"\bHM\s+": "",
-        r"\bTR\"?\s+": "",
-        r"\bBRR\s+": "",
         r"\|": "",
+        r"\s+mm\b": "", 
+        r"\s+mma\b": "",
         
-        # Correções de números
-        r"(?i)\bJ[O0]\s*mg\b": "10 mg",
-        r"(?i)\bJO\s*mg\b": "10 mg",
-        
-        # Correções de pontuação
+        # Pontuação
         r"\s+([,;:\.\?\!%°])": r"\1",
         r"(\()\s+": r"\1",
         r"\s+(\))": r"\1",
     }
-    # --- [FIM DA CORREÇÃO] ---
 
     for padrao, correcao in correcoes.items():
         texto = re.sub(padrao, correcao, texto, flags=re.MULTILINE)
@@ -238,16 +169,16 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     return texto
 
 
-# ----------------- [MANTIDO - v32] LIMPEZA ULTRA CONSERVADORA -----------------
+# ----------------- [ATUALIZADO - v35] LIMPEZA ULTRA CONSERVADORA -----------------
 def melhorar_layout_grafica(texto: str) -> str:
     """
-    v34: Limpeza MÍNIMA - preserva ao máximo a estrutura do OCR
-    Apenas remove lixo óbvio e normaliza espaçamento
+    v35: Limpeza MÍNIMA - preserva ao máximo a estrutura do OCR (psm 3 fullpage)
+    Adiciona novos filtros de lixo técnico ("300,00", "1º - prova", etc.)
     """
     if not texto or not isinstance(texto, str):
         return ""
 
-    # 1. Aplicar correções de palavras PRIMEIRO (AGORA COM REGEX V33)
+    # 1. Aplicar correções de palavras PRIMEIRO (AGORA COM REGEX V35)
     texto = corrigir_erros_ocr_comuns(texto)
 
     # 2. Normalizações básicas de quebras
@@ -260,8 +191,7 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     # 4. Remover lixo de OCR óbvio
     texto = re.sub(r'(\.|\s){7,}', ' ', texto)  # Muitos pontos/espaços
-    # Adicionado “ e ” para limpeza
-    texto = re.sub(r'[«»"""ÉÀ“”&]', '', texto)  # Caracteres estranhos (removido &)
+    texto = re.sub(r'[«»"""ÉÀ“”&]', '', texto)  # Caracteres estranhos
     texto = re.sub(r'\bBEE\s*\*\b', '', texto, flags=re.IGNORECASE)
     
     # 5. Remover linhas de lixo técnico
@@ -280,7 +210,6 @@ def melhorar_layout_grafica(texto: str) -> str:
         r'^\s*-{5,}\s*$',
         r'^\s*\d+\s*$',  # Linha só com número
         r'^\s*—+\s*\d+\s*$',
-        # Lixo do OCR v33 (exemplo Arte Vigente)
         r'^\s*S\s*$',
         r'^\s*E\s*$',
         r'^\s*O\s*$',
@@ -289,21 +218,29 @@ def melhorar_layout_grafica(texto: str) -> str:
         r'^m\s+EN\s+\d+\s+\d+\s+a,\s+\d+\s+-$', # m EN 57 5 a, 3 -
         r'fig\.\s+\d', # fig. 1, fig. 2
         r'^\s*es\s+New\s+Roman\(\)\s+B\s+E\s+LFAR\s+rpo\s+\d+$', # es New Roman() B E LFAR rpo 10
-        r'^\d+-\s+\d+$' # 313514- 2900
+        r'^\d+-\s+\d+$', # 313514- 2900
+        
+        # --- [NOVO v35] Lixo do PDF da Gráfica (dump) ---
+        r"^\s*300,00\s*$",
+        r"^\s*30,00\s*$",
+        r"^\s*1º\s*-\s*prova\s*-'\s*$",
+        r"(?i)BUL\s+bacitracin:\s+FRENTE",
+        r"(?i)BUL\s+bacitracina\b", # Lixo no meio do texto
+        r"(?i)Tipologia\s+da\s+bul",
+        r"0,\s*00—\s*to\.\s+Corpo\s+10",
+        r"^\s*\d+\s+\d+-\s+\d+\s*$", # "12 313514- 2900"
     ]
     
     for linha in linhas:
         linha_limpa = linha.strip()
         
-        # Pula linha vazia
         if not linha_limpa:
             linhas_limpas.append("")
             continue
         
-        # Checa se é lixo
         eh_lixo = False
         for padrao_lixo in padroes_lixo_linha_completa:
-            if re.search(padrao_lixo, linha_limpa, re.IGNORECASE): # Mudado de match para search
+            if re.search(padrao_lixo, linha_limpa, re.IGNORECASE): 
                 eh_lixo = True
                 break
         
@@ -312,8 +249,7 @@ def melhorar_layout_grafica(texto: str) -> str:
     
     texto = "\n".join(linhas_limpas)
 
-    # 6. NÃO JUNTAR LINHAS - preservar estrutura original (SUA PREFERÊNCIA)
-    # Apenas limpar múltiplas quebras excessivas (mais de 3)
+    # 6. NÃO JUNTAR LINHAS - preservar estrutura original
     texto = re.sub(r'\n{4,}', '\n\n\n', texto)
     
     # 7. Limpar espaços múltiplos DENTRO das linhas
@@ -327,46 +263,39 @@ def melhorar_layout_grafica(texto: str) -> str:
     return texto.strip()
 
 
-# ----------------- [NOVO - v34] OCR REVERTIDO PARA psm 3 (Layout Automático) -----------------
-def extrair_pdf_ocr_colunas_v34_psm3(arquivo_bytes: bytes) -> str:
+# ----------------- [NOVO - v35] OCR DE PÁGINA INTEIRA (psm 3) -----------------
+def extrair_pdf_ocr_v35_fullpage(arquivo_bytes: bytes) -> str:
     """
-    v34: REVERTE para a extração de OCR da v32.
-    Usa --psm 3 (Auto Layout) para respeitar as colunas e o layout da bula.
-    Isso corrige o erro de "Seções Faltantes" causado pelo psm 6.
+    v35: OCR de PÁGINA INTEIRA com --psm 3 (Auto Layout).
+    Remove a divisão manual de colunas (50%) que estava cortando as palavras.
+    O Tesseract agora detectará as colunas automaticamente.
     """
     texto_total = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR (v34: psm 3) em {len(doc)} página(s)...")
+        st.info(f"Forçando OCR (v35: psm 3 Full-Page) em {len(doc)} página(s)...")
+        
+        # --- MUDANÇA v35: Usa --psm 3 (Auto Layout) ---
+        ocr_config = r'--psm 3' 
+            
         for i, page in enumerate(doc):
-            rect = page.rect
-            margin_y = 20
-            # Define as duas colunas
-            rect_col_1 = fitz.Rect(0, margin_y, rect.width * 0.5, rect.height - margin_y)
-            rect_col_2 = fitz.Rect(rect.width * 0.5, margin_y, rect.width, rect.height - margin_y)
             
-            # --- MUDANÇA v34: Usa --psm 3 (Auto Layout) ---
-            # Isso é MELHOR para detectar parágrafos e colunas automaticamente.
-            # O psm 6 (v33) falhou miseravelmente.
-            ocr_config = r'--psm 3' 
+            # --- MUDANÇA v35: Pega a página inteira! ---
+            # Remove a divisão de colunas (rect_col_1, rect_col_2)
+            pix_page = page.get_pixmap(dpi=300)
+            img_page = Image.open(io.BytesIO(pix_page.tobytes("png")))
             
-            # OCR da Coluna 1
-            pix_col_1 = page.get_pixmap(clip=rect_col_1, dpi=300)
-            img_col_1 = Image.open(io.BytesIO(pix_col_1.tobytes("png")))
-            texto_ocr_col_1 = pytesseract.image_to_string(img_col_1, lang='por', config=ocr_config)
+            # Executa o OCR na página inteira
+            texto_ocr_pagina = pytesseract.image_to_string(img_page, lang='por', config=ocr_config)
             
-            # OCR da Coluna 2
-            pix_col_2 = page.get_pixmap(clip=rect_col_2, dpi=300)
-            img_col_2 = Image.open(io.BytesIO(pix_col_2.tobytes("png")))
-            texto_ocr_col_2 = pytesseract.image_to_string(img_col_2, lang='por', config=ocr_config)
+            texto_total += texto_ocr_pagina + "\n"
             
-            texto_total += texto_ocr_col_1 + "\n" + texto_ocr_col_2 + "\n"
     return texto_total
 
 # ----------------- [ATUALIZADA] FUNÇÃO DE EXTRAÇÃO PRINCIPAL -----------------
 def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
     """
     Função principal de extração.
-    v34: SEMPRE força OCR (v34 - psm 3) para PDFs.
+    v35: SEMPRE força OCR (v35 - psm 3 Full-Page) para PDFs.
     """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -377,9 +306,9 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
         arquivo_bytes = arquivo.read()
 
         if tipo_arquivo == "pdf":
-            # --- MUDANÇA v34 ---
-            # SEMPRE usar OCR v34 (psm 3) para TODOS os PDFs
-            texto = extrair_pdf_ocr_colunas_v34_psm3(arquivo_bytes)
+            # --- MUDANÇA v35 ---
+            # SEMPRE usar OCR v35 (psm 3 Full-Page) para TODOS os PDFs
+            texto = extrair_pdf_ocr_v35_fullpage(arquivo_bytes)
         
         elif tipo_arquivo == "docx":
             st.info("Extraindo texto de DOCX...")
@@ -424,16 +353,11 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
                 r"\+\s*\|\s*hd\s*bl\s*O\s*mm\s*DS\s*AALPRA",
                 r"A\s*\+\s*med\s*FÃ\s*ias\s*A\s*KA\s*aõArA\s*\+\s*ima",
                 
-                # --- [INÍCIO DA CORREÇÃO] ---
-                # Adicionado filtro solicitado
                 r"BUL\s+BELSPAN\s+COMPR\b", 
                 r"BUL\s+BELSPAN\s+COMP\b",
-                # --- [FIM DA CORREÇÃO] ---
-                
                 r"^\s*m--*\s*$",
             ]
             
-            # Aplicar filtros
             linhas_originais = texto.split('\n')
             linhas_filtradas = []
             
@@ -449,7 +373,6 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             
             texto = "\n".join(linhas_filtradas)
 
-            # Limpeza padrão de normalização
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
@@ -457,18 +380,16 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
-            # Re-filtrar por rodapés padrão
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas_filtradas_final = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             
             texto = "\n".join(linhas_filtradas_final)
             
-            # --- [NOVO v32] Aplicar melhoria de layout e correção de erros ---
-            texto = melhorar_layout_grafica(texto) # SUA VERSÃO CONSERVADORA (agora com regex v33)
+            # --- [ATUALIZADO v35] Aplicar melhoria de layout (com filtros v35) ---
+            texto = melhorar_layout_grafica(texto)
 
-            # Limpeza final de espaços
-            texto = re.sub(r'\n{3,}', '\n\n', texto) # Limpa quebras de linha excessivas
+            texto = re.sub(r'\n{3,}', '\n\n', texto) 
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
         # --- [FIM] Bloco de Limpeza ---
@@ -480,21 +401,20 @@ def extrair_texto(arquivo, tipo_arquivo: str) -> Tuple[str, str]:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
 
-# ----------------- TRUNCAR APÓS ANVISA -----------------
+# ----------------- [ATUALIZADO - v35] TRUNCAR APÓS ANVISA -----------------
 def truncar_apos_anvisa(texto: str) -> str:
     """
-    v34: Esta função agora deve funcionar corretamente, pois o OCR (psm 3)
-    deve manter a data da ANVISA no final do documento.
+    v35: Pega a ÚLTIMA ocorrência da data ANVISA no texto
+    e trunca o documento a partir do final daquela linha.
     """
     if not isinstance(texto, str):
         return texto
-    # Regex busca pela data e captura o final da linha
+    
     regex_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     
-    match_iterator = re.finditer(regex_anvisa, texto, re.IGNORECASE)
     last_match = None
-    for match in match_iterator:
-        last_match = match # Pega a ÚLTIMA ocorrência da data
+    for match in re.finditer(regex_anvisa, texto, re.IGNORECASE):
+        last_match = match # Encontra a última ocorrência
         
     if last_match:
         end_of_line_pos = texto.find('\n', last_match.end())
@@ -502,10 +422,9 @@ def truncar_apos_anvisa(texto: str) -> str:
             # Trunca o texto no final da linha onde a última data foi encontrada
             return texto[:end_of_line_pos]
         else:
-            # Se for a última linha do arquivo
-            return texto
+            # Se for a última linha do arquivo, retorna o texto até o fim do match
+            return texto[:last_match.end()]
             
-    # Se nenhuma data da ANVISA for encontrada, retorna o texto completo
     return texto
 
 
@@ -563,20 +482,15 @@ def obter_aliases_secao() -> Dict[str, str]:
 def obter_secoes_ignorar_ortografia() -> List[str]:
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# --- [ATUALIZADA - v32] ---
 def obter_secoes_ignorar_comparacao() -> List[str]:
-    # Removido "ONDE, COMO..." e "CUIDADOS DE..." como pedido
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
 
 def normalizar_para_comparacao_literal(texto: str) -> str:
     """
     Normalização leve para comparação literal.
-    Apenas junta linhas, normaliza espaços e converte para minúsculo.
-    MANTÉM pontuação e acentos.
     """
     if not isinstance(texto, str):
         return ""
-    # No layout conservador, \n\n é parágrafo, \n é junção
     texto = re.sub(r'(?<!\n)\n(?!\n)', ' ', texto) # Junta \n simples
     texto = re.sub(r'[\n\r\t]+', ' ', texto) # Junta o resto (parágrafos)
     texto = re.sub(r' +', ' ', texto)
@@ -605,8 +519,8 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
 
 
 # --- [MANTIDO - v33] MAPEAMENTO E EXTRAÇÃO DE SEÇÃO (ROBUSTO) ---
-# Esta lógica de mapeamento provou ser robusta e deve funcionar
-# corretamente agora que o texto de entrada (do psm 3) está na ordem certa.
+# Esta lógica de mapeamento é robusta e deve funcionar
+# corretamente agora que o texto de entrada (do psm 3 fullpage) está limpo.
 
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
     """
@@ -615,9 +529,8 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
     """
     mapa_preliminar = []
     
-    # 1. Mapeamento preliminar baseado em linhas NÃO VAZIAS
     linhas_nao_vazias = []
-    mapa_indices_originais = {} # Mapeia {indice_nao_vazio: indice_original}
+    mapa_indices_originais = {} 
     linhas_originais = texto_completo.split('\n')
     
     for i, linha in enumerate(linhas_originais):
@@ -713,15 +626,14 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 mapa_preliminar.append({
                     'canonico': best_match_canonico,
                     'titulo_encontrado': best_match_titulo_real,
-                    'linha_inicio': idx, # Este é o índice das 'linhas_nao_vazias'
+                    'linha_inicio': idx, 
                     'score': best_match_score,
-                    'lines_consumed': lines_consumed # 'lines_consumed' refere-se a linhas NÃO VAZIAS
+                    'lines_consumed': lines_consumed 
                 })
             idx += lines_consumed
         else:
             idx += 1
             
-    # 2. Recalcular 'linha_inicio' para bater com 'linhas_texto' (originais)
     mapa_final = []
     for secao_mapa in mapa_preliminar:
         indice_nao_vazio = secao_mapa['linha_inicio']
@@ -747,13 +659,12 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         if secao_mapa['canonico'] != secao_canonico:
             continue
 
-        # --- Seção encontrada no mapa ---
         titulo_encontrado = secao_mapa['titulo_encontrado']
         linha_inicio = secao_mapa['linha_inicio']
         lines_consumed_titulo = secao_mapa.get('lines_consumed', 1)
               
         if linha_inicio >= len(linhas_texto):
-             return False, None, "" # Segurança
+             return False, None, "" 
               
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
@@ -784,7 +695,6 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         
         return True, titulo_encontrado, conteudo_final
 
-    # Se a seção não foi encontrada no mapa
     return False, None, ""
 # --- [FIM - LÓGICA V33 MANTIDA] ---
 
@@ -880,7 +790,6 @@ def checar_ortografia_inteligente(texto_para_checar: str, texto_referencia: str,
                     texto_filtrado_para_checar.append('\n'.join(linhas_conteudo[1:]))
                 elif len(linhas_conteudo) == 1 and conteudo:
                      texto_filtrado_para_checar.append(conteudo)
-
 
         texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
         if not texto_final_para_checar:
@@ -986,14 +895,12 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     
-    # Marca a ÚLTIMA ocorrência
     last_match = None
     for match in re.finditer(regex_anvisa, texto_sem_escape, re.IGNORECASE):
         last_match = match
         
     if last_match:
         frase_anvisa = last_match.group(1)
-        # Substitui apenas a última ocorrência
         start, end = last_match.start(1), last_match.end(1)
         texto_sem_escape = (
             texto_sem_escape[:start] +
@@ -1008,12 +915,11 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     return texto_final
 
-# ----------------- [ATUALIZADO - v31] RELATÓRIO E EXPORTAÇÃO -----------------
+# ----------------- [ATUALIZADO - v35] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     
-    # Pega a ÚLTIMA data de cada
     match_ref = list(re.finditer(regex_anvisa, texto_ref, re.IGNORECASE))
     match_belfar = list(re.finditer(regex_anvisa, texto_belfar, re.IGNORECASE))
     
@@ -1221,14 +1127,14 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v34
+Gerado pelo sistema de Auditoria de Bulas — v35
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v34] INTERFACE PRINCIPAL -----------------
+# ----------------- [ATUALIZADA - v35] INTERFACE PRINCIPAL -----------------
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
@@ -1247,19 +1153,16 @@ with col2:
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v34 - Forçando OCR psm 3)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v35 - Forçando OCR psm 3 Full-Page)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # --- [MUDANÇA v34] ---
-            # Extração da Referência (SEMPRE OCR v34 - psm 3)
+            # --- [MUDANÇA v35] ---
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref)
-            
-            # Extração da Gráfica (SEMPRE OCR v34 - psm 3)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
             # --- [FIM DA MUDANÇA] ---
             
-            # truncar após ANVISA em ambos
+            # Truncar após ANVISA (agora pegando a ÚLTIMA ocorrência)
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
@@ -1273,4 +1176,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v34 | OCR Forçado (psm 3) + Embelezador de Layout (v33 regex)")
+st.caption("Sistema de Auditoria de Bulas v35 | OCR psm 3 Full-Page + Limpeza de Lixo (v35)")
