@@ -1,11 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.26 (Títulos Enumerados + Filtro Aprimorado)
-# 1. (v26.26) Títulos da ANVISA agora enumerados como no MKT
-# 2. (v26.26) Filtro aprimorado para "New Roman" e "BUL_CLORIDRATO_DE_NA 190"
-# 3. (v26.24) Filtro de ruído "hiper-específico" para "BUL_..." e "New Roman..."
-# 4. (v26.23) Lógica de extração correta (filtra ANTES de splitar).
-# 5. (v26.23) Layout robusto (formatar_html_para_leitura) que acha títulos "grudados".
+# Versão v26.27 (Lógica de Formatação Unificada + Correção Seção 9)
+# 1. (v26.27) Corrigido bug de formatação duplicada (removida 'formatar_html_para_leitura' interna).
+# 2. (v26.27) Centralizada toda a lógica de formatação de títulos na função global.
+# 3. (v26.27) Regex da Seção 9 agora tolera ruído (ex: "indicada mm deste").
+# 4. (v26.26) Títulos da ANVISA agora enumerados como no MKT
+# 5. (v26.26) Filtro aprimorado para "New Roman" e "BUL_CLORIDRATO_DE_NA 190"
 
 # --- IMPORTS ---
 import re
@@ -15,77 +15,94 @@ import io
 def formatar_html_para_leitura(html_content):
     """
     Formata o texto "fluído" (sort=True) para um HTML "bonito".
-    (v26.27) - Títulos sempre enumerados e seção 9 completa.
+    (v26.26) - Regras de regex quebram em partes menores e usam [\s\S]
+    para formatar títulos, mesmo se houver ruído ou quebras de linha.
     """
     if html_content is None:
         return ""
     
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
     
-    # Dicionário com padrões de títulos e suas numerações
-    titulos_com_numeros = [
-        # Títulos sem número
-        ("APRESENTAÇÕES", None),
-        ("COMPOSIÇÃO", None),
-        ("DIZERES LEGAIS", None),
-        ("IDENTIFICAÇÃO DO MEDICAMENTO", None),
-        ("INFORMAÇÕES AO PACIENTE", None),
+    # Lista de títulos de seções (do mais longo para o mais curto para evitar matches parciais)
+    titulos_lista = [
+        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
+        "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
         
-        # Seção 9 - PADRÃO MAIS FLEXÍVEL para capturar o título completo
-        (r"9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??", "9"),
-        (r"O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??", "9"),
+        # Seção 9 - padrões mais amplos (v26.27 - tolerante a ruído)
+        r"(9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
+        r"(O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
         
         # Seção 8
-        (r"8\.?\s*QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??", "8"),
-        (r"QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??", "8"),
+        r"(8\.?\s*QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
+        r"(QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
         
         # Seção 7
-        (r"7\.?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "7"),
-        (r"O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "7"),
+        r"(7\.?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         
         # Seção 6
-        (r"6\.?\s*COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "6"),
-        (r"COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "6"),
+        r"(6\.?\s*COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         
         # Seção 5
-        (r"5\.?\s*ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??", "5"),
-        (r"ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??", "5"),
+        r"(5\.?\s*ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??)",
         
         # Seção 4
-        (r"4\.?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "4"),
-        (r"O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "4"),
+        r"(4\.?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         
         # Seção 3
-        (r"3\.?\s*QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "3"),
-        (r"QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "3"),
+        r"(3\.?\s*QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         
         # Seção 2
-        (r"2\.?\s*COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??", "2"),
-        (r"COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??", "2"),
+        r"(2\.?\s*COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
+        r"(COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
         
         # Seção 1
-        (r"1\.?\s*PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??", "1"),
-        (r"PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??", "1")
+        r"(1\.?\s*PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)",
+        r"(PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)"
     ]
     
-    # Processar cada padrão
-    for titulo_pattern, numero in titulos_com_numeros:
-        def formatar_titulo_func(match):
-            titulo = match.group(0)
-            # Remove tags HTML
-            titulo_limpo = re.sub(r'<mark.*?>|</mark>|</?strong>', '', titulo)
-            # Remove espaços extras
-            titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
-            
-            # Adiciona numeração se necessário e não tiver número no início
-            if numero and not re.match(r'^\d+\.', titulo_limpo):
-                titulo_limpo = f"{numero}. {titulo_limpo}"
-            
-            return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+    def limpar_e_numerar_titulo(match):
+        titulo = match.group(1)
+        # Remove tags HTML do título antes de aplicar o <strong>
+        titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
+        # Remove espaços extras
+        titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
+        # Adiciona numeração se não tiver
+        if not re.match(r'^\d+\.', titulo_limpo):
+            # Identifica qual seção é e adiciona o número
+            titulo_upper = titulo_limpo.upper()
+            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
+            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
+            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
+            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
+            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
+            elif 'COMO DEVO USAR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
+            elif 'ESQUECER' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
+            elif 'QUAIS OS MALES' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
+            elif 'QUANTIDADE MAIOR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
+        
+        return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+
+    for titulo_pattern in titulos_lista:
         html_content = re.sub(
             titulo_pattern,
-            formatar_titulo_func,
+            limpar_e_numerar_titulo,
             html_content,
             flags=re.IGNORECASE
         )
@@ -97,6 +114,7 @@ def formatar_html_para_leitura(html_content):
     )
 
     html_content = html_content.replace('\n', ' ')
+
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
     
@@ -135,47 +153,10 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 texto_trabalho,
                 flags=re.IGNORECASE
             )
-    
-    # 3. Formata TODOS os títulos das seções em negrito COM NUMERAÇÃO
-    titulos_secoes_formatacao = [
-        ("APRESENTAÇÕES", None),
-        ("COMPOSIÇÃO", None),
-        ("DIZERES LEGAIS", None),
-        ("IDENTIFICAÇÃO DO MEDICAMENTO", None),
-        ("INFORMAÇÕES AO PACIENTE", None),
-        # Ordem reversa (do 9 ao 1) para evitar substituições parciais
-        (r"O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??", "9"),
-        (r"QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??", "8"),
-        (r"O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "7"),
-        (r"COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "6"),
-        (r"ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??", "5"),
-        (r"O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "4"),
-        (r"QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "3"),
-        (r"COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??", "2"),
-        (r"PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??", "1")
-    ]
-    
-    for titulo_pattern, numero_secao in titulos_secoes_formatacao:
-        def formatar_titulo(match):
-            titulo_encontrado = match.group(0)
-            # Remove qualquer tag <mark> ou <strong> existente
-            titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo_encontrado)
-            # Remove espaços extras
-            titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
             
-            # Adiciona numeração se necessário
-            if numero_secao and not re.match(r'^\d+\.', titulo_limpo):
-                titulo_limpo = f"{numero_secao}. {titulo_limpo}"
-            
-            return f'<strong>{titulo_limpo}</strong>'
+    # 3. (REMOVIDO - v26.27) Bloco de formatação de títulos removido daqui.
+    #    A formatação agora é feita exclusivamente pela 'formatar_html_para_leitura' global.
         
-        texto_trabalho = re.sub(
-            titulo_pattern,
-            formatar_titulo,
-            texto_trabalho,
-            flags=re.IGNORECASE
-        )
-            
     # 4. Marca Azul (ANVISA) POR ÚLTIMO
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     
@@ -280,17 +261,17 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             # Padrão 2: Remove FRAGMENTOS de ruído (v26.26 - APRIMORADO)
             padrao_ruido_inline = re.compile(
                 # (v26.26) Regra MAIS ABRANGENTE para "BUL_CLORIDRATO_DE_NA" seguido de números
-                r'BUL_CLORIDRATO_DE_NA[\s\S]{0,20}?\d+' 
+                r'BUL_CLORIDRATO_DE_NA[\s\S]{0,20}?\d+'  
                 
                 # (v26.26) Regra MAIS ABRANGENTE para "New Roman" com variações
                 r'|New[\s\S]{0,10}?Roman[\s\S]{0,50}?(?:mm|\d+)'
                 
                 # Outras regras existentes:
-                r'|AFAZOLINA_BUL\d+V\d+.*?' 
+                r'|AFAZOLINA_BUL\d+V\d+.*?'  
                 r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
                 r'|AMBROXOL_BUL\d+V\d+'
-                r'|es New Roman.*?' 
-                r'|rpo \d+.*?' 
+                r'|es New Roman.*?'  
+                r'|rpo \d+.*?'  
                 r'|olL: Times New Roman.*?'
             , re.IGNORECASE)
             
@@ -323,7 +304,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
-        return texto, None
+    return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
@@ -338,10 +319,10 @@ def truncar_apos_anvisa(texto):
     if not match:
         return texto
 
-    cut_off_position = match.end(1) 
+    cut_off_position = match.end(1)  
     pos_match = re.search(r'^\s*\.', texto[cut_off_position:], re.IGNORECASE)
     
-    if pos_match: 
+    if pos_match:  
         cut_off_position += pos_match.end()
 
     return texto[:cut_off_position]
@@ -351,10 +332,10 @@ def obter_secoes_por_tipo(tipo_bula):
     
     secoes = {
         "Paciente": [
-            "APRESENTAÇÕES", 
-            "COMPOSIÇÃO", 
+            "APRESENTAÇÕES",  
+            "COMPOSIÇÃO",  
             "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
-            "2.COMO ESTE MEDICAMENTO FUNCIONA?", 
+            "2.COMO ESTE MEDICAMENTO FUNCIONA?",  
             "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
             "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
             "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
@@ -365,18 +346,18 @@ def obter_secoes_por_tipo(tipo_bula):
             "DIZERES LEGAIS"
         ],
         "Profissional": [
-            "APRESENTAÇÕES", 
-            "COMPOSIÇÃO", 
-            "1. INDICAÇÕES", 
+            "APRESENTAÇÕES",  
+            "COMPOSIÇÃO",  
+            "1. INDICAÇÕES",  
             "2. RESULTADOS DE EFICÁCIA",
-            "3. CARACTERÍSTICAS FARMACOLÓGICAS", 
+            "3. CARACTERÍSTICAS FARMACOLÓGICAS",  
             "4. CONTRAINDICAÇÕES",
-            "5. ADVERTÊNCIAS E PRECAUÇÕES", 
+            "5. ADVERTÊNCIAS E PRECAUÇÕES",  
             "6. INTERAÇÕES MEDICAMENTOSAS",
-            "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", 
+            "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",  
             "8. POSOLOGIA E MODO DE USAR",
-            "9. REAÇÕES ADVERSAS", 
-            "10. SUPERDOSE", 
+            "9. REAÇÕES ADVERSAS",  
+            "10. SUPERDOSE",  
             "DIZERES LEGAIS"
         ]
     }
@@ -556,7 +537,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto):
     
     linha_inicio_conteudo = linha_inicio + num_linhas_titulo
 
-    linha_fim = len(linhas_texto) 
+    linha_fim = len(linhas_texto)  
     
     if (idx_secao_atual + 1) < len(mapa_secoes):
         secao_seguinte_info = mapa_secoes[idx_secao_atual + 1]
@@ -576,7 +557,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     relatorio_comparacao_completo = []
     similaridade_geral = []
     
-    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()] 
+    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]  
 
     linhas_ref = texto_ref.split('\n')
     linhas_belfar = texto_belfar.split('\n')
@@ -590,19 +571,19 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         if not encontrou_belfar:
             secoes_faltantes.append(secao)
             relatorio_comparacao_completo.append({
-                'secao': secao, 
-                'status': 'faltante', 
-                'conteudo_ref': conteudo_ref, 
+                'secao': secao,  
+                'status': 'faltante',  
+                'conteudo_ref': conteudo_ref,  
                 'conteudo_belfar': ""
             })
             continue
 
         if encontrou_ref and encontrou_belfar:
-            if secao.upper() in secoes_ignorar_upper: 
+            if secao.upper() in secoes_ignorar_upper:  
                 relatorio_comparacao_completo.append({
-                    'secao': secao, 
-                    'status': 'identica', 
-                    'conteudo_ref': conteudo_ref, 
+                    'secao': secao,  
+                    'status': 'identica',  
+                    'conteudo_ref': conteudo_ref,  
                     'conteudo_belfar': conteudo_belfar
                 })
                 similaridade_geral.append(100)
@@ -610,17 +591,17 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
                 relatorio_comparacao_completo.append({
-                    'secao': secao, 
-                    'status': 'diferente', 
-                    'conteudo_ref': conteudo_ref, 
+                    'secao': secao,  
+                    'status': 'diferente',  
+                    'conteudo_ref': conteudo_ref,  
                     'conteudo_belfar': conteudo_belfar
                 })
                 similaridade_geral.append(0)
             else:
                 relatorio_comparacao_completo.append({
-                    'secao': secao, 
-                    'status': 'identica', 
-                    'conteudo_ref': conteudo_ref, 
+                    'secao': secao,  
+                    'status': 'identica',  
+                    'conteudo_ref': conteudo_ref,  
                     'conteudo_belfar': conteudo_belfar
                 })
                 similaridade_geral.append(100)
@@ -767,7 +748,10 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
                 flags=re.IGNORECASE
             )
             
-    # 3. Marca Azul (ANVISA) POR ÚLTIMO
+    # 3. (REMOVIDO - v26.27) Bloco de formatação de títulos removido daqui.
+    #    A formatação agora é feita exclusivamente pela 'formatar_html_para_leitura' global.
+        
+    # 4. Marca Azul (ANVISA) POR ÚLTIMO
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     
     def remove_marks_da_data(match):
@@ -819,65 +803,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.info(f"ℹ️ **Datas de Aprovação ANVISA:**\n  - Arquivo ANVISA: {data_ref}\n  - Arquivo MKT: {data_belfar}")
     
     
-    def formatar_html_para_leitura(html_content):
-        """
-        Formata o texto "fluído" (sort=True) para um HTML "bonito".
-        (v26.23) - Regras de regex quebram em partes menores e usam [\s\S]
-        para formatar títulos, mesmo se houver ruído ou quebras de linha.
-        """
-        if html_content is None:
-            return ""
-        
-        html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
-        
-        titulos_lista = [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
-            "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
-            
-            r"(9\.\s*O QUE FAZER SE ALGUEM[\s\S]*?DESTE MEDICAMENTO\?)",
-            r"(O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR[\s\S]*?DESTE MEDICAMENTO\?)",
-            r"(8\.\s*QUAIS OS MALES QUE ESTE MEDICAMENTO[\s\S]*?ME CAUSAR\?)",
-            r"(QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR\?)",
-            r"(7\.\s*O QUE DEVO FAZER QUANDO EU ME ESQUECER[\s\S]*?DESTE MEDICAMENTO\?)",
-            r"(O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO\?)",
-            r"(6\.\s*COMO DEVO USAR ESTE MEDICAMENTO\?)",
-            r"(COMO DEVO USAR ESTE MEDICAMENTO\?)",
-            r"(5\.\s*ONDE, COMO E POR QUANTO TEMPO[\s\S]*?GUARDAR ESTE MEDICAMENTO\?)",
-            r"(ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO\?)",
-            r"(4\.\s*O QUE DEVO SABER ANTES[\s\S]*?USAR ESTE MEDICAMENTO\?)",
-            r"(O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO\?)",
-            r"(3\.\s*QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
-            r"(QUANDO NÃO DEVO USAR ESTE MEDICAMENTO\?)",
-            r"(2\.\s*COMO ESTE MEDICAMENTO FUNCIONA\?)",
-            r"(COMO ESTE MEDICAMENTO FUNCIONA\?)",
-            r"(1\.\s*PARA QUE ESTE MEDICAMENTO[\s\S]*?É INDICADO\?)",
-            r"(PARA QUE ESTE MEDICAMENTO É INDICADO\?)"
-        ]
-        
-        regex_titulos = r'(' + '|'.join(titulos_lista) + r')'
-
-        html_content = re.sub(
-            regex_titulos,
-            r'[[PARAGRAPH]]<strong>\1</strong>', 
-            html_content,
-            flags=re.IGNORECASE
-        )
-
-        html_content = re.sub(
-            r'(\n)(\s*[-–•*])',
-            r'[[LIST_ITEM]]\2',
-            html_content
-        )
-
-        html_content = html_content.replace('\n', ' ')
-
-        html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
-        html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
-        
-        html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
-        html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
-        
-        return html_content
+    # (REMOVIDO - v26.27) Definição 'formatar_html_para_leitura' interna.
+    # O script agora usará a função global (v26.27) definida no topo do arquivo.
 
     expander_caixa_style = (
         "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
@@ -911,6 +838,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
                 )
                 
+                # (v26.27) Esta chamada agora usa a função 'formatar_html_para_leitura' GLOBAL
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander)
 
@@ -928,6 +856,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
 
             with st.expander(expander_title):
+                # (v26.27) Esta chamada agora usa a função 'formatar_html_para_leitura' GLOBAL
                 expander_html_ref = formatar_html_para_leitura(conteudo_ref_str)
                 expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str)
 
@@ -971,6 +900,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
+    # (v26.27) Estas chamadas agora usam a função 'formatar_html_para_leitura' GLOBAL
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto)
 
@@ -1030,7 +960,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             
             if not erro_ref:
-                texto_ref = corrigir_quebras_em_titulos(texto_ref) 
+                texto_ref = corrigir_quebras_em_titulos(texto_ref)  
                 texto_ref = truncar_apos_anvisa(texto_ref)
             
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
@@ -1040,7 +970,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}") 
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")  
             elif not texto_ref or not texto_belfar:
                  st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
@@ -1049,4 +979,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.26 | Títulos Enumerados + Filtro Aprimorado")
+st.caption("Sistema de Auditoria de Bulas v26.27 | Lógica de Formatação Unificada")
