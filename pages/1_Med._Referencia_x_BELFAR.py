@@ -1,6 +1,14 @@
 # --- IMPORTS ---
 import streamlit as st
 # from style_utils import hide_streamlit_toolbar # Removi a dependência que não estava no código
+import fitz # PyMuPDF
+import docx
+import re
+import spacy
+from thefuzz import fuzz
+from spellchecker import SpellChecker
+import difflib
+import unicodedata
 
 hide_streamlit_UI = """
 <style>
@@ -41,14 +49,7 @@ visibility: hidden !important;
 </style>
 """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
-import fitz # PyMuPDF
-import docx
-import re
-import spacy
-from thefuzz import fuzz
-from spellchecker import SpellChecker
-import difflib
-import unicodedata
+
 
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
@@ -123,7 +124,9 @@ def obter_secoes_por_tipo(tipo_bula):
             "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
             "COMO DEVO USAR ESTE MEDICAMENTO?",
             "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
+            # --- [CORREÇÃO PROBLEMA 3] --- 
+            # Adicionei o "PODE ME CAUSAR" como um alias mental, mas o título correto é "PODE CAUSAR"
+            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?", 
             "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
         ],
@@ -142,7 +145,10 @@ def obter_aliases_secao():
         "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO?",
         "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
         "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
+        # --- [CORREÇÃO PROBLEMA 3] ---
+        # Adicionei o "PODE ME CAUSAR?" como um alias para "PODE CAUSAR?"
         "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
         "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
     }
@@ -247,7 +253,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
             "COMO DEVO USAR ESTE MEDICAMENTO?",
             "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?", # Corrigido aqui
             "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
         ],
@@ -263,6 +269,14 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     titulos_lista = TITULOS_OFICIAIS.get(tipo_bula, [])
     # Normaliza a lista de títulos oficiais uma vez para otimizar a busca
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
+    
+    # --- [CORREÇÃO PROBLEMA 3] ---
+    # Adiciona os aliases ao set de títulos para busca
+    aliases = obter_aliases_secao()
+    for alias, canonico in aliases.items():
+        if canonico in titulos_lista:
+             titulos_norm_set.add(normalizar_titulo_para_comparacao(alias))
+
 
     for i, secao_mapa in enumerate(mapa_secoes):
         if secao_mapa['canonico'] != secao_canonico:
@@ -279,16 +293,13 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             linha_atual = linhas_texto[j].strip()
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
 
-            # --- INÍCIO DA CORREÇÃO (MUDANÇA MÍNIMA) ---
-            # Verificamos se algum título oficial está CONTIDO na linha normalizada
-            encontrou_titulo_1_linha = False
-            for titulo_oficial_norm in titulos_norm_set:
-                if titulo_oficial_norm in linha_atual_norm:
-                    encontrou_titulo_1_linha = True
-                    break # Para o loop interno
             
-            if encontrou_titulo_1_linha:
-            # if linha_atual_norm in titulos_norm_set: # <- Linha original substituída
+            # --- INÍCIO DA CORREÇÃO (PROBLEMA 1 e 3) ---
+            # Revertemos a lógica de 'contém' (if ... in linha_atual_norm)
+            # para 'igual' (if ... in titulos_norm_set).
+            # A lógica 'contém' causava "falsos positivos", fazendo com que
+            # o extrator parasse no meio de um parágrafo.
+            if linha_atual_norm in titulos_norm_set: 
                 prox_idx = j # Encontrou um título em uma única linha
                 break # Para o loop 'j'
             # --- FIM DA CORREÇÃO (1 LINHA) ---
@@ -300,15 +311,9 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
                 titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
 
-                # --- INÍCIO DA CORREÇÃO (MUDANÇA MÍNIMA) ---
-                encontrou_titulo_2_linhas = False
-                for titulo_oficial_norm in titulos_norm_set:
-                    if titulo_oficial_norm in titulo_duas_linhas_norm:
-                        encontrou_titulo_2_linhas = True
-                        break # Para o loop interno
-                
-                if encontrou_titulo_2_linhas:
-                # if titulo_duas_linhas_norm in titulos_norm_set: # <- Linha original substituída
+                # --- INÍCIO DA CORREÇÃO (PROBLEMA 1 e 3) ---
+                # Mesma correção da lógica 'contém' para 'igual'
+                if titulo_duas_linhas_norm in titulos_norm_set: 
                     prox_idx = j # Encontrou um título dividido em duas linhas
                     break # Para o loop 'j'
                 # --- FIM DA CORREÇÃO (2 LINHAS) ---
@@ -321,7 +326,6 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
-# ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
@@ -447,6 +451,13 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
+        # --- [CORREÇÃO PROBLEMA 2] ---
+        # Trata quebras de linha como espaço *apenas para a comparação*,
+        # evitando que diferenças de formatação sejam marcadas como divergência.
+        if tok == '\n':
+            return ' '
+        # --- [FIM DA CORREÇÃO] ---
+        
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
             return normalizar_texto(tok)
         return tok
@@ -476,10 +487,17 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
             resultado += tok
             continue
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        if re.match(r'^[^\w\s]$', raw_tok) or raw_tok == '\n':
+        
+        # --- [CORREÇÃO PROBLEMA 2 - AJUSTE] ---
+        # Impede que um espaço seja adicionado *antes* de uma quebra de linha.
+        if raw_tok == '\n':
             resultado += tok
+        elif re.match(r'^[^\w\s]$', raw_tok):
+            resultado += tok
+        # --- [FIM DA CORREÇÃO] ---
         else:
             resultado += " " + tok
+            
     resultado = re.sub(r'\s+([.,;:!?)])', r'\1', resultado)
     resultado = re.sub(r'(\()\s+', r'\1', resultado)
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
@@ -739,16 +757,25 @@ tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), 
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("📄 Med. Referência")
-    pdf_ref = st.file_uploader("Envie o PDF de referência", type="pdf", key="ref")
+    # --- [CORREÇÃO DOCX] ---
+    pdf_ref = st.file_uploader("Envie o PDF ou DOCX de referência", type=["pdf", "docx"], key="ref")
 with col2:
     st.subheader("📄 Med. BELFAR")
-    pdf_belfar = st.file_uploader("Envie o PDF Belfar", type="pdf", key="belfar")
+    # --- [CORREÇÃO DOCX] ---
+    pdf_belfar = st.file_uploader("Envie o PDF ou DOCX Belfar", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
-            texto_ref, erro_ref = extrair_texto(pdf_ref, 'pdf')
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf')
+            
+            # --- [CORREÇÃO DOCX] ---
+            # Determina o tipo de arquivo pela extensão do nome
+            tipo_ref = 'docx' if pdf_ref.name.endswith('.docx') else 'pdf'
+            tipo_belfar = 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf'
+            
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_ref)
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, tipo_belfar)
+            # --- [FIM DA CORREÇÃO] ---
 
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -760,7 +787,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula BELFAR", tipo_bula_selecionado)
     else:
-        st.warning("⚠️ Por favor, envie ambos os arquivos PDF para iniciar a auditoria.")
+        st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.0 | Arquitetura de Mapeamento Final") 
+st.caption("Sistema de Auditoria de Bulas v18.1 | Mapeamento Corrigido | Comparação de Formatação Ignorada")
