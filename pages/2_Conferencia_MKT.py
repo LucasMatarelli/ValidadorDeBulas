@@ -1,8 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.33 (Correção de Múltiplos Erros)
-# 1. (v26.33) Corrigido o 'SyntaxError: unterminated string literal' na chamada final de 'gerar_relatorio_final'.
-# 2. (v26.32) Mantida a correção do 'SyntaxError' no bloco 'try/except' da 'extrair_texto'.
+# Versão v26.34 (Correção Crítica de 'IndexError: no such group')
+# 1. (v26.34) Corrigido o 'IndexError' na linha 50.
+# 2. (v26.34) Alterado 'match.group(1)' para 'match.group(0)' na função
+#    'limpar_e_numerar_titulo' para capturar todos os tipos de padrões.
+# 3. (v26.33) Mantida a correção do 'SyntaxError' da string não terminada.
+# 4. (v26.32) Mantida a correção do 'SyntaxError' no bloco 'try/except'.
 
 # --- IMPORTS ---
 import re
@@ -16,7 +19,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.27) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.34 - CORRIGIDO) -----------------
 def formatar_html_para_leitura(html_content):
     if html_content is None:
         return ""
@@ -47,7 +50,10 @@ def formatar_html_para_leitura(html_content):
     ]
     
     def limpar_e_numerar_titulo(match):
-        titulo = match.group(1)
+        # --- ESTA É A CORREÇÃO (v26.34) ---
+        # Trocado de match.group(1) para match.group(0)
+        titulo = match.group(0)
+        
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
@@ -248,7 +254,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
         
-        # Correção v26.32: O 'return' está DENTRO do 'try'
         return texto, None
     
     except Exception as e:
@@ -820,11 +825,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             elif not texto_ref or not texto_belfar:
                  st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
-                # --- ESTA É A CORREÇÃO (v26.33) ---
-                # A linha abaixo está agora com os argumentos corretos.
                 gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.33 | Correção de Múltiplos Erros")
+st.caption("Sistema de Auditoria de Bulas v26.34 | Correção de 'IndexError'")
