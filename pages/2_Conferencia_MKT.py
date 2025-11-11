@@ -1,11 +1,15 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.45 (Correção de SyntaxError)
-# 1. (v26.45) Em 'mapear_secoes':
-#    - Corrigido um 'SyntaxError' causado por uma quebra de linha
-#      incorreta no 'if not mapa or ...'.
-# 2. (v26.44) Mantido o filtro específico para números
-#    em 'extrair_texto'.
+# Versão v26.46 (Patch Definitivo de Numeração MKT)
+# 1. (v26.46) Em 'formatar_html_para_leitura':
+#    - Adicionado um "patch" de Regex logo após a substituição de '[[PARAGRAPH]]'.
+#    - Se 'aplicar_numeracao=False' (ou seja, SÓ para o MKT),
+#      ele procura pelo padrão "[[PARAGRAPH]] 1. [[PARAGRAPH]]"
+#      e o substitui por um único "[[PARAGRAPH]]".
+#    - Isso limpa os números órfãos que o filtro de extração
+#      não pegou, resolvendo o problema visual.
+# 2. (v26.45) Mantida a correção do 'SyntaxError'.
+# 3. (v26.44) Mantido o filtro específico em 'extrair_texto'.
 
 # --- IMPORTS ---
 import re
@@ -19,13 +23,29 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.42 - MANTIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.46 - CORRIGIDO) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
     
+    # Substitui quebras de linha duplas por um marcador temporário
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
     
+    # --- INÍCIO DA MUDANÇA v26.46 ---
+    # Patch específico para MKT: Remove parágrafos que contêm APENAS um número
+    # (ex: "[[PARAGRAPH]]1.[[PARAGRAPH]]") que o filtro de extração pode ter perdido.
+    if not aplicar_numeracao:
+        # Regex: Encontra um PARAGRAPH, seguido de (opcional) espaço, 
+        # um ou mais dígitos, um ponto, (opcional) espaço, e outro PARAGRAPH.
+        # Substitui tudo por um único PARAGRAPH.
+        html_content = re.sub(
+            r'\[\[PARAGRAPH\]\]\s*\d+\.\s*\[\[PARAGRAPH\]\]', 
+            '[[PARAGRAPH]]', 
+            html_content
+        )
+    # --- FIM DA MUDANÇA v26.46 ---
+    
+    # Lista de padrões de títulos a serem formatados (ordem importa para regex)
     titulos_lista = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
@@ -274,7 +294,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
-# ----------------- FUNÇÕES RESTANTES (Sem alterações) -----------------
+# ----------------- FUNÇÕES RESTANTES (v26.45 - MANTIDO) -----------------
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
@@ -446,10 +466,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 best_canonico = canonico
         
         if best_score >= limiar_score:
-            # --- INÍCIO DA CORREÇÃO v26.45 ---
-            # A linha abaixo estava quebrada, causando SyntaxError
             if not mapa or mapa[-1]['canonico'] != best_canonico:
-            # --- FIM DA CORREÇÃO v26.45 ---
                 mapa.append({
                     'canonico': best_canonico,
                     'titulo_encontrado': linha_limpa,
@@ -850,4 +867,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.45 | Correção de SyntaxError")
+st.caption("Sistema de Auditoria de Bulas v26.46 | Patch de Formatação (MKT)")
