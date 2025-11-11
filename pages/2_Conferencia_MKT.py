@@ -94,7 +94,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
             elif 'QUANTIDADE MAIOR' in titulo_upper:
                 return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
 
-        # Se não aplicar numeração, apenas marca o título (vamos corrigir numerações soltas depois)
+        # Se não aplicar numeração, apenas marca o título (vamos corrigir numerações soltas depois)
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
 
     # Aplica substituição dos padrões de título
@@ -321,9 +321,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 linha_strip = linha.strip()
 
                 # Filtro 0 (v26.44): Remove linhas que são SÓ números e pontos (ex: "1.", "2.")
-               # Filtro 0 (v26.53): Mantém linhas numéricas (1., 2., etc.) como marcadores temporários
+                # Filtro 0 (v26.53): Mantém linhas numéricas (1., 2., etc.) como marcadores temporários
                 if is_marketing_pdf and re.fullmatch(r'\d+\.', linha_strip):
-                linhas_filtradas.append(f"__NUMMARK_{linha_strip}__")
+                    linhas_filtradas.append(f"__NUMMARK_{linha_strip}__")
                     continue
 
                 # 1. Filtra linhas de ruído conhecidas
@@ -347,9 +347,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
-        return texto, None
-# Restaura marcadores numéricos temporários
-texto = re.sub(r'__NUMMARK_(\d+\.)__', r'\1', texto)
+            # Restaura marcadores numéricos temporários
+            texto = re.sub(r'__NUMMARK_(\d+\.)__', r'\1', texto)
+
+            return texto, None
 
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
