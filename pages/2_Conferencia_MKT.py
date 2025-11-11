@@ -1,10 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.39 (Correção Definitiva de Números Flutuantes)
-# 1. (v26.39) Adicionada lógica 're.fullmatch(r'\s*\d+\.?\s*', ...)' em 'extrair_texto'
-#    para remover linhas que são APENAS números (ex: '1.', '2.', '190').
-# 2. (v26.38) MANTIDA a lógica em 'formatar_html_para_leitura' que
-#    adiciona números (1., 2.) APENAS se estiverem faltando (para o ANVISA).
+# Versão v26.40 (Correção Dupla Definitiva)
+# 1. (v26.40) Em 'extrair_texto': RE-ADICIONADO o filtro que remove
+#    linhas sem letras (ex: '1.', '2.', '190') para corrigir o MKT.
+# 2. (v26.40) Em 'formatar_html_para_leitura': MANTIDA a lógica que
+#    adiciona números (1., 2.) SE FALTAR (para corrigir o ANVISA).
+# 3. (v26.34) Mantida a correção do 'IndexError' (match.group(0)).
 
 # --- IMPORTS ---
 import re
@@ -48,13 +49,13 @@ def formatar_html_para_leitura(html_content):
         r"(PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)"
     ]
     
+    # Lógica de Numeração Condicional (para o arquivo ANVISA)
     def limpar_e_numerar_titulo(match):
         titulo = match.group(0) 
         
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
-        # Lógica de ADICIONAR NÚMERO (SE FALTAR) - v26.38
         if not re.match(r'^\d+\.', titulo_limpo):
             titulo_upper = titulo_limpo.upper()
             if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
@@ -161,7 +162,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.39 - CORRIGIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.40 - CORRIGIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -200,7 +201,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
-            # --- FILTRO DE RUÍDO (v26.39 - APRIMORADO) ---
+            # --- FILTRO DE RUÍDO (v26.40 - APRIMORADO) ---
             
             # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha_regex = (
@@ -250,13 +251,14 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
-                # --- INÍCIO DA CORREÇÃO v26.39 ---
-                # 3. Filtra linhas que são APENAS números ou números com ponto
-                if re.fullmatch(r'\s*\d+\.?\s*', linha_limpa):
+                # --- INÍCIO DA CORREÇÃO v26.40 ---
+                # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '1.', '190', '*', '...')
+                #    Esta é a lógica do v26.37 que corrige os números flutuantes.
+                if not re.search(r'[a-zA-Z]', linha_limpa):
                     continue
-                # --- FIM DA CORREÇÃO v26.39 ---
+                # --- FIM DA CORREÇÃO v26.40 ---
 
-                # 4. Adiciona a linha se ela tiver conteúdo
+                # 4. Adiciona a linha
                 if linha_limpa:
                     linhas_filtradas.append(linha_limpa)
             
@@ -568,7 +570,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             if encontrou and conteudo:
                 texto_filtrado_para_checar.append(conteudo)
 
-        texto_final_para_checar = '\n'.join(texto_final_para_checar)
+        texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
         
         if not texto_final_para_checar:
             return []
@@ -842,4 +844,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.39 | Correção de Filtro (fullmatch)")
+st.caption("Sistema de Auditoria de Bulas v26.40 | Correção de Filtro (MKT) + Numeração (ANVISA)")
