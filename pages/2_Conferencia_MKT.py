@@ -23,54 +23,89 @@ def formatar_html_para_leitura(html_content):
     
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
     
+    # Lista de títulos de seções (do mais longo para o mais curto para evitar matches parciais)
     titulos_lista = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
         
-        r"(9\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}FAZER[\s\S]{0,3}SE[\s\S]{0,3}ALGUEM[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??)",
-        r"(O[\s\S]{0,3}QUE[\s\S]{0,3}FAZER[\s\S]{0,3}SE[\s\S]{0,3}ALGUEM[\s\S]{0,3}USAR[\s\S]{0,3}UMA[\s\S]{0,3}QUANTIDADE[\s\S]{0,3}MAIOR[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        # Seção 9 - padrões mais amplos
+        r"(9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??)",
+        r"(O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??)",
         
-        r"(8\.[\s\S]{0,3}QUAIS[\s\S]{0,3}OS[\s\S]{0,3}MALES[\s\S]{0,200}ME[\s\S]{0,3}CAUSAR\??)",
-        r"(QUAIS[\s\S]{0,3}OS[\s\S]{0,3}MALES[\s\S]{0,3}QUE[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}PODE[\s\S]{0,3}ME[\s\S]{0,3}CAUSAR\??)",
+        # Seção 8
+        r"(8\.?\s*QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
+        r"(QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??)",
         
-        r"(7\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}FAZER[\s\S]{0,3}QUANDO[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??)",
-        r"(O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}FAZER[\s\S]{0,3}QUANDO[\s\S]{0,3}EU[\s\S]{0,3}ME[\s\S]{0,3}ESQUECER[\s\S]{0,3}DE[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        # Seção 7
+        r"(7\.?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         
-        r"(6\.[\s\S]{0,3}COMO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
-        r"(COMO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        # Seção 6
+        r"(6\.?\s*COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         
-        r"(5\.[\s\S]{0,3}ONDE,?[\s\S]{0,3}COMO[\s\S]{0,3}E[\s\S]{0,3}POR[\s\S]{0,3}QUANTO[\s\S]{0,3}TEMPO[\s\S]{0,200}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
-        r"(ONDE,?[\s\S]{0,3}COMO[\s\S]{0,3}E[\s\S]{0,3}POR[\s\S]{0,3}QUANTO[\s\S]{0,3}TEMPO[\s\S]{0,3}POSSO[\s\S]{0,3}GUARDAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        # Seção 5
+        r"(5\.?\s*ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??)",
         
-        r"(4\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}SABER[\s\S]{0,3}ANTES[\s\S]{0,200}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
-        r"(O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}SABER[\s\S]{0,3}ANTES[\s\S]{0,3}DE[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        # Seção 4
+        r"(4\.?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         
-        r"(3\.[\s\S]{0,3}QUANDO[\s\S]{0,3}NÃO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
-        r"(QUANDO[\s\S]{0,3}NÃO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??)",
+        # Seção 3
+        r"(3\.?\s*QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
+        r"(QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??)",
         
-        r"(2\.[\s\S]{0,3}COMO[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}FUNCIONA\??)",
-        r"(COMO[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}FUNCIONA\??)",
+        # Seção 2
+        r"(2\.?\s*COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
+        r"(COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??)",
         
-        r"(1\.[\s\S]{0,3}PARA[\s\S]{0,3}QUE[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,200}INDICADO\??)",
-        r"(PARA[\s\S]{0,3}QUE[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}É[\s\S]{0,3}INDICADO\??)"
+        # Seção 1
+        r"(1\.?\s*PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)",
+        r"(PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)"
     ]
     
-    regex_titulos = r'(' + '|'.join(titulos_lista) + r')'
-
-    def limpar_titulo(match):
+    def limpar_e_numerar_titulo(match):
         titulo = match.group(1)
         # Remove tags HTML do título antes de aplicar o <strong>
         titulo_limpo = re.sub(r'<mark.*?>|</mark>', '', titulo)
         # Remove espaços extras
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+        
+        # Adiciona numeração se não tiver
+        if not re.match(r'^\d+\.', titulo_limpo):
+            # Identifica qual seção é e adiciona o número
+            titulo_upper = titulo_limpo.upper()
+            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
+            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
+            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
+            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
+            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
+            elif 'COMO DEVO USAR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
+            elif 'ESQUECER' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
+            elif 'QUAIS OS MALES' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
+            elif 'QUANTIDADE MAIOR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
+        
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
 
-    html_content = re.sub(
-        regex_titulos,
-        limpar_titulo,
-        html_content,
-        flags=re.IGNORECASE
-    )
+    for titulo_pattern in titulos_lista:
+        html_content = re.sub(
+            titulo_pattern,
+            limpar_e_numerar_titulo,
+            html_content,
+            flags=re.IGNORECASE
+        )
 
     html_content = re.sub(
         r'(\n)(\s*[-–•*])',
@@ -121,25 +156,32 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
     
     # 3. Formata TODOS os títulos das seções em negrito (ANTES da marca ANVISA)
     titulos_secoes = [
-        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
-        r"9\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}FAZER[\s\S]{0,3}SE[\s\S]{0,3}ALGUEM[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??",
-        r"8\.[\s\S]{0,3}QUAIS[\s\S]{0,3}OS[\s\S]{0,3}MALES[\s\S]{0,200}ME[\s\S]{0,3}CAUSAR\??",
-        r"7\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}FAZER[\s\S]{0,3}QUANDO[\s\S]{0,200}DESTE[\s\S]{0,3}MEDICAMENTO\??",
-        r"6\.[\s\S]{0,3}COMO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??",
-        r"5\.[\s\S]{0,3}ONDE,?[\s\S]{0,3}COMO[\s\S]{0,3}E[\s\S]{0,3}POR[\s\S]{0,3}QUANTO[\s\S]{0,3}TEMPO[\s\S]{0,200}ESTE[\s\S]{0,3}MEDICAMENTO\??",
-        r"4\.[\s\S]{0,3}O[\s\S]{0,3}QUE[\s\S]{0,3}DEVO[\s\S]{0,3}SABER[\s\S]{0,3}ANTES[\s\S]{0,200}ESTE[\s\S]{0,3}MEDICAMENTO\??",
-        r"3\.[\s\S]{0,3}QUANDO[\s\S]{0,3}NÃO[\s\S]{0,3}DEVO[\s\S]{0,3}USAR[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO\??",
-        r"2\.[\s\S]{0,3}COMO[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,3}FUNCIONA\??",
-        r"1\.[\s\S]{0,3}PARA[\s\S]{0,3}QUE[\s\S]{0,3}ESTE[\s\S]{0,3}MEDICAMENTO[\s\S]{0,200}INDICADO\??"
+        ("APRESENTAÇÕES", None),
+        ("COMPOSIÇÃO", None),
+        ("DIZERES LEGAIS", None),
+        (r"O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA\s+DESTE\s+MEDICAMENTO\??", "9"),
+        (r"QUAIS\s+OS\s+MALES\s+QUE\s+ESTE\s+MEDICAMENTO\s+PODE\s+ME\s+CAUSAR\??", "8"),
+        (r"O\s+QUE\s+DEVO\s+FAZER\s+QUANDO\s+EU\s+ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "7"),
+        (r"COMO\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "6"),
+        (r"ONDE,?\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO\s+POSSO\s+GUARDAR\s+ESTE\s+MEDICAMENTO\??", "5"),
+        (r"O\s+QUE\s+DEVO\s+SABER\s+ANTES\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", "4"),
+        (r"QUANDO\s+N[AÃ]O\s+DEVO\s+USAR\s+ESTE\s+MEDICAMENTO\??", "3"),
+        (r"COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA\??", "2"),
+        (r"PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??", "1")
     ]
     
-    for titulo_pattern in titulos_secoes:
+    for titulo_pattern, numero_secao in titulos_secoes:
         def formatar_titulo(match):
             titulo_encontrado = match.group(0)
             # Remove qualquer tag <mark> ou <strong> existente
             titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo_encontrado)
             # Remove espaços extras
             titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+            
+            # Adiciona numeração se necessário
+            if numero_secao and not re.match(r'^\d+\.', titulo_limpo):
+                titulo_limpo = f"{numero_secao}. {titulo_limpo}"
+            
             return f'<strong>{titulo_limpo}</strong>'
         
         texto_trabalho = re.sub(
