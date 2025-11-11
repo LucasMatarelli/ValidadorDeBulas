@@ -1,11 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.38 (Lógica de Numeração Removida)
-# 1. (v26.38) REMOVIDA toda a lógica de 'if not re.match...' que
-#    adicionava números (1., 2., etc.) aos títulos.
-# 2. (v26.38) O script agora APENAS coloca em negrito o título que
-#    encontrar, preservando a numeração original do arquivo.
-# 3. (v26.37) Mantido o filtro que remove linhas sem letras (corrige '1.' solto).
+# Versão v26.38 (Lógica de Numeração Restaurada)
+# 1. (v26.38) RESTAURADA a lógica 'if not re.match...' em 'formatar_html_para_leitura'
+#    para ADICIONAR números (1., 2.) APENAS se estiverem faltando (Corrigindo o Arquivo ANVISA).
+# 2. (v26.37) MANTIDO o filtro 'if not re.search(r'[a-zA-Z]', ...)' em 'extrair_texto'
+#    para REMOVER os números flutuantes (Corrigindo o Arquivo MKT).
+# 3. (v26.34) Mantida a correção do 'IndexError' (match.group(0)).
 
 # --- IMPORTS ---
 import re
@@ -49,19 +49,40 @@ def formatar_html_para_leitura(html_content):
         r"(PARA\s+QUE\s+ESTE\s+MEDICAMENTO\s+[EÉ]\s+INDICADO\??)"
     ]
     
+    # --- LÓGICA DE NUMERAÇÃO RESTAURADA (v26.38) ---
     def limpar_e_numerar_titulo(match):
-        # --- INÍCIO DA CORREÇÃO v26.38 ---
-        # Lógica de numeração removida.
-        
         titulo = match.group(0) # Pega o título como foi encontrado
         
         # Apenas limpa tags e espaços
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
-        # Apenas retorna o título limpo e em negrito, preservando o número original
+        # --- LÓGICA DE ADICIONAR NÚMERO (SE FALTAR) ---
+        if not re.match(r'^\d+\.', titulo_limpo):
+            titulo_upper = titulo_limpo.upper()
+            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
+            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
+            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
+            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
+            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
+            elif 'COMO DEVO USAR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
+            elif 'ESQUECER' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
+            elif 'QUAIS OS MALES' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
+            elif 'QUANTIDADE MAIOR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
+        
+        # Se o número já existir, apenas retorna limpo e em negrito
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
-        # --- FIM DA CORREÇÃO v26.38 ---
 
     for titulo_pattern in titulos_lista:
         html_content = re.sub(
@@ -144,7 +165,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.37 - CORRIGIDO) -----------------
+# ----------------- EXTRAÇÃO (v26.37 - FILTRO MANTIDO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -233,9 +254,11 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
                 
+                # --- FILTRO v26.37 (MANTIDO) ---
                 # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '1.', '190', '*', '...')
                 if not re.search(r'[a-zA-Z]', linha_limpa):
                     continue
+                # --- FIM DO FILTRO ---
 
                 # 4. Adiciona a linha
                 if linha_limpa:
@@ -823,4 +846,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.37 | Correção de Filtro (Sem Letras)")
+st.caption("Sistema de Auditoria de Bulas v26.38 | Numeração Condicional Restaurada")
