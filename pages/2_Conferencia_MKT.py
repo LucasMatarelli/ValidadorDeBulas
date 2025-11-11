@@ -21,7 +21,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.46 - MANTIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.51 - CORRIGIDO PARA NUMERAÇÃO NA FRENTE) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -59,36 +59,34 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     ]
     
     def limpar_e_numerar_titulo(match):
-        titulo = match.group(0) 
-        
+        titulo = match.group(0)
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
         if aplicar_numeracao:
-            if not re.match(r'^\d+\.', titulo_limpo):
-                titulo_upper = titulo_limpo.upper()
-                if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
-                elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
-                elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
-                elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
-                elif 'O QUE DEVO SABER ANTES' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
-                elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
-                elif 'COMO DEVO USAR' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
-                elif 'ESQUECER' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
-                elif 'QUAIS OS MALES' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
-                elif 'QUANTIDADE MAIOR' in titulo_upper:
-                    return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
+            titulo_upper = titulo_limpo.upper()
+            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
+                return f'<br><br><strong>{titulo_limpo}</strong>'
+            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
+                return f'<br><br><strong>1. {titulo_limpo}</strong>'
+            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
+                return f'<br><br><strong>2. {titulo_limpo}</strong>'
+            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
+                return f'<br><br><strong>3. {titulo_limpo}</strong>'
+            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
+                return f'<br><br><strong>4. {titulo_limpo}</strong>'
+            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
+                return f'<br><br><strong>5. {titulo_limpo}</strong>'
+            elif 'COMO DEVO USAR' in titulo_upper:
+                return f'<br><br><strong>6. {titulo_limpo}</strong>'
+            elif 'ESQUECER' in titulo_upper:
+                return f'<br><br><strong>7. {titulo_limpo}</strong>'
+            elif 'QUAIS OS MALES' in titulo_upper:
+                return f'<br><br><strong>8. {titulo_limpo}</strong>'
+            elif 'QUANTIDADE MAIOR' in titulo_upper:
+                return f'<br><br><strong>9. {titulo_limpo}</strong>'
         
-        return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+        return f'<br><br><strong>{titulo_limpo}</strong>'
 
     for titulo_pattern in titulos_lista:
         html_content = re.sub(
@@ -98,17 +96,10 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
             flags=re.IGNORECASE
         )
 
-    html_content = re.sub(
-        r'(\n)(\s*[-–•*])',
-        r'[[LIST_ITEM]]\2',
-        html_content
-    )
-
+    html_content = re.sub(r'(\n)(\s*[-–•*])', r'[[LIST_ITEM]]\2', html_content)
     html_content = html_content.replace('\n', ' ')
-
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
-    
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
     
