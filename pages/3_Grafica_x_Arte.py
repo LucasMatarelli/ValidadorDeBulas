@@ -983,7 +983,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
     
     st.divider()
     
-    st.subheader("Visualização Lado a Lado com Destaques")
+    st.subheader("🎨 Visualização Lado a Lado com Destaques")
     st.markdown(
         "**Legenda:** <mark style='background-color: #ffff99; padding: 2px;'>Amarelo</mark> = Divergências | "
         "<mark style='background-color: #FFDDC1; padding: 2px;'>Rosa</mark> = Erros ortográficos | "
