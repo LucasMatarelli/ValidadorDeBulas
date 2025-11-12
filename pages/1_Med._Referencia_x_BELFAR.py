@@ -629,8 +629,7 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     aliases = list(obter_aliases_secao().keys())
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
     
-    # --- [INÍCIO DA CORREÇÃO v18.20] ---
-    # 3. Formata Títulos e Tópicos
+    # 3. Formata Títulos
     linhas_formatadas = []
     # Regex para Tópicos (inclui hífen, traço, bullet e o 'minus sign' da Belfar)
     topic_regex = re.compile(r'^\s*[-–•*−]')
@@ -663,7 +662,6 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
         else:
             # É uma linha de conteúdo normal
             linhas_formatadas.append(linha)
-    # --- [FIM DA CORREÇÃO v18.20] ---
 
     html_content = "\n".join(linhas_formatadas)
 
@@ -681,6 +679,8 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     html_content = re.sub(r'\s{2,}', ' ', html_content) 
     # Remove <br> indesejados antes de tópicos que seguem títulos
     html_content = re.sub(r'(<strong>.*?</strong>)(\s*<br>\s*)(<br>\s*[-–•*−])', r'\1\3', html_content)
+    # Limpa <br> que pode ter sobrado de um \n entre o : e o primeiro tópico
+    html_content = re.sub(r'(:)(\s*<br>\s*)(<br>\s*[-–•*−])', r'\1\3', html_content)
 
     return html_content
 # --- [FIM DA FUNÇÃO DE LAYOUT] ---
@@ -746,9 +746,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
-    # --- [MUDANÇA v18.16] ---
     secoes_faltantes, relatorio_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    # --- [FIM DA MUDANÇA] ---
     
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
@@ -778,8 +776,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "white-space: normal; overflow-wrap: break-word;"
     )
 
-    # --- [INÍCIO DA LÓGICA MODIFICADA (v18.16) - MANTIDA] ---
-    # Itera sobre o 'relatorio_completo'
     for item in relatorio_completo:
         secao_canonico_raw = item['secao']
         status = item['status']
@@ -788,13 +784,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         if not titulo_display:
             titulo_display = secao_canonico_raw
         
-        # Lógica do "9."
         secao_canonico_norm = normalizar_texto(secao_canonico_raw)
         if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm:
             if not normalizar_texto(titulo_display).startswith("9"):
                 titulo_display = f"9. {titulo_display}"
         
-        # Define o título do expander
         if status == 'diferente':
             expander_title = f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"
         elif status == 'ignorada':
@@ -810,7 +804,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             conteudo_ref_bruto = item['conteudo_ref']
             conteudo_belfar_bruto = item['conteudo_belfar']
 
-            # Marca diferenças (só vai marcar se status='diferente', senão retorna original)
             html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
                 conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=True
             )
@@ -818,7 +811,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=False
             )
 
-            # Formata para HTML (layout, tópicos, negrito)
             expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, tipo_bula, aplicar_numeracao=True)
             expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, tipo_bula, aplicar_numeracao=False)
             
@@ -833,12 +825,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             with c2:
                 st.markdown("**BELFAR:** (Clique na caixa para rolar)")
                 st.markdown(html_bel_box, unsafe_allow_html=True)
-    # --- [FIM DA LÓGICA MODIFICADA] ---
 
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
 
-    # Checa se há divergências no relatório
     diferencas_encontradas = any(item['status'] == 'diferente' for item in relatorio_completo)
 
     if not any([secoes_faltantes, diferencas_encontradas, diferencas_titulos]) and len(erros_ortograficos) < 5:
