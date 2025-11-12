@@ -261,8 +261,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\u00A0', ' ')
 
             # --- FILTRO DE RUÍDO ---
-
-            # Padrão 1: Remove LINHAS INTEIRAS que são ruído
             padrao_ruido_linha_regex = (
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
@@ -277,11 +275,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|cloridrato de ambroxo\s*$'
                 r'|Normal e Negrito\. Co\s*$'
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL'
-                r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*' # Remove '190 CLORIDRATO...'
+                r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*'
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
-            # Padrão 2: Remove FRAGMENTOS de ruído
             padrao_ruido_inline_regex = (
                 r'BUL_CLORIDRATO_DE_NA[\s\S]{0,20}?\d+'  
                 r'|New[\s\S]{0,10}?Roman[\s\S]{0,50}?(?:mm|\d+)'
@@ -291,12 +288,11 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|es New Roman.*?'  
                 r'|rpo \d+.*?'  
                 r'|olL: Times New Roman.*?'
-                r'|(?<=\s)\d{3}(?=\s[a-zA-Z])' # Remove '190' e '300' inline
-                r'|(?<=\s)mm(?=\s)' # Remove ' mm ' inline (corrige Título 9)
+                r'|(?<=\s)\d{3}(?=\s[a-zA-Z])'
+                r'|(?<=\s)mm(?=\s)'
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
 
-            # Protege strings importantes que não queremos apagar (ex.: BUL_CLORIDRATO_DE_NAFAZOLINA 190)
             texto = re.sub(
                 r'(BUL_CLORIDRATO_DE_NAFAZOLINA)\s*(\d{2,4})',
                 r'__KEEPBUL_\1_\2__',
@@ -304,10 +300,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 flags=re.IGNORECASE
             )
 
-            # Aplica limpeza inline
             texto = padrao_ruido_inline.sub(' ', texto)
 
-            # Restaura marcadores protegidos
             texto = re.sub(
                 r'__KEEPBUL_(BUL_CLORIDRATO_DE_NAFAZOLINA)_(\d{2,4})__',
                 lambda m: f"{m.group(1).replace('_', ' ')} {m.group(2)}",
@@ -315,36 +309,32 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 flags=re.IGNORECASE
             )
 
-            linhas = texto.split('\n')
+            # --- REMOVE NUMERAÇÃO MKT (1. 2. 3. etc) ---
+            if is_marketing_pdf:
+                # Remove padrões tipo “1.”, “2.”, etc., isolados ou no início da linha
+                texto = re.sub(r'(?m)^\s*\d{1,2}\.\s*', '', texto)
+                # Também remove números seguidos de ponto dentro do texto, se isolados por espaços
+                texto = re.sub(r'(?<=\s)\d{1,2}\.(?=\s)', ' ', texto)
 
+            linhas = texto.split('\n')
             linhas_filtradas = []
             for linha in linhas:
                 linha_strip = linha.strip()
 
-                # 1. Filtra linhas de ruído conhecidas
                 if padrao_ruido_linha.search(linha_strip):
                     continue
 
-                # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
 
-                # --- INÍCIO DA CORREÇÃO (v26.58) ---
-                # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '190', '*', '...', ou '1.')
                 if is_marketing_pdf and not re.search(r'[a-zA-Z]', linha_limpa):
-                    # Remove *qualquer* linha sem letras, incluindo '1.', '2.', etc.
                     continue
-                # --- FIM DA CORREÇÃO ---
 
-                # 4. Adiciona a linha (preserva linhas em branco para estrutura de parágrafo)
                 if linha_limpa:
                     linhas_filtradas.append(linha_limpa)
                 elif not linhas_filtradas or linhas_filtradas[-1] != "":
-                     # Adiciona linha em branco se não for duplicada
-                     linhas_filtradas.append("")
+                    linhas_filtradas.append("")
 
             texto = "\n".join(linhas_filtradas)
-            
-            # Normaliza quebras de linha múltiplas para \n\n
             texto = re.sub(r'\n{3,}', '\n\n', texto)
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
