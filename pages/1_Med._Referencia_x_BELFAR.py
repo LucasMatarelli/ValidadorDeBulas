@@ -1,7 +1,8 @@
 # --- IMPORTS ---
+
 import streamlit as st
 # from style_utils import hide_streamlit_toolbar # Removi a dependência que não estava no código
-import fitz # PyMuPDF
+import fitz  # PyMuPDF
 import docx
 import re
 import spacy
@@ -52,6 +53,7 @@ st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
 
 
 # ----------------- MODELO NLP -----------------
+
 @st.cache_resource
 def carregar_modelo_spacy():
     """Carrega o modelo de linguagem SpaCy de forma otimizada."""
@@ -64,6 +66,7 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
+
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -115,6 +118,7 @@ def truncar_apos_anvisa(texto):
     return texto
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
+
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
         "Paciente": [
@@ -124,9 +128,9 @@ def obter_secoes_por_tipo(tipo_bula):
             "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
             "COMO DEVO USAR ESTE MEDICAMENTO?",
             "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            # --- [CORREÇÃO PROBLEMA 3] --- 
+            # --- [CORREÇÃO PROBLEMA 3] ---
             # Adicionei o "PODE ME CAUSAR" como um alias mental, mas o título correto é "PODE CAUSAR"
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?", 
+            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
             "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
         ],
@@ -160,6 +164,7 @@ def obter_secoes_ignorar_comparacao():
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES", "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"]
 
 # ----------------- NORMALIZAÇÃO -----------------
+
 def normalizar_texto(texto):
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
@@ -182,6 +187,7 @@ def _create_anchor_id(secao_nome, prefix):
     return f"anchor-{prefix}-{norm_safe}"
 
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (VERSÃO FINAL) -----------------
+
 def is_titulo_secao(linha):
     """Retorna True se a linha for um possível título de seção puro."""
     linha = linha.strip()
@@ -240,6 +246,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 # --- [MODIFICAÇÃO: Inserido o código que lê 3 linhas] ---
+
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
@@ -294,7 +301,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
 
             
-            if linha_atual_norm in titulos_norm_set: 
+            if linha_atual_norm in titulos_norm_set:
                 prox_idx = j # Encontrou um título em uma única linha
                 break # Para o loop 'j'
 
@@ -305,7 +312,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
                 titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
 
-                if titulo_duas_linhas_norm in titulos_norm_set: 
+                if titulo_duas_linhas_norm in titulos_norm_set:
                     prox_idx = j # Encontrou um título dividido em duas linhas
                     break # Para o loop 'j'
 
@@ -332,9 +339,11 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
+
 # --- [FIM DA MODIFICAÇÃO] ---
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
+
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
@@ -397,8 +406,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
                 
                 diferencas_conteudo.append({
-                    'secao': secao, 
-                    'conteudo_ref': conteudo_ref, 
+                    'secao': secao,
+                    'conteudo_ref': conteudo_ref,
                     'conteudo_belfar': conteudo_belfar,
                     'titulo_encontrado': titulo_real_encontrado # <-- Salva o título real
                 })
@@ -409,8 +418,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos
 
-
 # ----------------- ORTOGRAFIA -----------------
+
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula):
     if not nlp or not texto_para_checar:
         return []
@@ -454,6 +463,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
         return []
 
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
+
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     def tokenizar(txt):
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
@@ -512,6 +522,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     return resultado
 
 # ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
+
 # --- [MODIFICADO] ---
 # Esta função agora adiciona um <div id="..."> em volta do conteúdo divergente
 def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
@@ -562,7 +573,9 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             )
 
     return texto_trabalho
+
 # ----------------- RELATÓRIO -----------------
+
 # --- [TOTALMENTE MODIFICADO E CORRIGIDO] ---
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     
@@ -653,40 +666,52 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
         
-    if diferencas_conteudo:
-        st.warning(f"⚠️ **Diferenças de conteúdo encontradas ({len(diferencas_conteudo)} seções):**")
-        expander_caixa_style = (
-            "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
-            "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
-            "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
-        )
+    # --- [INÍCIO DA MODIFICAÇÃO DE LÓGICA] ---
+    # Modificado para mostrar TODAS as seções, independente de erro ou acerto.
+    
+    # Obter a lista de todas as seções que *deveriam* existir
+    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
+    
+    # Criar um dicionário de acesso rápido para as diferenças
+    # A chave será o nome canônico da seção
+    mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
+    
+    # Criar um set de acesso rápido para seções ignoradas
+    secoes_ignorar_comp = obter_secoes_ignorar_comparacao()
+    secoes_ignorar_upper = {s.upper() for s in secoes_ignorar_comp}
 
-        for diff in diferencas_conteudo:
+    st.subheader("Análise de Conteúdo Seção por Seção")
+    
+    expander_caixa_style = (
+        "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
+        "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
+        "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
+    )
+
+    # Iterar por TODAS as seções esperadas
+    for secao_canonico_raw in secoes_esperadas:
+        
+        # 1. Pular a seção se ela foi listada como "Faltante"
+        # (O erro já foi reportado acima, não precisa de expander)
+        if secao_canonico_raw in secoes_faltantes:
+            continue
+
+        # 2. Verificar se a seção está na lista de diferenças de conteúdo
+        if secao_canonico_raw in mapa_diferencas:
+            # --- Esta seção tem diferenças ---
+            diff = mapa_diferencas[secao_canonico_raw]
             
-            # --- [INÍCIO DA MODIFICAÇÃO] ---
-            
-            secao_canonico_raw = diff['secao'] # Pega o nome canônico (Ex: "QUAIS OS MALES...")
             titulo_display = diff.get('titulo_encontrado') or secao_canonico_raw
-            
-            if not titulo_display: 
+            if not titulo_display:
                 titulo_display = secao_canonico_raw
-
-            # --- [NOVA LÓGICA PARA FORÇAR O NÚMERO 9] ---
-            # Normaliza o nome canônico para uma verificação segura
-            secao_canonico_norm = normalizar_texto(secao_canonico_raw)
             
-            # Verifica se estamos na seção de "SUPERDOSE"
+            # Lógica do "9."
+            secao_canonico_norm = normalizar_texto(secao_canonico_raw)
             if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm:
-                # Se o título que pegamos (ex: "O QUE FAZER...") não começar com "9", nós forçamos.
                 if not normalizar_texto(titulo_display).startswith("9"):
                     titulo_display = f"9. {titulo_display}"
-            # --- [FIM DA NOVA LÓGICA] ---
-
-            with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
-            # --- [FIM DA MODIFICAÇÃO] ---
             
-                
-                # --- [MODIFICADO] ---
+            with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
@@ -698,17 +723,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
                 ).replace('\n', '<br>')
                 
-                # Adiciona 'cursor: pointer;' e um 'title' para feedback
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
-                
-                # --- [A MUDANÇA CRÍTICA] ---
-                # Criamos o HTML da caixa clicável com o 'onclick' chamando a função GLOBAL.
-                # Usamos aspas simples (') para o HTML e duplas (") para os parâmetros do JavaScript.
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
-                
-                # --- [LINHA CORRIGIDA] ---
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
-                # --- [FIM DA CORREÇÃO] ---
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -717,8 +734,21 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 with c2:
                     st.markdown("**BELFAR:** (Clique na caixa para rolar)")
                     st.markdown(html_bel_box, unsafe_allow_html=True)
-    else:
-        st.success("✅ Conteúdo das seções está idêntico")
+
+        # 3. Se não está faltante E não está com conteúdo diferente
+        else:
+            # --- Esta seção está CORRETA ou foi Ignorada ---
+            
+            # Verificar se é uma seção que foi pulada (Ignorada)
+            if secao_canonico_raw.upper() in secoes_ignorar_upper:
+                with st.expander(f"📄 {secao_canonico_raw} - ℹ️ IGNORADA (Regra de Negócio)"):
+                    st.info("Esta seção é ignorada durante a comparação de conteúdo (ex: Composição, Dizeres Legais) por regras de negócio.")
+            else:
+                # Se não foi ignorada e não teve diferença, está correta.
+                with st.expander(f"📄 {secao_canonico_raw} - ✅ CONTEÚDO IDÊNTICO"):
+                    st.success("O conteúdo desta seção na bula BELFAR é idêntico ao da referência.")
+
+    # --- [FIM DA MODIFICAÇÃO DE LÓGICA] ---
 
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
@@ -759,7 +789,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"**📄 {nome_belfar}**")
         # ID do container principal
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+
 # ----------------- INTERFACE -----------------
+
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
