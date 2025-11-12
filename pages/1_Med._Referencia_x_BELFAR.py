@@ -67,6 +67,7 @@ nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
 
+# --- [FUNÇÃO MODIFICADA] ---
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -78,7 +79,8 @@ def extrair_texto(arquivo, tipo_arquivo):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     blocks = page.get_text("blocks", sort=True)
-                    page_text = "".join([b[4] for b in blocks])
+                    # Usar get_text("text") pode ser melhor para fluidez
+                    page_text = page.get_text("text", sort=True) 
                     full_text_list.append(page_text)
             texto = "\n".join(full_text_list)
         elif tipo_arquivo == 'docx':
@@ -91,18 +93,37 @@ def extrair_texto(arquivo, tipo_arquivo):
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
+            
+            # 1. Corrige hifenização
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
+
+            # 2. Filtra rodapés linha por linha (necessário antes de juntar)
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             texto = "\n".join(linhas_filtradas)
-            texto = re.sub(r'\n{3,}', '\n\n', texto)
-            texto = re.sub(r'[ \t]+', ' ', texto)
+
+            # --- [INÍCIO DA NOVA LÓGICA DE "UN-WRAPPING"] ---
+            # 3. Preserva parágrafos "reais" (linhas em branco) com um placeholder
+            #    (Adiciona espaços para garantir separação ao juntar)
+            texto = re.sub(r'\n\s*\n', ' _PARAGRAPH_BREAK_ ', texto)
+            
+            # 4. Substitui todas as quebras de linha de formatação restantes por um espaço
+            texto = texto.replace('\n', ' ')
+            
+            # 5. Restaura os parágrafos reais
+            texto = texto.replace(' _PARAGRAPH_BREAK_ ', '\n\n')
+            # --- [FIM DA NOVA LÓGICA] ---
+
+            # 6. Limpeza final
+            texto = re.sub(r'\n{3,}', '\n\n', texto) # Garante que não haja mais de 2 quebras
+            texto = re.sub(r'[ \t]+', ' ', texto) # Colapsa espaços múltiplos
             texto = texto.strip()
 
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+# --- [FIM DA MODIFICAÇÃO] ---
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
@@ -687,7 +708,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
         "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
         "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify; "
-        "white-space: normal; overflow-wrap: break-word;"  # <-- ADICIONADO PARA CORRIGIR CORTE
+        "white-space: normal; overflow-wrap: break-word;"  # <-- Garante a quebra de linha
     )
     # --- [FIM DA CORREÇÃO] ---
 
@@ -780,7 +801,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "font-family: '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'; font-size: 15px; "
         "line-height: 1.7; box-shadow: 0 4px 12px rgba(0,0,0,0.08); "
         "text-align: justify; color: #333333; "
-        "white-space: normal; overflow-wrap: break-word;" # <-- ADICIONADO PARA CORRIGIR CORTE
+        "white-space: normal; overflow-wrap: break-word;" # <-- Garante a quebra de linha
     )
     # --- [FIM DA CORREÇÃO] ---
     
