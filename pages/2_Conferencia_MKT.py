@@ -23,8 +23,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     Recebe html_content (texto que pode conter quebras '\n' e marcações geradas pela função de marcação)
     e transforma em HTML de leitura (com <br><br>, strong, marcação de listas, e numeração correta).
     Se aplicar_numeracao == True (Arquivo ANVISA), força numeração nos títulos esperados.
-    Se aplicar_numeracao == False (Arquivo MKT), tenta NÃO inserir numeração, mas corrige casos
-    onde a numeração apareceu isolada na linha (por extração) para colocá-la antes do título.
+    Se aplicar_numeracao == False (Arquivo MKT), remove números soltos e adiciona numeração direta aos títulos.
     """
 
     if html_content is None:
@@ -33,15 +32,13 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     # 1) Normaliza quebras múltiplas no formato temporário
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
 
-    # 2) ANTES de processar títulos, junta número + título que estão separados por quebra de parágrafo
-    # Ex: "texto\n\n1.\n\nPARA QUE..." -> "texto\n\n1. PARA QUE..."
+    # 2) Remove números soltos entre parágrafos (para MKT)
     if not aplicar_numeracao:
-        # Padrão: [[PARAGRAPH]] número. [[PARAGRAPH]] TÍTULO
+        # Remove padrão: [[PARAGRAPH]]1.[[PARAGRAPH]] (número sozinho)
         html_content = re.sub(
-            r'\[\[PARAGRAPH\]\]\s*(\d+)\.\s*\[\[PARAGRAPH\]\]\s*([A-ZÀÁÉÍÓÚÂÊÔÃÕÇ][A-ZÀÁÉÍÓÚÂÊÔÃÕÇ\s\?]+)',
-            r'[[PARAGRAPH]]\1. \2',
-            html_content,
-            flags=re.IGNORECASE
+            r'\[\[PARAGRAPH\]\]\s*\d+\.\s*\[\[PARAGRAPH\]\]',
+            '[[PARAGRAPH]]',
+            html_content
         )
 
     # 3) Títulos que reconhecemos (padrões e versões com número já presentes)
@@ -72,32 +69,57 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         titulo = match.group(0)
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+        
+        # Remove números que possam já estar no título
+        titulo_sem_numero = re.sub(r'^\d+\.\s*', '', titulo_limpo)
 
         if aplicar_numeracao:
             titulo_upper = titulo_limpo.upper()
             if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>{titulo_sem_numero}</strong>'
             elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>1. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>1. {titulo_sem_numero}</strong>'
             elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>2. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>2. {titulo_sem_numero}</strong>'
             elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>3. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>3. {titulo_sem_numero}</strong>'
             elif 'O QUE DEVO SABER ANTES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>4. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>4. {titulo_sem_numero}</strong>'
             elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>5. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>5. {titulo_sem_numero}</strong>'
             elif 'COMO DEVO USAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>6. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>6. {titulo_sem_numero}</strong>'
             elif 'ESQUECER' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>7. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>7. {titulo_sem_numero}</strong>'
             elif 'QUAIS OS MALES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>8. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>8. {titulo_sem_numero}</strong>'
             elif 'QUANTIDADE MAIOR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
+                return f'[[PARAGRAPH]]<strong>9. {titulo_sem_numero}</strong>'
+        else:
+            # Para MKT: adiciona numeração diretamente
+            titulo_upper = titulo_limpo.upper()
+            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>{titulo_sem_numero}</strong>'
+            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>1. {titulo_sem_numero}</strong>'
+            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>2. {titulo_sem_numero}</strong>'
+            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>3. {titulo_sem_numero}</strong>'
+            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>4. {titulo_sem_numero}</strong>'
+            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>5. {titulo_sem_numero}</strong>'
+            elif 'COMO DEVO USAR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>6. {titulo_sem_numero}</strong>'
+            elif 'ESQUECER' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>7. {titulo_sem_numero}</strong>'
+            elif 'QUAIS OS MALES' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>8. {titulo_sem_numero}</strong>'
+            elif 'QUANTIDADE MAIOR' in titulo_upper:
+                return f'[[PARAGRAPH]]<strong>9. {titulo_sem_numero}</strong>'
 
-        # Se não aplicar numeração, apenas marca o título (já juntamos número+título antes)
-        return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
+        return f'[[PARAGRAPH]]<strong>{titulo_sem_numero}</strong>'
 
     # Aplica substituição dos padrões de título
     for titulo_pattern in titulos_lista:
@@ -115,22 +137,6 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
-
-    # FIX ADICIONAL: Remove números soltos que ainda podem ter sobrado
-    if not aplicar_numeracao:
-        # Remove padrão: <br><br>1.<br><br> (número sozinho entre quebras)
-        html_content = re.sub(
-            r'<br\s*/?>\s*<br\s*/?>\s*\d+\.\s*<br\s*/?>\s*<br\s*/?>\s*',
-            '<br><br>',
-            html_content
-        )
-        
-        # Junta número + título se ainda estiverem separados por <br><br>
-        html_content = re.sub(
-            r'<br\s*/?>\s*<br\s*/?>\s*(\d+)\.\s*<br\s*/?>\s*<br\s*/?>\s*<strong>',
-            r'<br><br><strong>\1. ',
-            html_content
-        )
 
     # Última limpeza de espaços/quebras duplicadas
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
