@@ -90,12 +90,19 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = texto.replace('\u00A0', ' ')
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
-            # --- [NOVA CORREÇÃO v18.10] ---
+            # --- [CORREÇÃO v18.11 - CORTE (ANEXO B)] ---
             # Substitui \n por espaço, A MENOS QUE a próxima linha:
             # 1. Seja outra quebra de linha (novo parágrafo)
             # 2. Seja um item de lista (começando com •, −, -, ou número)
             # 3. Seja um TÍTULO (ex: toda em maiúsculas)
-            texto = re.sub(r'\n(?![ \t]*([•−\-]|\d+\.)|\n|([A-Z\s]{4,})$)', ' ', texto)
+            # 4. Seja a palavra "Anexo" (para não quebrar o truncar_apos_anvisa)
+            texto = re.sub(r'\n(?![ \t]*(Anexo|[•−\-]|\d+\.)|\n|([A-Z\s?]{4,})$)', ' ', texto, flags=re.IGNORECASE | re.MULTILINE)
+            # --- [FIM DA CORREÇÃO] ---
+
+            # --- [CORREÇÃO v18.11 - ESPAÇAMENTO] ---
+            # Adiciona uma linha em branco *antes* de Títulos e Listas,
+            # mas somente se já não houver uma.
+            texto = re.sub(r'([^\n])(\n)([ \t]*(?:[•−\-]|\d+\.|[A-Z\s?]{4,})$)', r'\1\n\n\3', texto, flags=re.MULTILINE)
             # --- [FIM DA CORREÇÃO] ---
 
             linhas = texto.split('\n')
@@ -858,4 +865,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.10 | Correção de Quebra de Linha (Títulos) | Relatório Completo")
+st.caption("Sistema de Auditoria de Bulas v18.11 | Correção de Espaçamento e Truncamento (Anexo) | Relatório Completo")
