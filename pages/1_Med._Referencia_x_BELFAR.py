@@ -829,12 +829,20 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             conteudo_ref_bruto = item['conteudo_ref']
             conteudo_belfar_bruto = item['conteudo_belfar']
 
-            html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
-                conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=True
-            )
-            html_belfar_bruto_expander = marcar_diferencas_palavra_por_palavra(
-                conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=False
-            )
+            # --- [INÍCIO DA CORREÇÃO v18.26] ---
+            if status == 'diferente':
+                # Só marca com amarelo se for diferente
+                html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
+                    conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=True
+                )
+                html_belfar_bruto_expander = marcar_diferencas_palavra_por_palavra(
+                    conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=False
+                )
+            else:
+                # Se for 'identica' ou 'ignorada', apenas passa o texto cru
+                html_ref_bruto_expander = conteudo_ref_bruto
+                html_belfar_bruto_expander = conteudo_belfar_bruto
+            # --- [FIM DA CORREÇÃO v18.26] ---
 
             expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, tipo_bula, aplicar_numeracao=True)
             expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, tipo_bula, aplicar_numeracao=False)
@@ -910,7 +918,7 @@ with col1:
     pdf_ref = st.file_uploader("Envie o PDF ou DOCX de referência", type=["pdf", "docx"], key="ref")
 with col2:
     st.subheader("📄 Med. BELFAR")
-    pdf_belfar = st.file_uploader("Envie o PDF ou DOCX Belfar", type=["pdf", "docx"], key="belfar")
+    pdf_belfar = st.file_uploader("EnvIE o PDF ou DOCX Belfar", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
@@ -942,4 +950,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.25 | Correção Tópicos (Regex v5) e Data ANVISA (Regex v4) e Mapeamento")
+st.caption("Sistema de Auditoria de Bulas v18.26 | Correção de Destaque em Seções Ignoradas")
