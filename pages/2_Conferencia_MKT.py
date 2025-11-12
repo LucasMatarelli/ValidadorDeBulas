@@ -692,7 +692,12 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             return []
 
         spell = SpellChecker(language='pt')
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato"}
+        
+        # --- LINHA MODIFICADA ---
+        # Adicionado "iobeguane" ao set de palavras a ignorar
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "contato", "iobeguane"}
+        # ------------------------
+
         vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
         doc = nlp(texto_para_checar)
         entidades = {ent.text.lower() for ent in doc.ents}
