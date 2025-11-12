@@ -114,46 +114,24 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
 
-    # --- FIX: juntar numeração solta com título subsequente (caso do MKT) ---
-    # Exemplo a corrigir:
-    #   "...<br><br>1.<br><br>PARA QUE ESTE MEDICAMENTO..."  -> "...<br><br>1. PARA QUE ESTE MEDICAMENTO..."
+    # --- FIX MELHORADO: juntar numeração solta com título subsequente (caso do MKT) ---
     def juntar_numeracao_e_titulo(html):
-        # Usa divisão simples por '<br><br>' para operar em "blocos"
-        parts = [p for p in html.split('<br><br>')]  # mantém ordem
-        i = 0
-        out_parts = []
-        while i < len(parts):
-            part = parts[i].strip()
-            # checa se o bloco é apenas um número (ex: "1." ou "1")
-            if re.fullmatch(r'\d+\.', part) or re.fullmatch(r'\d+', part):
-                # se houver próximo bloco e ele parecer um título (MAIÚSCULAS longas ou começa com <strong>)
-                if i + 1 < len(parts):
-                    next_part = parts[i + 1].strip()
-                    looks_like_title = False
-                    # Caso 1: já está com <strong>... (nossos títulos ficam com <strong>)
-                    if re.match(r'^(<strong>.*</strong>)$', next_part, flags=re.IGNORECASE):
-                        looks_like_title = True
-                    # Caso 2: texto todo em maiúsculas (ou começa com letras maiúsculas e poucas palavras)
-                    elif next_part.isupper() and len(next_part.split()) < 40:
-                        looks_like_title = True
-                    # Caso 3: starts with a letter maiúscula and many words (fallback)
-                    elif re.match(r'^[A-ZÀ-Ý]{2,}', next_part):
-                        looks_like_title = True
-
-                    if looks_like_title:
-                        # Remove tags strong se existir para evitar duplicar
-                        inner = re.sub(r'^<strong>(.*?)</strong>$', r'\1', next_part, flags=re.IGNORECASE)
-                        # monta título com número na frente, preservando strong
-                        combined = f"<strong>{part.strip().rstrip('.')}. {inner.strip()}</strong>"
-                        out_parts.append(combined)
-                        i += 2  # pula o próximo (já combinado)
-                        continue
-            # Caso padrão: apenas adiciona o bloco como está
-            out_parts.append(parts[i])
-            i += 1
-        # Reconstrói string com '<br><br>' (remove vazios redundantes)
-        out = '<br><br>'.join([p for p in out_parts if p and p.strip() != ''])
-        return out
+        # Padrão mais robusto: captura número seguido de quebras e depois título
+        # Ex: "...texto<br><br>1.<br><br>PARA QUE..." -> "...texto<br><br>1. PARA QUE..."
+        pattern = r'(<br\s*/?>\s*){2,}(\d+)\.\s*(<br\s*/?>\s*){2,}(<strong>)?([A-ZÀÁÉÍÓÚÂÊÔÃÕÇ][A-ZÀÁÉÍÓÚÂÊÔÃÕÇ\s\?]+)(</strong>)?'
+        
+        def replacer(match):
+            numero = match.group(2)
+            tem_strong = match.group(4) is not None
+            titulo_texto = match.group(5).strip()
+            
+            if tem_strong:
+                return f'<br><br><strong>{numero}. {titulo_texto}</strong>'
+            else:
+                return f'<br><br><strong>{numero}. {titulo_texto}</strong>'
+        
+        html = re.sub(pattern, replacer, html)
+        return html
 
     html_content = juntar_numeracao_e_titulo(html_content)
 
@@ -162,7 +140,6 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content = re.sub(r'\s{2,}', ' ', html_content)
 
     return html_content
-
 # ----------------- MARCAÇÃO DE DIVERGÊNCIAS (v26.27) -----------------
 def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
@@ -774,14 +751,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.markdown("---")
     st.subheader("Análise Detalhada Seção por Seção")
 
-    # --- INÍCIO DA MUDANÇA v26.50 ---
-    # Patch Regex 1: Remove número no *início* do HTML (ex: "1.<br><br>...") - mantemos para remover casos resquícios,
-    # mas agora aplicamos depois de tentarmos unir número + título
-    patch_regex_start = re.compile(r'^\s*\d+\.\s*(<br\s*/?>\s*){2,}', re.IGNORECASE)
-    # Patch Regex 2: Remove número no *meio* do HTML (ex: "...<br><br>2.<br><br>...")
-    patch_regex_middle = re.compile(r'(<br\s*/?>\s*){2,}\s*\d+\.\s*(<br\s*/?>\s*){2,}', re.IGNORECASE)
-    # --- FIM DA MUDANÇA v26.50 ---
-
     for item in relatorio_comparacao_completo:
         secao_nome = item['secao']
         status = item['status']
@@ -802,10 +771,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, aplicar_numeracao=True)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, aplicar_numeracao=False)
 
-                # Aplica os patches no MKT (após tentar unir número + título)
-                expander_html_belfar = patch_regex_start.sub('', expander_html_belfar)
-                expander_html_belfar = patch_regex_middle.sub('<br><br>', expander_html_belfar)
-
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Arquivo ANVISA:**")
@@ -822,10 +787,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             with st.expander(expander_title):
                 expander_html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
                 expander_html_belfar = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
-
-                # Aplica os patches no MKT
-                expander_html_belfar = patch_regex_start.sub('', expander_html_belfar)
-                expander_html_belfar = patch_regex_middle.sub('<br><br>', expander_html_belfar)
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -870,12 +831,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
 
-    # --- INÍCIO DA MUDANÇA v26.50 ---
-    # Aplica os patches no MKT também na visualização principal (resíduos)
-    html_belfar_marcado = patch_regex_start.sub('', html_belfar_marcado)
-    html_belfar_marcado = patch_regex_middle.sub('<br><br>', html_belfar_marcado)
-    # --- FIM DA MUDANÇA v26.50 ---
-
     caixa_style = (
         "max-height: 700px; "
         "overflow-y: auto; "
@@ -905,49 +860,3 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
-
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
-st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
-st.divider()
-
-st.header("📋 Configuração da Auditoria")
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente"), horizontal=True)
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("📄 Arquivo ANVISA")
-    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
-with col2:
-    st.subheader("📄 Arquivo MKT")
-    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
-
-if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
-    if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas..."):
-
-            tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
-
-            # ANVISA é extraído com 'is_marketing_pdf=False'
-            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
-
-            if not erro_ref:
-                texto_ref = corrigir_quebras_em_titulos(texto_ref)
-                texto_ref = truncar_apos_anvisa(texto_ref)
-
-            # MKT é extraído com 'is_marketing_pdf=True'
-            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
-
-            if not erro_belfar:
-                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
-                texto_belfar = truncar_apos_anvisa(texto_belfar)
-
-            if erro_ref or erro_belfar:
-                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
-            elif not texto_ref or not texto_belfar:
-                st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
-            else:
-                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
-    else:
-        st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
-
-st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.52 | Correção Numeração MKT (definitiva)")
