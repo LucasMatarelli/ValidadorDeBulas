@@ -1,12 +1,14 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.54 (Correção MKT: Remove números soltos com \n ou \n\n)
-#  - Adiciona uma etapa de remoção de números soltos (ex: "1.") ANTES
-#    da normalização de parágrafos.
-#  - Isso corrige o caso onde a extração de texto (MKT) usa quebras
-#    simples (\n) em vez de duplas (\n\n).
-#  - Mantém a lógica original (com [[PARAGRAPH]]) para garantir
-#    robustez caso a extração mude.
+# Versão v26.55 (Correção "Seções Faltantes" - CRÍTICO)
+#  - Corrige o bug em `corrigir_quebras_em_titulos` (introduzido na v26.54)
+#    que estava removendo todas as quebras de parágrafo e achatando
+#    o documento inteiro em uma linha só.
+#  - O achatamento fazia `mapear_secoes` falhar e reportar todas as
+#    seções como "faltantes".
+#  - A nova `corrigir_quebras_em_titulos` agora preserva as quebras
+#    de parágrafo (\n\n) enquanto junta títulos quebrados.
+#  - Mantém a lógica de remoção de números soltos da v26.54.
 
 # --- IMPORTS ---
 import re
@@ -20,7 +22,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.54 - CORREÇÃO NUMERAÇÃO MKT) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.54 - MANTIDO) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     """
     Recebe html_content (texto que pode conter quebras '\n' e marcações geradas pela função de marcação)
@@ -34,12 +36,11 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
 
     # 1) REMOÇÃO PRELIMINAR DE NÚMEROS (v26.54)
     # Remove números soltos (ex: "1.") que vêm da extração do MKT com quebra simples (\n)
-    # Isso limpa o "1." de "...\n1.\n1. PARA QUE..."
     if not aplicar_numeracao:
         # Remove padrão: \n N. \n (número sozinho no meio)
         html_content = re.sub(
             r'\n\s*\d+\.\s*\n',
-            '\n',  # Substitui por \n, que vira espaço ou [[PARAGRAPH]]
+            '\n',
             html_content,
             flags=re.IGNORECASE
         )
@@ -62,7 +63,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
 
     # 3) Remove números soltos entre parágrafos (para MKT - caso [[PARAGRAPH]])
-    # Isso limpa o "1." de "...\n\n1.\n\n1. PARA QUE..." (lógica original mantida)
+    # Isso limpa o "1." de "...\n\n1.\n\n1. PARA QUE..."
     if not aplicar_numeracao:
         # Remove padrão: [[PARAGRAPH]] N. [[PARAGRAPH]] (número sozinho no meio)
         html_content = re.sub(
@@ -272,7 +273,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     for page in doc:
                         full_text_list.append(page.get_text("text", sort=True))
 
-            texto = "\n\n".join(full_text_list) # <-- ATENÇÃO: A extração original estava "\n\n"
+            texto = "\n\n".join(full_text_list) 
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -362,25 +363,16 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 if is_marketing_pdf and not re.search(r'[a-zA-Z]', linha_limpa):
                     continue
 
-                # 4. Adiciona a linha
+                # 4. Adiciona a linha (preserva linhas em branco para estrutura de parágrafo)
                 if linha_limpa:
                     linhas_filtradas.append(linha_limpa)
-            
-            # --- NOTA DE CORREÇÃO ---
-            # O código original junta com "\n", o que quebra a lógica de parágrafo.
-            # O PDF do PyMuPDF (sem ser 'is_marketing_pdf') já junta com "\n\n".
-            # O 'is_marketing_pdf' junta as colunas com "\n\n".
-            # O 'docx' junta com "\n".
-            # A função formatar_html_para_leitura (v26.54) agora lida com AMBOS os casos (\n e \n\n).
-            # Portanto, podemos manter a junção original.
-            if tipo_arquivo == 'docx':
-                 texto = "\n".join(linhas_filtradas) # DOCX extrai parágrafos, \n é o separador correto
-            else:
-                 texto = "\n".join(linhas_filtradas) # PDF (ambos os casos) parecem usar \n como separador de linha extraída
-            
-            # Se o problema persistir, a linha abaixo (usando \n\n) deve ser usada
-            # texto = "\n\n".join(linhas_filtradas)
+                elif not linhas_filtradas or linhas_filtradas[-1] != "":
+                     # Adiciona linha em branco se não for duplicada
+                     linhas_filtradas.append("")
 
+            texto = "\n".join(linhas_filtradas)
+            
+            # Normaliza quebras de linha múltiplas para \n\n
             texto = re.sub(r'\n{3,}', '\n\n', texto)
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
@@ -489,42 +481,57 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
+# ----------------- FUNÇÃO CORRIGIDA (v26.55) -----------------
 def corrigir_quebras_em_titulos(texto):
+    """
+    Corrige títulos que foram quebrados em múltiplas linhas (ex: "COMPOSIÇÃO"
+    em uma linha e "DO MEDICAMENTO" em outra) juntando-os.
+    Preserva quebras de parágrafo (\n\n) e quebras de linha de conteúdo.
+    """
     linhas = texto.split("\n")
     linhas_corrigidas = []
     buffer = ""
 
     for linha in linhas:
         linha_strip = linha.strip()
+
         if not linha_strip:
-            # Mantém quebras de parágrafo (v26.54 - importante)
+            # É uma linha em branco (parte de um \n\n)
             if buffer:
+                # O buffer (título) terminou antes da linha em branco
                 linhas_corrigidas.append(buffer)
                 buffer = ""
-            linhas_corrigidas.append("") # Adiciona a linha vazia de volta
+            linhas_corrigidas.append("") # Preserva a linha em branco
             continue
 
-        if linha_strip.isupper() and len(linha_strip) < 60:
+        # Verifica se a linha parece ser um título ou fragmento de título
+        # (CURTA, MAIÚSCULA, ou começando com NÚMERO.)
+        is_potential_title = (
+            linha_strip.isupper() and len(linha_strip) < 70
+        ) or re.match(r'^\d+\.', linha_strip)
+
+        if is_potential_title:
             if buffer:
+                # Já temos um título no buffer, junta com espaço
                 buffer += " " + linha_strip
             else:
+                # Começa um novo título no buffer
                 buffer = linha_strip
         else:
+            # Esta linha é conteúdo
             if buffer:
+                # Descarrega o título do buffer antes do conteúdo
                 linhas_corrigidas.append(buffer)
                 buffer = ""
-            linhas_corrigidas.append(linha_strip)
+            linhas_corrigidas.append(linha_strip) # Adiciona a linha de conteúdo
 
     if buffer:
+        # Adiciona o último título que estava no buffer
         linhas_corrigidas.append(buffer)
 
-    # Reconstrói o texto preservando parágrafos (\n\n) e quebras simples (\n)
-    texto_reconstruido = "\n".join(linhas_corrigidas)
-    # Garante que \n\n seja preservado e \n\n\n+ seja normalizado
-    texto_reconstruido = re.sub(r'\n{2,}', '[[PARAGRAPH_TEMP]]', texto_reconstruido)
-    texto_reconstruido = texto_reconstruido.replace('\n', ' ')
-    texto_reconstruido = texto_reconstruido.replace('[[PARAGRAPH_TEMP]]', '\n\n')
-    return texto_reconstruido
+    # Reconstrói o texto preservando a estrutura de parágrafos
+    return "\n".join(linhas_corrigidas)
+# ----------------- FIM DA CORREÇÃO -----------------
 
 def is_titulo_secao(linha):
     linha = linha.strip()
@@ -540,13 +547,22 @@ def is_titulo_secao(linha):
         return False
     if len(linha) > 100:
         return False
+    # Checa se a linha é MAIÚSCULA, mas não contém muitas minúsculas (ex: "Lei nº...")
     if linha.isupper():
         return True
+    
+    # Lógica para títulos mistos (ex: "1. PARA QUE...")
+    upper_chars = sum(1 for c in linha if c.isupper())
+    lower_chars = sum(1 for c in linha if c.islower())
+    
+    if upper_chars > lower_chars and lower_chars < 10:
+         return True
+         
     return False
 
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
-    # Normaliza o texto para ter separadores de linha consistentes
+    # Normaliza o texto para ter separadores de linha consistentes (\n\n vira \n)
     texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo)
     linhas = texto_normalizado.split('\n')
     aliases = obter_aliases_secao()
@@ -563,6 +579,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
 
     for idx, linha_limpa in enumerate(linhas):
         linha_limpa = linha_limpa.strip()
+        
+        if not linha_limpa: # Ignora linhas vazias
+            continue
 
         if not is_titulo_secao(linha_limpa):
             continue
@@ -613,12 +632,8 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
         linha_fim = secao_seguinte_info['linha_inicio']
 
     conteudo = [linhas_texto_split[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
-    # Reconstrói com \n\n para formatar_html_para_leitura
-    conteudo_final = "\n\n".join(conteudo).strip() 
-    
-    # Adiciona \n para casos de \n simples (extração docx)
+    # Reconstrói com \n para formatar_html_para_leitura (que espera \n ou \n\n)
     conteudo_final = "\n".join(conteudo).strip()
-
 
     return True, titulo_encontrado, conteudo_final
 
@@ -631,6 +646,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
     # A lógica de split aqui deve ser consistente com mapear_secoes
+    # \n\n ou \n são normalizados para \n
     linhas_ref = re.sub(r'\n{2,}', '\n', texto_ref).split('\n')
     linhas_belfar = re.sub(r'\n{2,}', '\n', texto_belfar).split('\n')
     
@@ -711,7 +727,7 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
             if encontrou and conteudo:
                 texto_filtrado_para_checar.append(conteudo)
 
-        texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
+        texto_final_para_checar = "\n".join(texto_filtrado_para_checar)
 
         if not texto_final_para_checar:
             return []
@@ -786,7 +802,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- GERAÇÃO DE RELATÓRIO (v26.50 - CORRIGIDO) -----------------
+# ----------------- GERAÇÃO DE RELATÓRIO (v26.50 - MANTIDO) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
 
@@ -902,7 +918,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "<strong>Legenda:</strong> "
         "<mark style='background-color: #ffff99; padding: 2px; margin: 0 2px;'>Amarelo</mark> = Divergências | "
         "<mark style='background-color: #FFDDC1; padding: 2px; margin: 0 2px;'>Rosa</mark> = Erros ortográficos | "
-        "<mark style'background-color: #cce5ff; padding: 2px; margin: 0 2px;'>Azul</mark> = Data ANVISA"
+        "<mark style='background-color: #cce5ff; padding: 2px; margin: 0 2px;'>Azul</mark> = Data ANVISA"
         "</div>",
         unsafe_allow_html=True
     )
@@ -967,9 +983,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
 
             if not erro_ref:
-                # ATENÇÃO: A correção de quebras no docx pode ser destrutiva
-                if tipo_arquivo_ref == 'pdf':
-                     texto_ref = corrigir_quebras_em_titulos(texto_ref)
+                texto_ref = corrigir_quebras_em_titulos(texto_ref)
                 texto_ref = truncar_apos_anvisa(texto_ref)
 
             # MKT é extraído com 'is_marketing_pdf=True'
@@ -989,4 +1003,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.54 | Numeração MKT corrigida")
+st.caption("Sistema de Auditoria de Bulas v26.55 | Correção Mapeamento")
