@@ -111,7 +111,7 @@ def extrair_texto(arquivo, tipo_arquivo):
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
-    # --- [CORREÇÃO v18.20] --- Adiciona \s* para datas com espaço
+    # --- [CORREÇÃO v18.21] --- Adiciona \s* para datas com espaço
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
@@ -596,10 +596,10 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
                 flags=re.IGNORECASE
             )
             
-    # --- [INÍCIO DA CORREÇÃO v18.20] ---
+    # --- [INÍCIO DA CORREÇÃO v18.21] ---
     # Adiciona \s* para permitir espaços na data (ex: 05 / 02 / 2025)
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
-    # --- [FIM DA CORREÇÃO v18.20] ---
+    # --- [FIM DA CORREÇÃO v18.21] ---
     
     def remove_marks_da_data(match):
         frase_anvisa = match.group(1)
@@ -667,12 +667,15 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     html_content = "\n".join(linhas_formatadas)
 
     # 4. Lista e quebras (LÓGICA CORRIGIDA)
-    # O que sobrou de \n é texto contínuo, vira espaço
-    html_content = html_content.replace('\n', ' ') 
-    
-    # Substitui os placeholders
+    # Substitui placeholders PRIMEIRO
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>') # Restaura parágrafos
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>') # Restaura quebras de TÓPICO
+
+    # Agora, o que sobrou de \n é texto contínuo, vira espaço
+    # (Usando re.sub para evitar `\n<br>`)
+    html_content = re.sub(r'\n(?!\s*<br>)', ' ', html_content)
+    # Remove o \n que sobrou *antes* de um <br>
+    html_content = html_content.replace('\n', '') 
     
     # 5. Limpeza final
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content) 
@@ -682,6 +685,8 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     html_content = re.sub(r'(<strong>.*?</strong>)(\s*<br>\s*)(<br>\s*[-–•*−])', r'\1\3', html_content)
     # Limpa <br> que pode ter sobrado de um \n entre o : e o primeiro tópico
     html_content = re.sub(r'(:)(\s*<br>\s*)(<br>\s*[-–•*−])', r'\1\3', html_content)
+    # Limpa espaço antes de uma quebra de linha
+    html_content = re.sub(r'\s+<br>', '<br>', html_content)
 
     return html_content
 # --- [FIM DA FUNÇÃO DE LAYOUT] ---
