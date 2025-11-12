@@ -682,11 +682,14 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.subheader("Análise de Conteúdo Seção por Seção")
     
+    # --- [INÍCIO DA CORREÇÃO] ---
     expander_caixa_style = (
         "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
         "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
-        "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
+        "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify; "
+        "white-space: normal; overflow-wrap: break-word;"  # <-- ADICIONADO PARA CORRIGIR CORTE
     )
+    # --- [FIM DA CORREÇÃO] ---
 
     # Iterar por TODAS as seções esperadas
     for secao_canonico_raw in secoes_esperadas:
@@ -769,16 +772,17 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_marcado = marcar_divergencias_html(texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True).replace('\n', '<br>')
     html_belfar_marcado = marcar_divergencias_html(texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False).replace('\n', '<br>')
 
-    # --- [MODIFICAÇÃO DE ESTILO] ---
+    # --- [INÍCIO DA CORREÇÃO] ---
     # Alterei a fonte, cor, borda, radius e sombra para um visual mais limpo.
     caixa_style = (
         "height: 700px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; "
         "padding: 24px 32px; background-color: #ffffff; "
         "font-family: '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'; font-size: 15px; "
         "line-height: 1.7; box-shadow: 0 4px 12px rgba(0,0,0,0.08); "
-        "text-align: justify; color: #333333;"
+        "text-align: justify; color: #333333; "
+        "white-space: normal; overflow-wrap: break-word;" # <-- ADICIONADO PARA CORRIGIR CORTE
     )
-    # --- [FIM DA MODIFICAÇÃO DE ESTILO] ---
+    # --- [FIM DA CORREÇÃO] ---
     
     col1, col2 = st.columns(2, gap="medium")
     with col1:
