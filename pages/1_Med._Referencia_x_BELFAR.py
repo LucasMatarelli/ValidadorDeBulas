@@ -84,37 +84,28 @@ def extrair_texto(arquivo, tipo_arquivo):
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto = "\n".join([p.text for p in doc.paragraphs])
-
+            
         if texto:
-            # Remove caracteres invisíveis
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
-
-            # Junta palavras quebradas no fim da linha
+            
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
 
-            # Remove rodapés e páginas
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             texto = "\n".join(linhas_filtradas)
 
-            # Formatação dos marcadores − e • → pula linha após cada um
-            # Exemplo: "− Hipersensibilidade..." → fica em linha própria
-            texto = re.sub(r'\s*([−•])\s*', r'\n\1 ', texto)
-
-            # Remove quebras múltiplas e espaços extras
-            texto = re.sub(r'\n{3,}', '\n\n', texto)
-            texto = re.sub(r'[ \t]+', ' ', texto)
+            texto = re.sub(r'\n{3,}', '\n\n', texto) 
+            texto = re.sub(r'[ \t]+', ' ', texto) 
             texto = texto.strip()
 
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-
 # --- [FIM DA CORREÇÃO v18.27] ---
 
 def truncar_apos_anvisa(texto):
@@ -533,6 +524,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
+        # Apenas normaliza palavras, mantém outros tokens (como pontuação)
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
             return normalizar_texto(tok)
         return tok
@@ -540,38 +532,12 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
     
-    # Ignora quebras de linha na comparação
+    # CRÍTICO: Filtra os \n ANTES de passar para o SequenceMatcher
     ref_norm = [norm(t) for t in ref_tokens if t != '\n']
     bel_norm = [norm(t) for t in bel_tokens if t != '\n']
 
     matcher = difflib.SequenceMatcher(None, ref_norm, bel_norm, autojunk=False)
-
-    resultado = []
-    i_ref = i_bel = 0
-
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            trecho = " ".join(ref_tokens[i_ref:i_ref + (i2 - i1)])
-            resultado.append(trecho)
-        elif tag == "replace":
-            if eh_referencia:
-                trecho = " ".join(ref_tokens[i_ref:i_ref + (i2 - i1)])
-                resultado.append(f"**[{trecho}]**")
-            else:
-                trecho = " ".join(bel_tokens[i_bel:i_bel + (j2 - j1)])
-                resultado.append(f"**[{trecho}]**")
-        elif tag == "delete" and eh_referencia:
-            trecho = " ".join(ref_tokens[i_ref:i_ref + (i2 - i1)])
-            resultado.append(f"**[-{trecho}-]**")
-        elif tag == "insert" and not eh_referencia:
-            trecho = " ".join(bel_tokens[i_bel:i_bel + (j2 - j1)])
-            resultado.append(f"**[+{trecho}+]**")
-
-        i_ref += (i2 - i1)
-        i_bel += (j2 - j1)
-
-    return " ".join(resultado)
-
+    
     # Mapeia os índices do diff (sem \n) de volta para os tokens originais (com \n)
     def map_indices_to_original_tokens(tokens, norm_tokens, tag, i1, i2, j1, j2):
         # Converte índices normalizados (i1, i2) para índices de token (com \n)
