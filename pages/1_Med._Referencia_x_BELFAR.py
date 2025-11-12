@@ -170,6 +170,8 @@ def obter_secoes_ignorar_comparacao():
 # ----------------- NORMALIZAÇÃO -----------------
 
 def normalizar_texto(texto):
+    if not isinstance(texto, str):
+        return ""
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
     texto = ' '.join(texto.split())
@@ -514,6 +516,8 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
 
+# --- [INÍCIO DA CORREÇÃO v18.27] ---
+# Corrigido para ignorar \n na comparação de diff, evitando falsos positivos
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     if texto_ref is None: texto_ref = ""
     if texto_belfar is None: texto_belfar = ""
@@ -522,23 +526,50 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
-        if tok == '\n':
-            return ' ' 
-        
+        # Apenas normaliza palavras, mantém outros tokens (como pontuação)
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
             return normalizar_texto(tok)
         return tok
 
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
-    ref_norm = [norm(t) for t in ref_tokens]
-    bel_norm = [norm(t) for t in bel_tokens]
+    
+    # CRÍTICO: Filtra os \n ANTES de passar para o SequenceMatcher
+    ref_norm = [norm(t) for t in ref_tokens if t != '\n']
+    bel_norm = [norm(t) for t in bel_tokens if t != '\n']
 
     matcher = difflib.SequenceMatcher(None, ref_norm, bel_norm, autojunk=False)
+    
+    # Mapeia os índices do diff (sem \n) de volta para os tokens originais (com \n)
+    def map_indices_to_original_tokens(tokens, norm_tokens, tag, i1, i2, j1, j2):
+        # Converte índices normalizados (i1, i2) para índices de token (com \n)
+        def convert_norm_idx_to_token_idx(tokens, norm_idx):
+            norm_count = 0
+            for token_idx, token in enumerate(tokens):
+                if token == '\n':
+                    continue
+                if norm_count == norm_idx:
+                    return token_idx
+                norm_count += 1
+            return len(tokens) # Se não encontrar, retorna o final
+
+        if eh_referencia:
+            token_start = convert_norm_idx_to_token_idx(ref_tokens, i1)
+            token_end = convert_norm_idx_to_token_idx(ref_tokens, i2)
+            return range(token_start, token_end)
+        else:
+            token_start = convert_norm_idx_to_token_idx(bel_tokens, j1)
+            token_end = convert_norm_idx_to_token_idx(bel_tokens, j2)
+            return range(token_start, token_end)
+
     indices = set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag != 'equal':
-            indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
+            indices.update(map_indices_to_original_tokens(
+                ref_tokens if eh_referencia else bel_tokens,
+                ref_norm if eh_referencia else bel_norm,
+                tag, i1, i2, j1, j2
+            ))
 
     tokens = ref_tokens if eh_referencia else bel_tokens
     marcado = []
@@ -548,6 +579,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else:
             marcado.append(tok)
 
+    # Lógica de re-join (mantida)
     resultado = ""
     for i, tok in enumerate(tokens): 
         if i == 0:
@@ -567,6 +599,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
             
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
+# --- [FIM DA CORREÇÃO v18.27] ---
 
 # ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
 
@@ -911,7 +944,7 @@ with col1:
     pdf_ref = st.file_uploader("Envie o PDF ou DOCX de referência", type=["pdf", "docx"], key="ref")
 with col2:
     st.subheader("📄 Med. BELFAR")
-    pdf_belfar = st.file_uploader("EnvIE o PDF ou DOCX Belfar", type=["pdf", "docx"], key="belfar")
+    pdf_belfar = st.file_uploader("Envie o PDF ou DOCX Belfar", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
@@ -931,7 +964,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if not erro_belfar:
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar, tipo_bula_selecionado)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
-            # --- [FIM DA MODIFICAÇÃO v18.25] ---
+            # --- [FIM DA MODIFKAÇÃO v18.25] ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
