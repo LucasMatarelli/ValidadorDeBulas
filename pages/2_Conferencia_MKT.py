@@ -1,14 +1,12 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.55 (Correção "Seções Faltantes" - CRÍTICO)
-#  - Corrige o bug em `corrigir_quebras_em_titulos` (introduzido na v26.54)
-#    que estava removendo todas as quebras de parágrafo e achatando
-#    o documento inteiro em uma linha só.
-#  - O achatamento fazia `mapear_secoes` falhar e reportar todas as
-#    seções como "faltantes".
-#  - A nova `corrigir_quebras_em_titulos` agora preserva as quebras
-#    de parágrafo (\n\n) enquanto junta títulos quebrados.
-#  - Mantém a lógica de remoção de números soltos da v26.54.
+# Versão v26.56 (Correção Definitiva: Números Soltos MKT)
+#  - O problema das "Seções Faltantes" (v26.55) foi resolvido.
+#  - O problema dos números soltos (ex: "1.") no MKT persistia.
+#  - A lógica de remoção em `formatar_html_para_leitura` foi
+#    substituída por uma regra de Regex muito mais robusta.
+#  - A nova regra remove (quebra)N.(quebra) independentemente
+#    de ser \n ou \n\n, resolvendo o problema.
 
 # --- IMPORTS ---
 import re
@@ -22,7 +20,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.54 - MANTIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.56 - CORREÇÃO NÚMEROS MKT) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     """
     Recebe html_content (texto que pode conter quebras '\n' e marcações geradas pela função de marcação)
@@ -34,26 +32,30 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
 
-    # 1) REMOÇÃO PRELIMINAR DE NÚMEROS (v26.54)
-    # Remove números soltos (ex: "1.") que vêm da extração do MKT com quebra simples (\n)
+    # 1) REMOÇÃO DE NÚMEROS SOLTOS (v26.56 - LÓGICA ROBUSTA)
+    # Esta etapa remove números soltos (ex: "1.") que estão entre
+    # quebras de linha, não importa se são \n ou \n\n.
     if not aplicar_numeracao:
-        # Remove padrão: \n N. \n (número sozinho no meio)
+        # (?:[\n\r]+) = uma ou mais quebras de linha (captura \n, \n\n, \r\n, etc.)
+        
+        # Remove padrão: (quebra) N. (quebra) -> (número sozinho no meio)
+        # Substitui por uma quebra dupla limpa.
         html_content = re.sub(
-            r'\n\s*\d+\.\s*\n',
-            '\n',
+            r'(?:[\n\r]+)\s*\d+\.\s*(?:[\n\r]+)',
+            '\n\n',
             html_content,
             flags=re.IGNORECASE
         )
-        # Remove padrão: N. \n (número sozinho no início)
+        # Remove padrão: N. (quebra) -> (número sozinho no início)
         html_content = re.sub(
-            r'^\s*\d+\.\s*\n',
+            r'^\s*\d+\.\s*(?:[\n\r]+)',
             '',
             html_content,
             flags=re.IGNORECASE
         )
-        # Remove padrão: \n N. (número sozinho no fim)
+        # Remove padrão: (quebra) N. -> (número sozinho no fim)
         html_content = re.sub(
-            r'\n\s*\d+\.\s*$',
+            r'(?:[\n\r]+)\s*\d+\.\s*$',
             '',
             html_content,
             flags=re.IGNORECASE
@@ -62,32 +64,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     # 2) Normaliza quebras múltiplas no formato temporário
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
 
-    # 3) Remove números soltos entre parágrafos (para MKT - caso [[PARAGRAPH]])
-    # Isso limpa o "1." de "...\n\n1.\n\n1. PARA QUE..."
-    if not aplicar_numeracao:
-        # Remove padrão: [[PARAGRAPH]] N. [[PARAGRAPH]] (número sozinho no meio)
-        html_content = re.sub(
-            r'\[\[PARAGRAPH\]\]\s*\d+\.\s*\[\[PARAGRAPH\]\]',
-            '[[PARAGRAPH]]',
-            html_content,
-            flags=re.IGNORECASE
-        )
-        # Remove padrão: N. [[PARAGRAPH]] (número sozinho no início do texto)
-        html_content = re.sub(
-            r'^\s*\d+\.\s*\[\[PARAGRAPH\]\]',
-            '',
-            html_content,
-            flags=re.IGNORECASE
-        )
-        # Remove padrão: [[PARAGRAPH]] N. (número sozinho no fim do texto)
-        html_content = re.sub(
-            r'\[\[PARAGRAPH\]\]\s*\d+\.\s*$',
-            '',
-            html_content,
-            flags=re.IGNORECASE
-        )
-
-    # 4) Títulos que reconhecemos (padrões e versões com número já presentes)
+    # 3) Títulos que reconhecemos (padrões e versões com número já presentes)
     titulos_lista = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
@@ -167,7 +144,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
 
         return f'[[PARAGRAPH]]<strong>{titulo_sem_numero}</strong>'
 
-    # 5) Aplica substituição dos padrões de título
+    # 4) Aplica substituição dos padrões de título
     for titulo_pattern in titulos_lista:
         html_content = re.sub(
             titulo_pattern,
@@ -176,7 +153,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
             flags=re.IGNORECASE
         )
 
-    # 6) Lista e quebras
+    # 5) Lista e quebras
     html_content = re.sub(r'(\n)(\s*[-–•*])', r'[[LIST_ITEM]]\2', html_content)
     html_content = html_content.replace('\n', ' ')
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
@@ -184,7 +161,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
 
-    # 7) Última limpeza de espaços/quebras duplicadas
+    # 6) Última limpeza de espaços/quebras duplicadas
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = re.sub(r'\s{2,}', ' ', html_content)
 
@@ -348,9 +325,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 linha_strip = linha.strip()
 
                 # Filtro 0 (v26.53): Mantém linhas numéricas (1., 2., etc.) como marcadores temporários
-                if is_marketing_pdf and re.fullmatch(r'\d+\.', linha_strip):
-                    linhas_filtradas.append(f"__NUMMARK_{linha_strip}__")
-                    continue
+                # ESTA LÓGICA NÃO É MAIS USADA, os números são removidos na formatação
+                # if is_marketing_pdf and re.fullmatch(r'\d+\.', linha_strip):
+                #     linhas_filtradas.append(f"__NUMMARK_{linha_strip}__")
+                #     continue
 
                 # 1. Filtra linhas de ruído conhecidas
                 if padrao_ruido_linha.search(linha_strip):
@@ -361,7 +339,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
                 # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '190', '*', '...')
                 if is_marketing_pdf and not re.search(r'[a-zA-Z]', linha_limpa):
-                    continue
+                    # EXCEÇÃO: Mantém a linha se for um número solto (ex: "1.")
+                    # A nova formatação (v26.56) cuidará disso
+                    if not re.fullmatch(r'\d+\.', linha_limpa):
+                         continue
 
                 # 4. Adiciona a linha (preserva linhas em branco para estrutura de parágrafo)
                 if linha_limpa:
@@ -377,8 +358,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
-            # Restaura marcadores numéricos temporários
-            texto = re.sub(r'__NUMMARK_(\d+\.)__', r'\1', texto)
+            # Remove marcadores numéricos temporários (lógica v26.53 removida)
+            # texto = re.sub(r'__NUMMARK_(\d+\.)__', r'\1', texto)
 
             return texto, None
 
@@ -481,7 +462,7 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
-# ----------------- FUNÇÃO CORRIGIDA (v26.55) -----------------
+# ----------------- FUNÇÃO (v26.55 - MANTIDA) -----------------
 def corrigir_quebras_em_titulos(texto):
     """
     Corrige títulos que foram quebrados em múltiplas linhas (ex: "COMPOSIÇÃO"
@@ -505,7 +486,7 @@ def corrigir_quebras_em_titulos(texto):
             continue
 
         # Verifica se a linha parece ser um título ou fragmento de título
-        # (CURTA, MAIÚSCULA, ou começando com NÚMERO.)
+        # (CURTA, MAIÚSCA, ou começando com NÚMERO.)
         is_potential_title = (
             linha_strip.isupper() and len(linha_strip) < 70
         ) or re.match(r'^\d+\.', linha_strip)
@@ -531,7 +512,7 @@ def corrigir_quebras_em_titulos(texto):
 
     # Reconstrói o texto preservando a estrutura de parágrafos
     return "\n".join(linhas_corrigidas)
-# ----------------- FIM DA CORREÇÃO -----------------
+# ----------------- FIM DA FUNÇÃO -----------------
 
 def is_titulo_secao(linha):
     linha = linha.strip()
@@ -924,7 +905,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     )
 
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
-    html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
+    html_belfar_marcado_bruto = marcar_divergcias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
@@ -1003,4 +984,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.55 | Correção Mapeamento")
+st.caption("Sistema de Auditoria de Bulas v26.56 | Correção Robusta Números MKT")
