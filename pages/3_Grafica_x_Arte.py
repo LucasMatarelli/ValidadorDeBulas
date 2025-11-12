@@ -1,12 +1,13 @@
 # pages/3_Grafica_x_Arte.py
-# Versão: v40 (Baseado no v39)
+# Versão: v41 (Baseado no v40)
 # Auditoria de Bulas — Comparação: PDF da Gráfica x Arte Vigente
-# v40: CORRIGE A LÓGICA de 'substituir_titulos_por_canonicos'.
-# v40: A v39 falhava ao tentar substituir títulos-alias que
-#      ocupavam múltiplas linhas (ex: "2. COMO\n\nFUNCIONA?").
-# v40: A nova lógica usa 'linha_inicio' e 'original_lines_consumed'
-#      para substituir as linhas exatas pelo título canônico.
-# v40: Isso corrige o bug do título na "Visualização Lado a Lado".
+# v41: RELAXA A LÓGICA 'match_1' (linha única) em 'mapear_secoes'.
+# v41: A v40 usava difflib com cutoff=0.96, que falhava em
+#      títulos com erros de OCR (ex: "3. QUANDO NÃO MEDICAMENTO?").
+# v41: A nova lógica usa 'fuzz.token_set_ratio >= 88', que é
+#      flexível o suficiente para capturar esses títulos
+#      corrompidos, sem listá-los como "seção faltante".
+# v41: Altera o 'best_match_score' da lógica 'startswith' de 96 para 88.
 
 # --- IMPORTS ---
 
@@ -235,7 +236,7 @@ def melhorar_layout_grafica(texto: str) -> str:
 def extrair_pdf_ocr_v35_fullpage(arquivo_bytes: bytes) -> str:
     texto_total = ""
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-        st.info(f"Forçando OCR (v40: psm 3 Full-Page) em {len(doc)} página(s)...")
+        st.info(f"Forçando OCR (v41: psm 3 Full-Page) em {len(doc)} página(s)...")
         
         ocr_config = r'--psm 3' 
             
@@ -449,13 +450,15 @@ def _create_anchor_id(secao_nome: str, prefix: str) -> str:
     return f"anchor-{prefix}-{norm_safe}"
 
 
-# --- [MANTIDO - v37] MAPEAMENTO E EXTRAÇÃO DE SEÇÃO (ROBUSTO) ---
+# --- [ATUALIZADO - v41] MAPEAMENTO E EXTRAÇÃO DE SEÇÃO (ROBUSTO) ---
 # Esta lógica de mapeamento (v37) está correta.
 
 def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict]:
     """
     v37 (Gemini): Mapeia seções e calcula 'original_lines_consumed'
     para que 'obter_dados_secao' saiba exatamente onde o título termina.
+    v41 (Gemini): Relaxa o 'match_1' (linha única) para usar
+    fuzz.token_set_ratio >= 88 para capturar títulos com erros de OCR.
     """
     mapa_preliminar = []
     
@@ -526,24 +529,42 @@ def mapear_secoes(texto_completo: str, secoes_esperadas: List[str]) -> List[Dict
                 best_match_titulo_real = linha_combinada_2
                 non_empty_lines_consumed = 2
 
-        if best_match_score < 96:
-            match_1 = difflib.get_close_matches(linha_norm_1, titulos_norm_set, n=1, cutoff=0.96)
-            if match_1:
-                best_match_score = 96
-                best_match_canonico = titulos_norm_map[match_1[0]]
+        # --- [INÍCIO v41] ---
+        # v41: Lógica 'match_1' (linha única) atualizada.
+        # v41: Usa fuzz.token_set_ratio com corte menor (88) para
+        #      capturar títulos com erros de OCR (ex: "3. QUANDO NÃO MEDICAMENTO?").
+        # v41: A lógica anterior (difflib, 0.96) era muito rígida.
+        if best_match_score < 96: # Se nenhuma correspondência multi-linha (match_3, match_2) foi encontrada
+            best_single_line_score = 0
+            best_single_line_canonico = None
+            
+            for titulo_norm_canonico in titulos_norm_set:
+                score = fuzz.token_set_ratio(linha_norm_1, titulo_norm_canonico)
+                
+                if score > best_single_line_score:
+                    best_single_line_score = score
+                    best_single_line_canonico = titulos_norm_map[titulo_norm_canonico]
+            
+            # O 'token_set_ratio' de "quando nao medicamento" vs
+            # "quando nao devo usar este medicamento" é 90.
+            # Um corte de 88 é seguro e flexível.
+            if best_single_line_score >= 88:
+                best_match_score = best_single_line_score 
+                best_match_canonico = best_single_line_canonico
                 best_match_titulo_real = linha_limpa_1
                 non_empty_lines_consumed = 1
+        # --- [FIM v41] ---
         
-        if best_match_score < 96:
+        if best_match_score < 88: # v41: Ajustado de 96 para 88
             for titulo_norm in titulos_norm_set:
                 if linha_norm_1.startswith(titulo_norm) and len(linha_norm_1) > len(titulo_norm) + 5:
-                    best_match_score = 97
+                    best_match_score = 97 # Mantém score alto para prioridade
                     best_match_canonico = titulos_norm_map[titulo_norm]
                     # ... (lógica 'startswith' omitida por brevidade) ...
                     non_empty_lines_consumed = 1
                     break
 
-        if best_match_score >= 96:
+        if best_match_score >= 88: # v41: Ajustado de 96 para 88
             if not mapa_preliminar or mapa_preliminar[-1]['canonico'] != best_match_canonico:
                 
                 indice_original_inicio = mapa_indices_originais.get(idx)
@@ -586,10 +607,10 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         linha_inicio = secao_mapa['linha_inicio']
         non_empty_lines = secao_mapa.get('non_empty_lines_consumed', 1)
         original_lines = secao_mapa.get('original_lines_consumed', 1)
-              
+                 
         if linha_inicio >= len(linhas_texto):
              return False, None, "" 
-              
+                 
         linha_original_titulo = linhas_texto[linha_inicio].strip()
         
         conteudo_primeira_linha = ""
@@ -620,7 +641,7 @@ def obter_dados_secao(secao_canonico: str, mapa_secoes: List[Dict], linhas_texto
         return True, titulo_encontrado, conteudo_final
 
     return False, None, ""
-# --- [FIM - LÓGICA V37 MANTIDA] ---
+# --- [FIM - LÓGICA V37/V41 MANTIDA] ---
 
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
@@ -652,10 +673,10 @@ def verificar_secoes_e_conteudo(texto_ref: str, texto_belfar: str, tipo_bula: st
             if melhor_score >= 95: 
                 for m_similar in mapa_belfar:
                      if m_similar['titulo_encontrado'] == melhor_titulo_encontrado:
-                          _, titulo_belfar, conteudo_belfar = obter_dados_secao(m_similar['canonico'], mapa_belfar, linhas_belfar, tipo_bula)
-                          encontrou_belfar = True
-                          diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar})
-                          break
+                         _, titulo_belfar, conteudo_belfar = obter_dados_secao(m_similar['canonico'], mapa_belfar, linhas_belfar, tipo_bula)
+                         encontrou_belfar = True
+                         diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar})
+                         break
             else:
                 secoes_faltantes.append(secao)
                 continue
@@ -839,7 +860,7 @@ def marcar_divergencias_html(texto_original: str, secoes_problema: List[Dict], e
 
     return texto_final
 
-# --- [ATUALIZADO - v40] ---
+# --- [MANTIDO - v40] ---
 def substituir_titulos_por_canonicos(texto_completo: str, mapa_secoes: List[Dict]) -> str:
     """
     v40: Substitui títulos "alias" (ex: 2. COMO FUNCIONA?) no texto
@@ -877,7 +898,7 @@ def substituir_titulos_por_canonicos(texto_completo: str, mapa_secoes: List[Dict
 # --- [FIM DA CORREÇÃO v40] ---
 
 
-# ----------------- [ATUALIZADO - v40] RELATÓRIO E EXPORTAÇÃO -----------------
+# ----------------- [MANTIDO - v40] RELATÓRIO E EXPORTAÇÃO -----------------
 def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome_belfar: str, tipo_bula: str):
     
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -959,7 +980,7 @@ def gerar_relatorio_final(texto_ref: str, texto_belfar: str, nome_ref: str, nome
             ).replace('\n', '<br>')
             
             expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                conteudo_bel_para_marcar, conteudo_bel_para_marcar, eh_referencia=False
+                conteudo_ref_para_marcar, conteudo_bel_para_marcar, eh_referencia=False
             ).replace('\n', '<br>')
 
             clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
@@ -1103,14 +1124,14 @@ mark{{background:#ffff99;padding:2px}}
 </div>
 
 <footer style="margin-top:20px;font-size:12px;color:#666">
-Gerado pelo sistema de Auditoria de Bulas — v40
+Gerado pelo sistema de Auditoria de Bulas — v41
 </footer>
 </body>
 </html>
 """
     return html_page
 
-# ----------------- [ATUALIZADA - v40] INTERFACE PRINCIPAL -----------------
+# ----------------- [ATUALIZADA - v41] INTERFACE PRINCIPAL -----------------
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas — aprimorado para PDFs de gráfica")
 st.divider()
@@ -1127,9 +1148,9 @@ with col2:
     st.subheader("📄 PDF da Gráfica")
     pdf_belfar = st.file_uploader("Envie o PDF da Gráfica", type="pdf", key="belfar")
 
-if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+if st.button("🔍 Iniciar AuditorIA Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
-        with st.spinner("🔄 Processando e analisando as bulas... (v40 - Forçando OCR psm 3 Full-Page)"):
+        with st.spinner("🔄 Processando e analisando as bulas... (v41 - Mapeamento de Seção Flexível)"):
             
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
@@ -1149,4 +1170,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos (Referência e BELFAR) para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v40 | Correção de Substituição de Título (v40)")
+st.caption("Sistema de Auditoria de Bulas v41 | Mapeamento Flexível de Título (v41)")
