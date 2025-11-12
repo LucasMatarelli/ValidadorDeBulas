@@ -612,7 +612,7 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
     return texto_trabalho
 
 
-# --- [FUNÇÃO DE LAYOUT (v18.18) - CORRIGIDA PARA TÓPICOS] ---
+# --- [FUNÇÃO DE LAYOUT (v18.19) - CORRIGIDA PARA TÓPICOS] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -639,7 +639,7 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
         eh_titulo = False
-        if is_titulo_secao(titulo_limpo): # Usa a função de checagem de título
+        if is_titulo_secao(titulo_limpo): 
              for t_check in titulos_unicos:
                 if fuzz.ratio(normalizar_texto(t_check), normalizar_texto(titulo_limpo)) > 95:
                     eh_titulo = True
@@ -648,14 +648,15 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
         if eh_titulo:
             linhas_formatadas.append(f"[[PARAGRAPH]]<strong>{linha_strip}</strong>")
         else:
-            # É uma linha de conteúdo normal (ou tópico)
             linhas_formatadas.append(linha)
 
     html_content = "\n".join(linhas_formatadas)
 
-    # 4. Lista e quebras (LÓGICA CORRIGIDA v18.18)
-    # Marca tópicos PRIMEIRO
-    html_content = re.sub(r'\n(\s*[-–•*])', r'[[LIST_ITEM]]\1', html_content)
+    # 4. Lista e quebras (LÓGICA CORRIGIDA v18.19)
+    # --- [INÍCIO DA CORREÇÃO v18.19] ---
+    # Adicionado o caractere '−' (MINUS SIGN) que estava faltando
+    html_content = re.sub(r'\n(\s*[-–•*−])', r'[[LIST_ITEM]]\1', html_content)
+    # --- [FIM DA CORREÇÃO v18.19] ---
     
     # O que sobrou de \n é texto contínuo, vira espaço
     html_content = html_content.replace('\n', ' ') 
@@ -912,4 +913,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.18 | Correção Seção 5 e Formatação de Tópicos v2")
+st.caption("Sistema de Auditoria de Bulas v18.19 | Correção Seção 5 e Formatação de Tópicos v3 (Regex)")
