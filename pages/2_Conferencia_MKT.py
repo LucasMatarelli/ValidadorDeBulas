@@ -34,11 +34,29 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
 
     # 2) Remove números soltos entre parágrafos (para MKT)
     if not aplicar_numeracao:
-        # Remove padrão: [[PARAGRAPH]]1.[[PARAGRAPH]] (número sozinho)
+        # Remove padrão: [[PARAGRAPH]] N. [[PARAGRAPH]] (número sozinho no meio)
+        # Substitui "quebra-numero-quebra" por apenas "quebra"
         html_content = re.sub(
             r'\[\[PARAGRAPH\]\]\s*\d+\.\s*\[\[PARAGRAPH\]\]',
             '[[PARAGRAPH]]',
-            html_content
+            html_content,
+            flags=re.IGNORECASE
+        )
+        # Remove padrão: N. [[PARAGRAPH]] (número sozinho no início do texto)
+        # Substitui "numero-quebra" por nada
+        html_content = re.sub(
+            r'^\s*\d+\.\s*\[\[PARAGRAPH\]\]',
+            '',
+            html_content,
+            flags=re.IGNORECASE
+        )
+        # Remove padrão: [[PARAGRAPH]] N. (número sozinho no fim do texto)
+        # Substitui "quebra-numero" por nada
+        html_content = re.sub(
+            r'\[\[PARAGRAPH\]\]\s*\d+\.\s*$',
+            '',
+            html_content,
+            flags=re.IGNORECASE
         )
 
     # 3) Títulos que reconhecemos (padrões e versões com número já presentes)
