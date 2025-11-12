@@ -90,12 +90,12 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = texto.replace('\u00A0', ' ')
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
-            # --- [NOVA CORREÇÃO APRIMORADA v18.9] ---
-            # Substitui uma quebra de linha por um espaço, *a menos que*
-            # a próxima linha seja uma nova quebra (parágrafo) OU
-            # a próxima linha comece com um marcador de lista (•, −, -, ou 1.)
-            # Adicionei os marcadores que você usou: − e •
-            texto = re.sub(r'\n(?![ \t]*([•−\-]|\d+\.)|\n)', ' ', texto)
+            # --- [NOVA CORREÇÃO v18.10] ---
+            # Substitui \n por espaço, A MENOS QUE a próxima linha:
+            # 1. Seja outra quebra de linha (novo parágrafo)
+            # 2. Seja um item de lista (começando com •, −, -, ou número)
+            # 3. Seja um TÍTULO (ex: toda em maiúsculas)
+            texto = re.sub(r'\n(?![ \t]*([•−\-]|\d+\.)|\n|([A-Z\s]{4,})$)', ' ', texto)
             # --- [FIM DA CORREÇÃO] ---
 
             linhas = texto.split('\n')
@@ -760,7 +760,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 # Criamos o HTML da caixa clicável com o 'onclick' chamando a função GLOBAL.
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
                 
-                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_bel_box}</div>"
+                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
 
                 c1, c2 = st.columns(2)
                 with c1:
@@ -858,4 +858,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.9 | Correção de Quebra de Linha (Geral) | Relatório Completo")
+st.caption("Sistema de Auditoria de Bulas v18.10 | Correção de Quebra de Linha (Títulos) | Relatório Completo")
