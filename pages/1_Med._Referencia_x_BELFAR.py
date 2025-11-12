@@ -90,10 +90,10 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = texto.replace('\u00A0', ' ')
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
             
-            # --- [NOVA CORREÇÃO] ---
+            # --- [CORREÇÃO PARA TEXTO "CORTADO"] ---
             # Remove quebras de linha que vêm logo após pontuação (ex: "palavra,\n")
             # e as substitui por um espaço (ex: "palavra, ")
-            texto = re.sub(r'([,.;:!?)])\n', r'\1 ', texto)
+            texto = re.sub(r'([,.;:!?)\]])\n', r'\1 ', texto)
             # --- [FIM DA CORREÇÃO] ---
 
             linhas = texto.split('\n')
