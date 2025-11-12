@@ -533,7 +533,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
-        # Apenas normaliza palavras, mantém outros tokens (como pontuação)
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
             return normalizar_texto(tok)
         return tok
@@ -541,12 +540,38 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
     
-    # CRÍTICO: Filtra os \n ANTES de passar para o SequenceMatcher
+    # Ignora quebras de linha na comparação
     ref_norm = [norm(t) for t in ref_tokens if t != '\n']
     bel_norm = [norm(t) for t in bel_tokens if t != '\n']
 
     matcher = difflib.SequenceMatcher(None, ref_norm, bel_norm, autojunk=False)
-    
+
+    resultado = []
+    i_ref = i_bel = 0
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            trecho = " ".join(ref_tokens[i_ref:i_ref + (i2 - i1)])
+            resultado.append(trecho)
+        elif tag == "replace":
+            if eh_referencia:
+                trecho = " ".join(ref_tokens[i_ref:i_ref + (i2 - i1)])
+                resultado.append(f"**[{trecho}]**")
+            else:
+                trecho = " ".join(bel_tokens[i_bel:i_bel + (j2 - j1)])
+                resultado.append(f"**[{trecho}]**")
+        elif tag == "delete" and eh_referencia:
+            trecho = " ".join(ref_tokens[i_ref:i_ref + (i2 - i1)])
+            resultado.append(f"**[-{trecho}-]**")
+        elif tag == "insert" and not eh_referencia:
+            trecho = " ".join(bel_tokens[i_bel:i_bel + (j2 - j1)])
+            resultado.append(f"**[+{trecho}+]**")
+
+        i_ref += (i2 - i1)
+        i_bel += (j2 - j1)
+
+    return " ".join(resultado)
+
     # Mapeia os índices do diff (sem \n) de volta para os tokens originais (com \n)
     def map_indices_to_original_tokens(tokens, norm_tokens, tag, i1, i2, j1, j2):
         # Converte índices normalizados (i1, i2) para índices de token (com \n)
