@@ -181,7 +181,7 @@ def _create_anchor_id(secao_nome, prefix):
     return f"anchor-{prefix}-{norm_safe}"
 
 
-# --- [INÍCIO DA NOVA FUNÇÃO (Importada da v26.58)] ---
+# --- [FUNÇÃO (Importada da v26.58) - MANTIDA] ---
 def corrigir_quebras_em_titulos(texto):
     """
     Corrige títulos que foram quebrados em múltiplas linhas (ex: "COMPOSIÇÃO"
@@ -196,48 +196,37 @@ def corrigir_quebras_em_titulos(texto):
         linha_strip = linha.strip()
 
         if not linha_strip:
-            # É uma linha em branco (parte de um \n\n)
             if buffer:
-                # O buffer (título) terminou antes da linha em branco
                 linhas_corrigidas.append(buffer)
                 buffer = ""
-            linhas_corrigidas.append("") # Preserva a linha em branco
+            linhas_corrigidas.append("") 
             continue
 
-        # Verifica se a linha parece ser um título ou fragmento de título
-        # (CURTA, MAIÚSCA, ou começando com NÚMERO.)
         is_potential_title = (
             linha_strip.isupper() and len(linha_strip) < 70
         ) or re.match(r'^\d+\.', linha_strip)
 
         if is_potential_title:
             if buffer:
-                # Já temos um título no buffer, junta com espaço
                 buffer += " " + linha_strip
             else:
-                # Começa um novo título no buffer
                 buffer = linha_strip
         else:
-            # Esta linha é conteúdo
             if buffer:
-                # Descarrega o título do buffer antes do conteúdo
                 linhas_corrigidas.append(buffer)
                 buffer = ""
-            linhas_corrigidas.append(linha_strip) # Adiciona a linha de conteúdo
+            linhas_corrigidas.append(linha_strip) 
 
     if buffer:
-        # Adiciona o último título que estava no buffer
         linhas_corrigidas.append(buffer)
 
-    # Reconstrói o texto preservando a estrutura de parágrafos
     return "\n".join(linhas_corrigidas)
-# --- [FIM DA NOVA FUNÇÃO] ---
+# --- [FIM DA FUNÇÃO] ---
 
 
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES -----------------
-# Funções de mapeamento v18.12 (mantidas)
+# Funções de mapeamento v18.15 (mantidas)
 def is_titulo_secao(linha):
-    """Atualizado para a lógica mais robusta da v26.58"""
     linha = linha.strip()
     if len(linha) < 4:
         return False
@@ -249,14 +238,12 @@ def is_titulo_secao(linha):
         return False
     if re.search(r'>\s*<', linha):
         return False
-    if len(linha) > 100: # Reduzido de 120 para 100
+    if len(linha) > 100: 
         return False
     
-    # Se for toda maiúscula
     if linha.isupper():
         return True
     
-    # Lógica para títulos mistos (ex: "1. PARA QUE...")
     upper_chars = sum(1 for c in linha if c.isupper())
     lower_chars = sum(1 for c in linha if c.islower())
     
@@ -279,7 +266,6 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     for idx, linha in enumerate(linhas):
         linha_limpa = linha.strip()
         
-        # Agora usamos a is_titulo_secao mais robusta
         if not is_titulo_secao(linha_limpa):
             continue
 
@@ -296,7 +282,6 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 best_match_score = score
                 best_match_canonico = titulo_canonico
 
-        # Mantido em 98 para alta precisão, já que corrigir_quebras_em_titulos ajuda
         if best_match_score >= 98:
             if not mapa or mapa[-1]['canonico'] != best_match_canonico:
                 mapa.append({
@@ -348,19 +333,13 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         linha_inicio_conteudo = linha_inicio + 1
 
         prox_idx = None
-        # O lookahead aqui é para encontrar o *próximo* título
-        # (corrigir_quebras_em_titulos já corrigiu o título *atual*)
         for j in range(linha_inicio_conteudo, len(linhas_texto)):
             linha_atual = linhas_texto[j].strip()
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
-
             
             if linha_atual_norm in titulos_norm_set:
                 prox_idx = j 
                 break 
-            
-            # Não precisamos mais do lookahead de 2 ou 3 linhas aqui
-            # porque corrigir_quebras_em_titulos já juntou os próximos títulos.
 
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
 
@@ -372,9 +351,15 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 
+# --- [FUNÇÃO MODIFICADA (v18.16)] ---
+# Agora retorna TODAS as seções (relatorio_completo) em vez de apenas as diferenças
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
-    secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
+    secoes_faltantes = []
+    diferencas_titulos = []
+    similaridade_geral = []
+    relatorio_completo = [] # <-- MUDANÇA: Usaremos esta lista
+    
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
     linhas_ref = texto_ref.split('\n')
@@ -398,6 +383,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                     melhor_score = score
                     melhor_titulo = m['titulo_encontrado']
             if melhor_score >= 95:
+                # Encontrou por similaridade, mas o mapeamento falhou (provavelmente título quebrado)
+                # Vamos tratar como "encontrado" mas registrar a diferença de título
                 diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
                 for m in mapa_belfar:
                     if m['titulo_encontrado'] == melhor_titulo:
@@ -411,34 +398,58 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 encontrou_belfar = True
             else:
                 secoes_faltantes.append(secao)
+                relatorio_completo.append({
+                    'secao': secao,
+                    'status': 'faltante',
+                    'conteudo_ref': conteudo_ref,
+                    'conteudo_belfar': "",
+                    'titulo_encontrado': None
+                })
                 continue
 
         if encontrou_ref and encontrou_belfar:
             secao_comp = normalizar_titulo_para_comparacao(secao)
-            titulo_belfar_comp = normalizar_titulo_para_comparacao(titulo_belfar if titulo_belfar else melhor_titulo)
+            titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
+            titulo_belfar_comp = normalizar_titulo_para_comparacao(titulo_real_encontrado)
 
             if secao_comp != titulo_belfar_comp:
                 if not any(d['secao_esperada'] == secao for d in diferencas_titulos):
-                    diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_belfar if titulo_belfar else melhor_titulo})
+                    diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': titulo_real_encontrado})
 
             if secao.upper() in secoes_ignorar_upper:
-                continue
-
-            if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
-                
-                titulo_real_encontrado = titulo_belfar if titulo_belfar else melhor_titulo
-                
-                diferencas_conteudo.append({
+                similaridade_geral.append(100)
+                relatorio_completo.append({
                     'secao': secao,
+                    'status': 'ignorada',
                     'conteudo_ref': conteudo_ref,
                     'conteudo_belfar': conteudo_belfar,
                     'titulo_encontrado': titulo_real_encontrado
                 })
-                similaridades_secoes.append(0)
-            else:
-                similaridades_secoes.append(100)
+                continue
 
-    return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos
+            if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
+                relatorio_completo.append({
+                    'secao': secao,
+                    'status': 'diferente',
+                    'conteudo_ref': conteudo_ref,
+                    'conteudo_belfar': conteudo_belfar,
+                    'titulo_encontrado': titulo_real_encontrado
+                })
+                similaridade_geral.append(0)
+            else:
+                relatorio_completo.append({
+                    'secao': secao,
+                    'status': 'identica',
+                    'conteudo_ref': conteudo_ref,
+                    'conteudo_belfar': conteudo_belfar,
+                    'titulo_encontrado': titulo_real_encontrado
+                })
+                similaridade_geral.append(100)
+
+    # Retorna o relatório completo e a lista de similaridade
+    return secoes_faltantes, relatorio_completo, similaridade_geral, diferencas_titulos
+# --- [FIM DA FUNÇÃO MODIFICADA] ---
+
 
 # ----------------- ORTOGRAFIA -----------------
 
@@ -487,6 +498,10 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
+    # Adiciona verificação de None
+    if texto_ref is None: texto_ref = ""
+    if texto_belfar is None: texto_belfar = ""
+
     def tokenizar(txt):
         return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
 
@@ -518,12 +533,11 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
             marcado.append(tok)
 
     resultado = ""
-    for i, tok in enumerate(tokens): # Modificado para iterar sobre 'tokens' e não 'marcado'
+    for i, tok in enumerate(tokens): 
         if i == 0:
-            resultado += marcado[i] # Adiciona o token (marcado ou não)
+            resultado += marcado[i] 
             continue
         
-        # Pega o token original (sem marcação) para checagem
         raw_tok_anterior = tokens[i-1] 
         raw_tok = tokens[i]
 
@@ -531,22 +545,32 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
            raw_tok != '\n' and \
            raw_tok_anterior != '\n' and \
            not re.match(r'^[(\\[]$', raw_tok_anterior):
-            resultado += " " + marcado[i] # Adiciona o token (marcado ou não)
+            resultado += " " + marcado[i] 
         else:
-            resultado += marcado[i] # Adiciona o token (marcado ou não)
+            resultado += marcado[i] 
             
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
 # ----------------- MARCAÇÃO POR SEÇÃO COM ÍNDICES -----------------
 
-def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos, tipo_bula, eh_referencia=False):
+def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
-    if secoes_problema:
-        for diff in secoes_problema:
+    if texto_trabalho is None: texto_trabalho = ""
+    
+    # Usa o relatorio_completo
+    if relatorio_completo:
+        for diff in relatorio_completo:
+            # Só marca se for diferente
+            if diff['status'] != 'diferente':
+                continue
+
             conteudo_ref = diff['conteudo_ref']
             conteudo_belfar = diff['conteudo_belfar']
             conteudo_a_marcar = conteudo_ref if eh_referencia else conteudo_belfar
+            
+            if conteudo_a_marcar is None: continue
+
             conteudo_marcado = marcar_diferencas_palavra_por_palavra(
                 conteudo_ref,
                 conteudo_belfar,
@@ -559,8 +583,9 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
 
             if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
                 try:
-                    texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora)
-                except re.error: # Fallback em caso de erro de regex no replace
+                    # Adiciona 'count=1' para evitar substituições múltiplas erradas
+                    texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora, 1)
+                except re.error: 
                     pass 
 
     if erros_ortograficos and not eh_referencia:
@@ -591,39 +616,37 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 
 
-# --- [FUNÇÃO DE LAYOUT (v18.14) - MANTIDA] ---
+# --- [FUNÇÃO DE LAYOUT (v18.16) - CORRIGIDA PARA TÓPICOS] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     if html_content is None:
         return ""
 
+    # 1. Normaliza quebras múltiplas
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
 
+    # 2. Pega os títulos
     titulos_base = obter_secoes_por_tipo(tipo_bula)
     aliases = list(obter_aliases_secao().keys())
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
     
-    # Esta sub-função interna é a que aplica a formatação
-    def formatar_titulo_v18(match):
-        titulo_texto = match.group(0).strip()
-        
-        titulo_limpo = re.sub(r'</?mark[^>]*>', '', titulo_texto, flags=re.IGNORECASE)
-        titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
-        
-        for t_check in titulos_unicos:
-            if fuzz.ratio(normalizar_texto(t_check), normalizar_texto(titulo_limpo)) > 95:
-                return f'[[PARAGRAPH]]<strong>{titulo_texto}</strong>'
-        
-        return match.group(0)
+    # --- [INÍCIO DA CORREÇÃO v18.16] ---
+    # 3. Tag list items *FIRST*
+    # (Captura a linha inteira que começa com um marcador)
+    html_content = re.sub(r'(?m)^(\s*[-–•*].*)$', r'[[LIST_ITEM]]\1', html_content)
+    # --- [FIM DA CORREÇÃO v18.16] ---
 
-    # Aplica a formatação APENAS em linhas que PARECEM títulos
-    # (Início de linha, opc. número, opc. <mark>, texto, opc. </mark>, fim de linha)
-    # A lógica da v18.14 estava muito complexa e causando erros de 'bad escape'
-    # Esta é uma abordagem mais simples e segura:
-    
+    # 4. Formata Títulos
     linhas_formatadas = []
     for linha in html_content.split('\n'):
         linha_strip = linha.strip()
-        if not linha_strip: # Preserva linhas que agora são '[[PARAGRAPH]]'
+        
+        # Preserva linhas em branco (parágrafos)
+        if not linha_strip: 
+            linhas_formatadas.append(linha)
+            continue
+        
+        # Preserva itens de lista já taggeados
+        if linha_strip.startswith('[[LIST_ITEM]]'):
             linhas_formatadas.append(linha)
             continue
         
@@ -647,16 +670,15 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
 
     html_content = "\n".join(linhas_formatadas)
 
-    # 5. Lista e quebras
-    html_content = re.sub(r'(\n)(\s*[-–•*])', r'[[LIST_ITEM]]\2', html_content)
+    # 5. Lista e quebras (agora só replace)
     html_content = html_content.replace('\n', ' ') # Transforma quebras de formatação em espaço
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>') # Restaura parágrafos
     html_content = html_content.replace('[[LIST_ITEM]]', '<br>') # Restaura itens de lista
     
     # 6. Limpeza final
-    html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content) # Remove quebras triplas
-    html_content = re.sub(r'(<br><br>\s*)+<strong>', r'<br><br><strong>', html_content) # Limpa espaço antes de título
-    html_content = re.sub(r'\s{2,}', ' ', html_content) # Remove espaços duplicados
+    html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content) 
+    html_content = re.sub(r'(<br><br>\s*)+<strong>', r'<br><br><strong>', html_content) 
+    html_content = re.sub(r'\s{2,}', ' ', html_content) 
 
     return html_content
 # --- [FIM DA FUNÇÃO DE LAYOUT] ---
@@ -722,7 +744,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
-    secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
+    # --- [MUDANÇA v18.16] ---
+    # A função agora retorna 'relatorio_completo' em vez de 'diferencas_conteudo'
+    secoes_faltantes, relatorio_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
+    # --- [FIM DA MUDANÇA] ---
+    
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
@@ -742,11 +768,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     else:
         st.success("✅ Todas as seções obrigatórias estão presentes")
         
-    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
-    mapa_diferencas = {diff['secao']: diff for diff in diferencas_conteudo}
-    secoes_ignorar_comp = obter_secoes_ignorar_comparacao()
-    secoes_ignorar_upper = {s.upper() for s in secoes_ignorar_comp}
-
     st.subheader("Análise de Conteúdo Seção por Seção")
     
     expander_caixa_style = (
@@ -756,65 +777,70 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "white-space: normal; overflow-wrap: break-word;"
     )
 
-    for secao_canonico_raw in secoes_esperadas:
+    # --- [INÍCIO DA LÓGICA MODIFICADA (v18.16)] ---
+    # Itera sobre o 'relatorio_completo'
+    for item in relatorio_completo:
+        secao_canonico_raw = item['secao']
+        status = item['status']
         
-        if secao_canonico_raw in secoes_faltantes:
-            continue
+        titulo_display = item.get('titulo_encontrado') or secao_canonico_raw
+        if not titulo_display:
+            titulo_display = secao_canonico_raw
+        
+        # Lógica do "9."
+        secao_canonico_norm = normalizar_texto(secao_canonico_raw)
+        if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm:
+            if not normalizar_texto(titulo_display).startswith("9"):
+                titulo_display = f"9. {titulo_display}"
+        
+        # Define o título do expander
+        if status == 'diferente':
+            expander_title = f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"
+        elif status == 'ignorada':
+            expander_title = f"📄 {titulo_display} - ℹ️ IGNORADA (Regra de Negócio)"
+        else: # 'identica'
+            expander_title = f"📄 {titulo_display} - ✅ CONTEÚDO IDÊNTICO"
 
-        if secao_canonico_raw in mapa_diferencas:
-            diff = mapa_diferencas[secao_canonico_raw]
+        with st.expander(expander_title):
+            secao_canonico = item['secao']
+            anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
+            anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
             
-            titulo_display = diff.get('titulo_encontrado') or secao_canonico_raw
-            if not titulo_display:
-                titulo_display = secao_canonico_raw
+            conteudo_ref_bruto = item['conteudo_ref']
+            conteudo_belfar_bruto = item['conteudo_belfar']
+
+            # Marca diferenças (só vai marcar se status='diferente', senão retorna original)
+            html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
+                conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=True
+            )
+            html_belfar_bruto_expander = marcar_diferencas_palavra_por_palavra(
+                conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=False
+            )
+
+            # Formata para HTML (layout, tópicos, negrito)
+            expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, tipo_bula, aplicar_numeracao=True)
+            expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, tipo_bula, aplicar_numeracao=False)
             
-            secao_canonico_norm = normalizar_texto(secao_canonico_raw)
-            if "o que fazer se alguem usar uma quantidade maior" in secao_canonico_norm:
-                if not normalizar_texto(titulo_display).startswith("9"):
-                    titulo_display = f"9. {titulo_display}"
-            
-            with st.expander(f"📄 {titulo_display} - ❌ CONTEÚDO DIVERGENTE"):
-                secao_canonico = diff['secao']
-                anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
-                anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
-                
-                conteudo_ref_bruto = diff['conteudo_ref']
-                conteudo_belfar_bruto = diff['conteudo_belfar']
+            clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
+            html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
+            html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
 
-                html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
-                    conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=True
-                )
-                html_belfar_bruto_expander = marcar_diferencas_palavra_por_palavra(
-                    conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=False
-                )
-
-                expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, tipo_bula, aplicar_numeracao=True)
-                expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, tipo_bula, aplicar_numeracao=False)
-                
-                clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
-                html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
-                html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
-
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**Referência:** (Clique na caixa para rolar)")
-                    st.markdown(html_ref_box, unsafe_allow_html=True)
-                with c2:
-                    st.markdown("**BELFAR:** (Clique na caixa para rolar)")
-                    st.markdown(html_bel_box, unsafe_allow_html=True)
-
-        else:
-            if secao_canonico_raw.upper() in secoes_ignorar_upper:
-                with st.expander(f"📄 {secao_canonico_raw} - ℹ️ IGNORADA (Regra de Negócio)"):
-                    st.info("Esta seção é ignorada durante a comparação de conteúdo (ex: Composição, Dizeres Legais) por regras de negócio.")
-            else:
-                with st.expander(f"📄 {secao_canonico_raw} - ✅ CONTEÚDO IDÊNTICO"):
-                    st.success("O conteúdo desta seção na bula BELFAR é idêntico ao da referência.")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**Referência:** (Clique na caixa para rolar)")
+                st.markdown(html_ref_box, unsafe_allow_html=True)
+            with c2:
+                st.markdown("**BELFAR:** (Clique na caixa para rolar)")
+                st.markdown(html_bel_box, unsafe_allow_html=True)
+    # --- [FIM DA LÓGICA MODIFICADA] ---
 
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
 
-    if not any([secoes_faltantes, diferencas_conteudo, diferencas_titulos]) and len(erros_ortograficos) < 5:
+    # Checa se há divergências no relatório
+    diferencas_encontradas = any(item['status'] == 'diferente' for item in relatorio_completo)
+
+    if not any([secoes_faltantes, diferencas_encontradas, diferencas_titulos]) and len(erros_ortograficos) < 5:
         st.success("🎉 **Bula aprovada!** Nenhum problema crítico encontrado.")
 
     st.divider()
@@ -827,10 +853,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     )
 
     html_ref_bruto = marcar_divergencias_html(
-        texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True
+        texto_original=texto_ref, relatorio_completo=relatorio_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True
     )
     html_belfar_bruto = marcar_divergencias_html(
-        texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False
+        texto_original=texto_belfar, relatorio_completo=relatorio_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False
     )
     
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, tipo_bula, aplicar_numeracao=True)
@@ -880,7 +906,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_ref)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, tipo_belfar)
 
-            # --- [INÍCIO DA MODIFICAÇÃO] ---
             # Chama a função de correção de títulos aqui
             if not erro_ref:
                 texto_ref = corrigir_quebras_em_titulos(texto_ref)
@@ -888,7 +913,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if not erro_belfar:
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
-            # --- [FIM DA MODIFICAÇÃO] ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
@@ -898,4 +922,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.15 | Correção de Mapeamento (corrigir_quebras_em_titulos)")
+st.caption("Sistema de Auditoria de Bulas v18.16 | Correção de Tópicos (Layout) e Exibição de Conteúdo Idêntico")
