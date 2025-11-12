@@ -86,26 +86,27 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = "\n".join([p.text for p in doc.paragraphs])
 
         if texto:
-            # Remove caracteres invisíveis e espaços desnecessários
+            # Remove caracteres invisíveis
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
 
-            # Junta palavras quebradas por hífen no final da linha
+            # Junta palavras quebradas no fim da linha
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
 
-            # Remove rodapé
+            # Remove rodapés e páginas
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             texto = "\n".join(linhas_filtradas)
 
-            # 🔹 Quebra de linha antes de QUALQUER marcador (− – — - • *)
-            texto = re.sub(r'\s*([•\-\–\—−])\s*', r'\n\1 ', texto)
+            # Formatação dos marcadores − e • → pula linha após cada um
+            # Exemplo: "− Hipersensibilidade..." → fica em linha própria
+            texto = re.sub(r'\s*([−•])\s*', r'\n\1 ', texto)
 
-            # Normaliza espaçamentos e quebras
+            # Remove quebras múltiplas e espaços extras
             texto = re.sub(r'\n{3,}', '\n\n', texto)
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
