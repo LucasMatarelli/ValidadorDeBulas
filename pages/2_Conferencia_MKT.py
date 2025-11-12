@@ -860,3 +860,48 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
+st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
+st.divider()
+
+st.header("📋 Configuração da Auditoria")
+tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente"), horizontal=True)
+col1, col2 = st.columns(2)
+with col1:
+    st.subheader("📄 Arquivo ANVISA")
+    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+with col2:
+    st.subheader("📄 Arquivo MKT")
+    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
+
+if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+    if pdf_ref and pdf_belfar:
+        with st.spinner("🔄 Processando e analisando as bulas..."):
+
+            tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
+
+            # ANVISA é extraído com 'is_marketing_pdf=False'
+            texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
+
+            if not erro_ref:
+                texto_ref = corrigir_quebras_em_titulos(texto_ref)
+                texto_ref = truncar_apos_anvisa(texto_ref)
+
+            # MKT é extraído com 'is_marketing_pdf=True'
+            texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+
+            if not erro_belfar:
+                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                texto_belfar = truncar_apos_anvisa(texto_belfar)
+
+            if erro_ref or erro_belfar:
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+            elif not texto_ref or not texto_belfar:
+                st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
+            else:
+                gerar_relatorio_final(texto_ref, texto_belfar, "Arquivo ANVISA", "Arquivo MKT", tipo_bula_selecionado)
+    else:
+        st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
+
+st.divider()
+st.caption("Sistema de Auditoria de Bulas v26.53 | Numeração MKT corrigida")
