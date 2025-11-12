@@ -1,12 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.56 (Correção Definitiva: Números Soltos MKT)
-#  - O problema das "Seções Faltantes" (v26.55) foi resolvido.
-#  - O problema dos números soltos (ex: "1.") no MKT persistia.
-#  - A lógica de remoção em `formatar_html_para_leitura` foi
-#    substituída por uma regra de Regex muito mais robusta.
-#  - A nova regra remove (quebra)N.(quebra) independentemente
-#    de ser \n ou \n\n, resolvendo o problema.
+# Versão v26.57 (Correção NameError)
+#  - Corrige um erro de digitação (typo) na chamada da função
+#    'marcar_divergencias_html' dentro de 'gerar_relatorio_final'.
+#  - A função estava sendo chamada como 'marcar_divergcias_html'.
+#  - Mantém a lógica da v26.56.
 
 # --- IMPORTS ---
 import re
@@ -20,7 +18,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.56 - CORREÇÃO NÚMEROS MKT) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.56 - MANTIDO) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     """
     Recebe html_content (texto que pode conter quebras '\n' e marcações geradas pela função de marcação)
@@ -33,13 +31,8 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         return ""
 
     # 1) REMOÇÃO DE NÚMEROS SOLTOS (v26.56 - LÓGICA ROBUSTA)
-    # Esta etapa remove números soltos (ex: "1.") que estão entre
-    # quebras de linha, não importa se são \n ou \n\n.
     if not aplicar_numeracao:
-        # (?:[\n\r]+) = uma ou mais quebras de linha (captura \n, \n\n, \r\n, etc.)
-        
         # Remove padrão: (quebra) N. (quebra) -> (número sozinho no meio)
-        # Substitui por uma quebra dupla limpa.
         html_content = re.sub(
             r'(?:[\n\r]+)\s*\d+\.\s*(?:[\n\r]+)',
             '\n\n',
@@ -324,12 +317,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for linha in linhas:
                 linha_strip = linha.strip()
 
-                # Filtro 0 (v26.53): Mantém linhas numéricas (1., 2., etc.) como marcadores temporários
-                # ESTA LÓGICA NÃO É MAIS USADA, os números são removidos na formatação
-                # if is_marketing_pdf and re.fullmatch(r'\d+\.', linha_strip):
-                #     linhas_filtradas.append(f"__NUMMARK_{linha_strip}__")
-                #     continue
-
                 # 1. Filtra linhas de ruído conhecidas
                 if padrao_ruido_linha.search(linha_strip):
                     continue
@@ -340,7 +327,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '190', '*', '...')
                 if is_marketing_pdf and not re.search(r'[a-zA-Z]', linha_limpa):
                     # EXCEÇÃO: Mantém a linha se for um número solto (ex: "1.")
-                    # A nova formatação (v26.56) cuidará disso
                     if not re.fullmatch(r'\d+\.', linha_limpa):
                          continue
 
@@ -357,9 +343,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'\n{3,}', '\n\n', texto)
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
-
-            # Remove marcadores numéricos temporários (lógica v26.53 removida)
-            # texto = re.sub(r'__NUMMARK_(\d+\.)__', r'\1', texto)
 
             return texto, None
 
@@ -783,7 +766,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- GERAÇÃO DE RELATÓRIO (v26.50 - MANTIDO) -----------------
+# ----------------- GERAÇÃO DE RELATÓRIO (v26.57 - CORREÇÃO TYPO) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
 
@@ -905,7 +888,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     )
 
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
-    html_belfar_marcado_bruto = marcar_divergcias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
+    
+    # --- LINHA CORRIGIDA (v26.57) ---
+    html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
@@ -984,4 +969,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.56 | Correção Robusta Números MKT")
+st.caption("Sistema de Auditoria de Bulas v26.57 | Correção NameError (typo)")
