@@ -159,8 +159,11 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_ortografia():
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
+# --- [INÍCIO DA CORREÇÃO v18.17] ---
 def obter_secoes_ignorar_comparacao():
-    return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES", "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"]
+    # Removida a Seção 5 ("ONDE...") da lista de ignorados
+    return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
+# --- [FIM DA CORREÇÃO v18.17] ---
 
 # ----------------- NORMALIZAÇÃO -----------------
 
@@ -351,16 +354,19 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
 
-# --- [FUNÇÃO MODIFICADA (v18.16)] ---
-# Agora retorna TODAS as seções (relatorio_completo) em vez de apenas as diferenças
+# --- [FUNÇÃO (v18.16) - MANTIDA] ---
+# Retorna 'relatorio_completo'
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes = []
     diferencas_titulos = []
     similaridade_geral = []
-    relatorio_completo = [] # <-- MUDANÇA: Usaremos esta lista
+    relatorio_completo = [] 
     
+    # --- [MUDANÇA v18.17] ---
+    # Pega a nova lista de seções ignoradas
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
+    # --- [FIM DA MUDANÇA] ---
 
     linhas_ref = texto_ref.split('\n')
     linhas_belfar = texto_belfar.split('\n')
@@ -383,8 +389,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                     melhor_score = score
                     melhor_titulo = m['titulo_encontrado']
             if melhor_score >= 95:
-                # Encontrou por similaridade, mas o mapeamento falhou (provavelmente título quebrado)
-                # Vamos tratar como "encontrado" mas registrar a diferença de título
                 diferencas_titulos.append({'secao_esperada': secao, 'titulo_encontrado': melhor_titulo})
                 for m in mapa_belfar:
                     if m['titulo_encontrado'] == melhor_titulo:
@@ -446,9 +450,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 })
                 similaridade_geral.append(100)
 
-    # Retorna o relatório completo e a lista de similaridade
     return secoes_faltantes, relatorio_completo, similaridade_geral, diferencas_titulos
-# --- [FIM DA FUNÇÃO MODIFICADA] ---
+# --- [FIM DA FUNÇÃO] ---
 
 
 # ----------------- ORTOGRAFIA -----------------
@@ -498,7 +501,6 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
-    # Adiciona verificação de None
     if texto_ref is None: texto_ref = ""
     if texto_belfar is None: texto_belfar = ""
 
@@ -558,10 +560,8 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
     texto_trabalho = texto_original
     if texto_trabalho is None: texto_trabalho = ""
     
-    # Usa o relatorio_completo
     if relatorio_completo:
         for diff in relatorio_completo:
-            # Só marca se for diferente
             if diff['status'] != 'diferente':
                 continue
 
@@ -583,7 +583,6 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
 
             if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
                 try:
-                    # Adiciona 'count=1' para evitar substituições múltiplas erradas
                     texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora, 1)
                 except re.error: 
                     pass 
@@ -616,7 +615,7 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
     return texto_trabalho
 
 
-# --- [FUNÇÃO DE LAYOUT (v18.16) - CORRIGIDA PARA TÓPICOS] ---
+# --- [FUNÇÃO DE LAYOUT (v18.17) - CORRIGIDA PARA TÓPICOS] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -629,24 +628,12 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     aliases = list(obter_aliases_secao().keys())
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
     
-    # --- [INÍCIO DA CORREÇÃO v18.16] ---
-    # 3. Tag list items *FIRST*
-    # (Captura a linha inteira que começa com um marcador)
-    html_content = re.sub(r'(?m)^(\s*[-–•*].*)$', r'[[LIST_ITEM]]\1', html_content)
-    # --- [FIM DA CORREÇÃO v18.16] ---
-
     # 4. Formata Títulos
     linhas_formatadas = []
     for linha in html_content.split('\n'):
         linha_strip = linha.strip()
         
-        # Preserva linhas em branco (parágrafos)
         if not linha_strip: 
-            linhas_formatadas.append(linha)
-            continue
-        
-        # Preserva itens de lista já taggeados
-        if linha_strip.startswith('[[LIST_ITEM]]'):
             linhas_formatadas.append(linha)
             continue
         
@@ -662,18 +649,20 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
                     break
         
         if eh_titulo:
-            # Adiciona a quebra de parágrafo ANTES do título
             linhas_formatadas.append(f"[[PARAGRAPH]]<strong>{linha_strip}</strong>")
         else:
-            # É uma linha de conteúdo normal
+            # É uma linha de conteúdo normal (ou tópico)
             linhas_formatadas.append(linha)
 
     html_content = "\n".join(linhas_formatadas)
 
-    # 5. Lista e quebras (agora só replace)
-    html_content = html_content.replace('\n', ' ') # Transforma quebras de formatação em espaço
+    # 5. Lista e quebras (LÓGICA CORRIGIDA)
+    # Qualquer \n que sobrou (que não é um \n\n) é uma quebra de linha (tópico ou linha contínua)
+    html_content = html_content.replace('\n', '[[LINE_BREAK]]') 
+    
+    # Substitui os placeholders
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>') # Restaura parágrafos
-    html_content = html_content.replace('[[LIST_ITEM]]', '<br>') # Restaura itens de lista
+    html_content = html_content.replace('[[LINE_BREAK]]', '<br>') # Restaura quebras de linha/tópicos
     
     # 6. Limpeza final
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content) 
@@ -745,7 +734,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
     # --- [MUDANÇA v18.16] ---
-    # A função agora retorna 'relatorio_completo' em vez de 'diferencas_conteudo'
     secoes_faltantes, relatorio_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
     # --- [FIM DA MUDANÇA] ---
     
@@ -777,7 +765,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "white-space: normal; overflow-wrap: break-word;"
     )
 
-    # --- [INÍCIO DA LÓGICA MODIFICADA (v18.16)] ---
+    # --- [INÍCIO DA LÓGICA MODIFICADA (v18.16) - MANTIDA] ---
     # Itera sobre o 'relatorio_completo'
     for item in relatorio_completo:
         secao_canonico_raw = item['secao']
@@ -916,10 +904,12 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+            elif not texto_ref or not texto_belfar:
+                st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
                 gerar_relatorio_final(texto_ref, texto_belfar, "Bula Referência", "Bula BELFAR", tipo_bula_selecionado)
     else:
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.16 | Correção de Tópicos (Layout) e Exibição de Conteúdo Idêntico")
+st.caption("Sistema de Auditoria de Bulas v18.17 | Correção Seção 5 e Formatação de Tópicos")
