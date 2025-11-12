@@ -86,26 +86,34 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = "\n".join([p.text for p in doc.paragraphs])
             
         if texto:
+            # Remove caracteres invisíveis e espaços desnecessários
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             
+            # Junta palavras quebradas por hífen no final da linha
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
 
+            # Remove rodapé
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             texto = "\n".join(linhas_filtradas)
 
-            texto = re.sub(r'\n{3,}', '\n\n', texto) 
-            texto = re.sub(r'[ \t]+', ' ', texto) 
+            # 🔹 Quebra de linha antes dos marcadores (• ou −), sem adicionar linha em branco
+            texto = re.sub(r'\s*([•\-])', r'\n\1', texto)
+
+            # Normaliza quebras e espaços
+            texto = re.sub(r'\n{3,}', '\n\n', texto)
+            texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
 
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+
 # --- [FIM DA CORREÇÃO v18.27] ---
 
 def truncar_apos_anvisa(texto):
