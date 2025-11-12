@@ -534,7 +534,7 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 
 
-# --- [INÍCIO DA NOVA FUNÇÃO DE LAYOUT] ---
+# --- [INÍCIO DA FUNÇÃO DE LAYOUT MODIFICADA] ---
 # (Baseada na v26.58 que você enviou)
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     """
@@ -558,9 +558,13 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     for t in titulos_unicos:
         # Escapa caracteres como '?'
         t_escaped = re.escape(t)
-        # Cria um regex que "pula" tags html (<mark...>) e números/pontos iniciais
-        # Ex: (opcional: 1. ) (opcional: <mark>) T (opcional: </mark>) Í (opcional: <mark>) T ...
-        t_regex = re.sub(r'([A-ZÀ-ÖØ-Þ])', r'(?:<[^>]+>)*\s*\1', t_escaped, flags=re.IGNORECASE)
+        
+        # --- [INÍCIO DA CORREÇÃO] ---
+        # O erro estava aqui. \s é um escape inválido em strings de *substituição* re.
+        # Precisamos usar \\s para que o re.sub entenda como "literal \s".
+        t_regex = re.sub(r'([A-ZÀ-ÖØ-Þ])', r'(?:<[^>]+>)*\\s*\1', t_escaped, flags=re.IGNORECASE)
+        # --- [FIM DA CORREÇÃO] ---
+        
         t_regex = re.sub(r'\\ ', r'\\s+', t_regex) # Permite múltiplos espaços
         
         # Padrão final: (Início de linha ou Parágrafo) + (Opcional Num. e Ponto) + (Título com marks) + (Fim de linha ou Parágrafo)
@@ -648,7 +652,7 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     html_content = re.sub(r'\s{2,}', ' ', html_content) # Remove espaços duplicados
 
     return html_content
-# --- [FIM DA NOVA FUNÇÃO DE LAYOUT] ---
+# --- [FIM DA FUNÇÃO DE LAYOUT] ---
 
 
 # ----------------- RELATÓRIO -----------------
@@ -893,4 +897,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.13 | Implementado Renderizador HTML v26 (Layout Corrigido)")
+st.caption("Sistema de Auditoria de Bulas v18.14 | Correção Regex Escape (formatar_html_para_leitura)")
