@@ -89,6 +89,13 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
+            
+            # --- [NOVA CORREÇÃO] ---
+            # Remove quebras de linha que vêm logo após pontuação (ex: "palavra,\n")
+            # e as substitui por um espaço (ex: "palavra, ")
+            texto = re.sub(r'([,.;:!?)])\n', r'\1 ', texto)
+            # --- [FIM DA CORREÇÃO] ---
+
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
@@ -849,4 +856,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.7 | Estilo Lado-a-Lado Atualizado | Relatório Completo")
+st.caption("Sistema de Auditoria de Bulas v18.8 | Correção de Quebra de Linha (Pontuação) | Relatório Completo")
