@@ -1,10 +1,12 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.57 (Correção NameError)
-#  - Corrige um erro de digitação (typo) na chamada da função
-#    'marcar_divergencias_html' dentro de 'gerar_relatorio_final'.
-#  - A função estava sendo chamada como 'marcar_divergcias_html'.
-#  - Mantém a lógica da v26.56.
+# Versão v26.58 (Correção Definitiva: Lógica de Extração)
+#  - O bug dos números soltos ('1.', '2.') persistia.
+#  - O erro estava em `extrair_texto`. O filtro de ruído (etapa 3)
+#    tinha uma exceção incorreta que *mantinha* linhas que
+#    eram apenas números (ex: "1.").
+#  - A exceção foi removida. Agora, *qualquer* linha no MKT
+#    que não contiver letras será descartada.
 
 # --- IMPORTS ---
 import re
@@ -31,6 +33,8 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         return ""
 
     # 1) REMOÇÃO DE NÚMEROS SOLTOS (v26.56 - LÓGICA ROBUSTA)
+    # Esta etapa (mantida por segurança) remove números soltos
+    # caso a extração falhe.
     if not aplicar_numeracao:
         # Remove padrão: (quebra) N. (quebra) -> (número sozinho no meio)
         html_content = re.sub(
@@ -217,7 +221,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.44 - MANTIDO COM PATCHES) -----------------
+# ----------------- EXTRAÇÃO (v26.58 - LÓGICA CORRIGIDA) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -324,11 +328,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 # 2. Limpa espaços extras
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
 
-                # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '190', '*', '...')
+                # --- INÍCIO DA CORREÇÃO (v26.58) ---
+                # 3. Filtra linhas que NÃO contêm nenhuma letra (ex: '190', '*', '...', ou '1.')
                 if is_marketing_pdf and not re.search(r'[a-zA-Z]', linha_limpa):
-                    # EXCEÇÃO: Mantém a linha se for um número solto (ex: "1.")
-                    if not re.fullmatch(r'\d+\.', linha_limpa):
-                         continue
+                    # Remove *qualquer* linha sem letras, incluindo '1.', '2.', etc.
+                    continue
+                # --- FIM DA CORREÇÃO ---
 
                 # 4. Adiciona a linha (preserva linhas em branco para estrutura de parágrafo)
                 if linha_limpa:
@@ -420,7 +425,7 @@ def obter_aliases_secao():
         "CONTRAINDICAÇÕES": "4. CONTRAINDICAÇÕES",
         "ADVERTÊNCIAS E PRECAUÇÕES": "5. ADVERTÊNCIAS E PRECAUÇÕES",
         "INTERAÇÕES MEDICAMENTOSAS": "6. INTERAÇÕES MEDICAMENTOSAS",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
+        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7. CUIDADOS DE ARMAZENamento DO MEDICAMENTO",
         "POSOLOGIA E MODO DE USAR": "8. POSOLOGIA E MODO DE USAR",
         "REAÇÕES ADVERSAS": "9. REAÇÕES ADVERSAS",
         "SUPERDOSE": "10. SUPERDOSE"
@@ -766,7 +771,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- GERAÇÃO DE RELATÓRIO (v26.57 - CORREÇÃO TYPO) -----------------
+# ----------------- GERAÇÃO DE RELATÓRIO (v26.57 - MANTIDO) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
 
@@ -889,7 +894,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     
-    # --- LINHA CORRIGIDA (v26.57) ---
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_safe, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
@@ -969,4 +973,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.57 | Correção NameError (typo)")
+st.caption("Sistema de Auditoria de Bulas v26.58 | Correção Extração MKT")
