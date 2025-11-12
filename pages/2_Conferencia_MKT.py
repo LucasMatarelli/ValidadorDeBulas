@@ -33,13 +33,15 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     # 1) Normaliza quebras múltiplas no formato temporário
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
 
-    # 2) Quando NÃO aplicamos numeração, removemos padrões óbvios de numeração solta entre parágrafos
-    #    (controle fino: deixamos espaço para correção posterior de linhas "1." soltas)
+    # 2) ANTES de processar títulos, junta número + título que estão separados por quebra de parágrafo
+    # Ex: "texto\n\n1.\n\nPARA QUE..." -> "texto\n\n1. PARA QUE..."
     if not aplicar_numeracao:
+        # Padrão: [[PARAGRAPH]] número. [[PARAGRAPH]] TÍTULO
         html_content = re.sub(
-            r'\[\[PARAGRAPH\]\]\s*\d+\.\s*\[\[PARAGRAPH\]\]', 
-            '[[PARAGRAPH]]', 
-            html_content
+            r'\[\[PARAGRAPH\]\]\s*(\d+)\.\s*\[\[PARAGRAPH\]\]\s*([A-ZÀÁÉÍÓÚÂÊÔÃÕÇ][A-ZÀÁÉÍÓÚÂÊÔÃÕÇ\s\?]+)',
+            r'[[PARAGRAPH]]\1. \2',
+            html_content,
+            flags=re.IGNORECASE
         )
 
     # 3) Títulos que reconhecemos (padrões e versões com número já presentes)
@@ -94,7 +96,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
             elif 'QUANTIDADE MAIOR' in titulo_upper:
                 return f'[[PARAGRAPH]]<strong>9. {titulo_limpo}</strong>'
 
-        # Se não aplicar numeração, apenas marca o título (vamos corrigir numerações soltas depois)
+        # Se não aplicar numeração, apenas marca o título (já juntamos número+título antes)
         return f'[[PARAGRAPH]]<strong>{titulo_limpo}</strong>'
 
     # Aplica substituição dos padrões de título
@@ -114,26 +116,21 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = html_content.replace('<br><br> <br><br>', '<br><br>')
 
-    # --- FIX MELHORADO: juntar numeração solta com título subsequente (caso do MKT) ---
-    def juntar_numeracao_e_titulo(html):
-        # Padrão mais robusto: captura número seguido de quebras e depois título
-        # Ex: "...texto<br><br>1.<br><br>PARA QUE..." -> "...texto<br><br>1. PARA QUE..."
-        pattern = r'(<br\s*/?>\s*){2,}(\d+)\.\s*(<br\s*/?>\s*){2,}(<strong>)?([A-ZÀÁÉÍÓÚÂÊÔÃÕÇ][A-ZÀÁÉÍÓÚÂÊÔÃÕÇ\s\?]+)(</strong>)?'
+    # FIX ADICIONAL: Remove números soltos que ainda podem ter sobrado
+    if not aplicar_numeracao:
+        # Remove padrão: <br><br>1.<br><br> (número sozinho entre quebras)
+        html_content = re.sub(
+            r'<br\s*/?>\s*<br\s*/?>\s*\d+\.\s*<br\s*/?>\s*<br\s*/?>\s*',
+            '<br><br>',
+            html_content
+        )
         
-        def replacer(match):
-            numero = match.group(2)
-            tem_strong = match.group(4) is not None
-            titulo_texto = match.group(5).strip()
-            
-            if tem_strong:
-                return f'<br><br><strong>{numero}. {titulo_texto}</strong>'
-            else:
-                return f'<br><br><strong>{numero}. {titulo_texto}</strong>'
-        
-        html = re.sub(pattern, replacer, html)
-        return html
-
-    html_content = juntar_numeracao_e_titulo(html_content)
+        # Junta número + título se ainda estiverem separados por <br><br>
+        html_content = re.sub(
+            r'<br\s*/?>\s*<br\s*/?>\s*(\d+)\.\s*<br\s*/?>\s*<br\s*/?>\s*<strong>',
+            r'<br><br><strong>\1. ',
+            html_content
+        )
 
     # Última limpeza de espaços/quebras duplicadas
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
