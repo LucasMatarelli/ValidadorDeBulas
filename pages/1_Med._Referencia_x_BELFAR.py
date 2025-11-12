@@ -112,7 +112,7 @@ def extrair_texto(arquivo, tipo_arquivo):
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
-    # --- [CORREÇÃO v18.24] --- Adiciona \s* para datas com espaço
+    # --- [CORREÇÃO v18.25] --- Adiciona \s* para datas com espaço
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
@@ -187,8 +187,8 @@ def _create_anchor_id(secao_nome, prefix):
     return f"anchor-{prefix}-{norm_safe}"
 
 
-# --- [FUNÇÃO (Importada da v26.58) - MANTIDA] ---
-def corrigir_quebras_em_titulos(texto):
+# --- [INÍCIO DA FUNÇÃO (v18.25) - CORRIGIDA] ---
+def corrigir_quebras_em_titulos(texto, tipo_bula):
     """
     Corrige títulos que foram quebrados em múltiplas linhas (ex: "COMPOSIÇÃO"
     em uma linha e "DO MEDICAMENTO" em outra) juntando-os.
@@ -198,34 +198,49 @@ def corrigir_quebras_em_titulos(texto):
     linhas_corrigidas = []
     buffer = ""
 
+    # Pega a lista de títulos conhecidos para checagem
+    secoes_base = obter_secoes_por_tipo(tipo_bula)
+    aliases = obter_aliases_secao()
+    secoes_conhecidas_norm = {normalizar_titulo_para_comparacao(s) for s in secoes_base + list(aliases.keys())}
+    
     for linha in linhas:
         linha_strip = linha.strip()
 
         if not linha_strip:
-            if buffer:
+            if buffer: 
                 linhas_corrigidas.append(buffer)
                 buffer = ""
             linhas_corrigidas.append("") 
             continue
-
-        is_potential_title = (
-            linha_strip.isupper() and len(linha_strip) < 70
-        ) or re.match(r'^\d+\.', linha_strip)
-
-        if is_potential_title:
-            if buffer:
-                buffer += " " + linha_strip
-            else:
-                buffer = linha_strip
-        else:
-            if buffer:
-                linhas_corrigidas.append(buffer)
-                buffer = ""
-            linhas_corrigidas.append(linha_strip) 
-
-    if buffer:
-        linhas_corrigidas.append(buffer)
-
+        
+        # Checa se é um TÍTULO COMPLETO conhecido
+        linha_norm = normalizar_titulo_para_comparacao(linha_strip)
+        eh_titulo_conhecido = False
+        if is_titulo_secao(linha_strip): # Usa o checker básico primeiro
+             for s_norm in secoes_conhecidas_norm:
+                if fuzz.ratio(linha_norm, s_norm) > 95:
+                    eh_titulo_conhecido = True
+                    break
+        
+        # Checa se é um FRAGMENTO de título (curto, maiúsculo, poucas palavras)
+        eh_fragmento = (
+            linha_strip.isupper() and 
+            len(linha_strip.split()) < 5 and 
+            len(linha_strip) < 35 # Mais restritivo
+        )
+        
+        if eh_titulo_conhecido:
+            if buffer: linhas_corrigidas.append(buffer) # Descarrega o buffer anterior
+            buffer = linha_strip # Começa um novo título
+        
+        elif buffer and eh_fragmento: # É um fragmento e estamos em um buffer
+            buffer += " " + linha_strip # Junta ao título
+            
+        else: # É linha de conteúdo
+            if buffer: linhas_corrigidas.append(buffer); buffer = "" # Descarrega o título
+            linhas_corrigidas.append(linha_strip) # Adiciona o conteúdo
+    
+    if buffer: linhas_corrigidas.append(buffer)
     return "\n".join(linhas_corrigidas)
 # --- [FIM DA FUNÇÃO] ---
 
@@ -597,10 +612,10 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
                 flags=re.IGNORECASE
             )
             
-    # --- [INÍCIO DA CORREÇÃO v18.21] ---
+    # --- [INÍCIO DA CORREÇÃO v18.25] ---
     # Adiciona \s* para permitir espaços na data (ex: 05 / 02 / 2025)
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
-    # --- [FIM DA CORREÇÃO v18.21] ---
+    # --- [FIM DA CORREÇÃO v18.25] ---
     
     def remove_marks_da_data(match):
         frase_anvisa = match.group(1)
@@ -618,21 +633,20 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
     return texto_trabalho
 
 
-# --- [FUNÇÃO DE LAYOUT (v18.24) - CORRIGIDA PARA TÓPICOS] ---
+# --- [FUNÇÃO DE LAYOUT (v18.25) - CORRIGIDA PARA TÓPICOS] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     if html_content is None:
         return ""
 
     # 1. Normaliza quebras múltiplas
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
-    
+
     # 2. Pega os títulos
     titulos_base = obter_secoes_por_tipo(tipo_bula)
     aliases = list(obter_aliases_secao().keys())
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
     
     # 3. Formata Títulos
-    # (Divide por \n, que agora são linhas de "blocks")
     linhas_formatadas = []
     
     for linha in html_content.split('\n'):
@@ -661,8 +675,8 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
 
     html_content = "\n".join(linhas_formatadas)
 
-    # 4. Lista e quebras (LÓGICA CORRIGIDA v18.24)
-    # --- [INÍCIO DA CORREÇÃO v18.24] ---
+    # 4. Lista e quebras (LÓGICA CORRIGIDA v18.25)
+    # --- [INÍCIO DA CORREÇÃO v18.25] ---
     
     # Regex para Tópicos (inclui hífen, traço, bullet e o 'minus sign' da Belfar)
     # Procura por (qualquer caractere não-espaço, : ou ;) 
@@ -671,13 +685,13 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     # e insere um <br>
     
     # (\S|[:;]) -> Captura um não-espaço OU : OU ;
-    # \s* -> Corresponde a zero ou mais espaços (incluindo &nbsp; se for texto)
-    # ([•*−]) -> Captura o marcador de tópico
+    # \s* -> Corresponde a zero ou mais espaços
+    # ([•*−-]) -> Captura o marcador de tópico (adicionado hífen comum)
     # Substitui por: \1 (o caractere antes) + <br> + \2 (o marcador)
-    topic_regex = r'(\S|[:;])\s*([•*−])'
+    topic_regex = r'(\S|[:;])\s*([•*−-])'
     html_content = re.sub(topic_regex, r'\1<br>\2', html_content)
     
-    # --- [FIM DA CORREÇÃO v18.24] ---
+    # --- [FIM DA CORREÇÃO v18.25] ---
 
     # 5. O que sobrou de \n é texto contínuo, vira espaço
     html_content = html_content.replace('\n', ' ') 
@@ -908,13 +922,15 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_ref)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, tipo_belfar)
 
-            # Chama a função de correção de títulos aqui
+            # --- [INÍCIO DA MODIFICAÇÃO v18.25] ---
+            # Chama a função de correção de títulos aqui (agora passa o tipo_bula)
             if not erro_ref:
-                texto_ref = corrigir_quebras_em_titulos(texto_ref)
+                texto_ref = corrigir_quebras_em_titulos(texto_ref, tipo_bula_selecionado)
                 texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
-                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                texto_belfar = corrigir_quebras_em_titulos(texto_belfar, tipo_bula_selecionado)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
+            # --- [FIM DA MODIFICAÇÃO v18.25] ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
@@ -926,4 +942,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.24 | Correção Tópicos (Regex v4) e Data ANVISA (Regex v3)")
+st.caption("Sistema de Auditoria de Bulas v18.25 | Correção Tópicos (Regex v5) e Data ANVISA (Regex v4) e Mapeamento")
