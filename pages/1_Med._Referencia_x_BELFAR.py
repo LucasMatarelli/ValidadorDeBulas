@@ -66,7 +66,8 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
-# Lógica de extração v18.12 (mantida)
+# --- [INÍCIO DA CORREÇÃO v18.21] ---
+# Revertido para get_text("text") para preservar quebras de linha de tópicos
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -77,9 +78,8 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    blocks = page.get_text("blocks", sort=True) 
-                    page_text = "".join([b[4] for b in blocks])
-                    full_text_list.append(page_text)
+                    # Usa get_text("text") para preservar a formatação (quebras de linha)
+                    full_text_list.append(page.get_text("text", sort=True))
             texto = "\n".join(full_text_list)
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -106,6 +106,7 @@ def extrair_texto(arquivo, tipo_arquivo):
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+# --- [FIM DA CORREÇÃO v18.21] ---
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
@@ -616,7 +617,7 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
     return texto_trabalho
 
 
-# --- [FUNÇÃO DE LAYOUT (v18.20) - CORRIGIDA PARA TÓPICOS] ---
+# --- [FUNÇÃO DE LAYOUT (v18.21) - CORRIGIDA PARA TÓPICOS] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -629,7 +630,7 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     aliases = list(obter_aliases_secao().keys())
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
     
-    # 3. Formata Títulos
+    # 3. Formata Títulos e Tópicos
     linhas_formatadas = []
     # Regex para Tópicos (inclui hífen, traço, bullet e o 'minus sign' da Belfar)
     topic_regex = re.compile(r'^\s*[-–•*−]')
@@ -915,4 +916,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.20 | Correção de Tópicos (Regex) e Data ANVISA (Regex)")
+st.caption("Sistema de Auditoria de Bulas v18.21 | Correção Extração de Texto (tópicos) e Data ANVISA (Regex)")
