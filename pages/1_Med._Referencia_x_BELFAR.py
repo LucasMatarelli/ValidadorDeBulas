@@ -110,7 +110,8 @@ def extrair_texto(arquivo, tipo_arquivo):
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    # --- [CORREÇÃO v18.20] --- Adiciona \s* para datas com espaço
+    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
         end_of_line_pos = texto.find('\n', match.end())
@@ -594,7 +595,10 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
                 flags=re.IGNORECASE
             )
             
-    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    # --- [INÍCIO DA CORREÇÃO v18.20] ---
+    # Adiciona \s* para permitir espaços na data (ex: 05 / 02 / 2025)
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
+    # --- [FIM DA CORREÇÃO v18.20] ---
     
     def remove_marks_da_data(match):
         frase_anvisa = match.group(1)
@@ -612,7 +616,7 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
     return texto_trabalho
 
 
-# --- [FUNÇÃO DE LAYOUT (v18.19) - CORRIGIDA PARA TÓPICOS] ---
+# --- [FUNÇÃO DE LAYOUT (v18.20) - CORRIGIDA PARA TÓPICOS] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -625,13 +629,17 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     aliases = list(obter_aliases_secao().keys())
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
     
-    # 3. Formata Títulos
+    # --- [INÍCIO DA CORREÇÃO v18.20] ---
+    # 3. Formata Títulos e Tópicos
     linhas_formatadas = []
+    # Regex para Tópicos (inclui hífen, traço, bullet e o 'minus sign' da Belfar)
+    topic_regex = re.compile(r'^\s*[-–•*−]')
+    
     for linha in html_content.split('\n'):
         linha_strip = linha.strip()
         
         if not linha_strip: 
-            linhas_formatadas.append(linha)
+            linhas_formatadas.append(linha) # Preserva quebra de parágrafo original
             continue
         
         # Testa se a linha é um título
@@ -647,17 +655,19 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
         
         if eh_titulo:
             linhas_formatadas.append(f"[[PARAGRAPH]]<strong>{linha_strip}</strong>")
+        
+        # Testa se é um tópico
+        elif topic_regex.search(linha_strip):
+            linhas_formatadas.append(f"[[LIST_ITEM]]{linha_strip}")
+        
         else:
+            # É uma linha de conteúdo normal
             linhas_formatadas.append(linha)
+    # --- [FIM DA CORREÇÃO v18.20] ---
 
     html_content = "\n".join(linhas_formatadas)
 
-    # 4. Lista e quebras (LÓGICA CORRIGIDA v18.19)
-    # --- [INÍCIO DA CORREÇÃO v18.19] ---
-    # Adicionado o caractere '−' (MINUS SIGN) que estava faltando
-    html_content = re.sub(r'\n(\s*[-–•*−])', r'[[LIST_ITEM]]\1', html_content)
-    # --- [FIM DA CORREÇÃO v18.19] ---
-    
+    # 4. Lista e quebras (LÓGICA CORRIGIDA)
     # O que sobrou de \n é texto contínuo, vira espaço
     html_content = html_content.replace('\n', ' ') 
     
@@ -669,6 +679,8 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content) 
     html_content = re.sub(r'(<br><br>\s*)+<strong>', r'<br><br><strong>', html_content) 
     html_content = re.sub(r'\s{2,}', ' ', html_content) 
+    # Remove <br> indesejados antes de tópicos que seguem títulos
+    html_content = re.sub(r'(<strong>.*?</strong>)(\s*<br>\s*)(<br>\s*[-–•*−])', r'\1\3', html_content)
 
     return html_content
 # --- [FIM DA FUNÇÃO DE LAYOUT] ---
@@ -728,7 +740,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
 
     st.header("Relatório de Auditoria Inteligente")
-    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
     match_ref = re.search(regex_anvisa, texto_ref.lower())
     match_belfar = re.search(regex_anvisa, texto_belfar.lower())
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
@@ -913,4 +925,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.19 | Correção Seção 5 e Formatação de Tópicos v3 (Regex)")
+st.caption("Sistema de Auditoria de Bulas v18.20 | Correção de Tópicos (Regex) e Data ANVISA (Regex)")
