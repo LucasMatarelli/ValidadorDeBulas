@@ -66,8 +66,7 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
-# --- [INÍCIO DA CORREÇÃO v18.21] ---
-# Revertido para get_text("text") para preservar quebras de linha de tópicos
+# --- [v18.24] Revertido para "blocks" ---
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -78,8 +77,10 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    # Usa get_text("text") para preservar a formatação (quebras de linha)
-                    full_text_list.append(page.get_text("text", sort=True))
+                    # Usa "blocks" para agrupar parágrafos
+                    blocks = page.get_text("blocks", sort=True) 
+                    page_text = "".join([b[4] for b in blocks])
+                    full_text_list.append(page_text)
             texto = "\n".join(full_text_list)
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -106,12 +107,12 @@ def extrair_texto(arquivo, tipo_arquivo):
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
-# --- [FIM DA CORREÇÃO v18.21] ---
+# --- [FIM] ---
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
-    # --- [CORREÇÃO v18.21] --- Adiciona \s* para datas com espaço
+    # --- [CORREÇÃO v18.24] --- Adiciona \s* para datas com espaço
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
@@ -161,11 +162,11 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_ortografia():
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# --- [INÍCIO DA CORREÇÃO v18.17] ---
+# --- [CORREÇÃO v18.17] ---
 def obter_secoes_ignorar_comparacao():
     # Removida a Seção 5 ("ONDE...") da lista de ignorados
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
-# --- [FIM DA CORREÇÃO v18.17] ---
+# --- [FIM DA CORREÇÃO] ---
 
 # ----------------- NORMALIZAÇÃO -----------------
 
@@ -617,23 +618,22 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
     return texto_trabalho
 
 
-# --- [FUNÇÃO DE LAYOUT (v18.21) - CORRIGIDA PARA TÓPICOS] ---
+# --- [FUNÇÃO DE LAYOUT (v18.24) - CORRIGIDA PARA TÓPICOS] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     if html_content is None:
         return ""
 
     # 1. Normaliza quebras múltiplas
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
-
+    
     # 2. Pega os títulos
     titulos_base = obter_secoes_por_tipo(tipo_bula)
     aliases = list(obter_aliases_secao().keys())
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
     
-    # 3. Formata Títulos e Tópicos
+    # 3. Formata Títulos
+    # (Divide por \n, que agora são linhas de "blocks")
     linhas_formatadas = []
-    # Regex para Tópicos (inclui hífen, traço, bullet e o 'minus sign' da Belfar)
-    topic_regex = re.compile(r'^\s*[-–•*−]')
     
     for linha in html_content.split('\n'):
         linha_strip = linha.strip()
@@ -655,37 +655,42 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
         
         if eh_titulo:
             linhas_formatadas.append(f"[[PARAGRAPH]]<strong>{linha_strip}</strong>")
-        
-        # Testa se é um tópico
-        elif topic_regex.search(linha_strip):
-            linhas_formatadas.append(f"[[LIST_ITEM]]{linha_strip}")
-        
         else:
-            # É uma linha de conteúdo normal
+            # É uma linha de conteúdo normal (ou tópico)
             linhas_formatadas.append(linha)
 
     html_content = "\n".join(linhas_formatadas)
 
-    # 4. Lista e quebras (LÓGICA CORRIGIDA)
-    # Substitui placeholders PRIMEIRO
-    html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>') # Restaura parágrafos
-    html_content = html_content.replace('[[LIST_ITEM]]', '<br>') # Restaura quebras de TÓPICO
-
-    # Agora, o que sobrou de \n é texto contínuo, vira espaço
-    # (Usando re.sub para evitar `\n<br>`)
-    html_content = re.sub(r'\n(?!\s*<br>)', ' ', html_content)
-    # Remove o \n que sobrou *antes* de um <br>
-    html_content = html_content.replace('\n', '') 
+    # 4. Lista e quebras (LÓGICA CORRIGIDA v18.24)
+    # --- [INÍCIO DA CORREÇÃO v18.24] ---
     
-    # 5. Limpeza final
+    # Regex para Tópicos (inclui hífen, traço, bullet e o 'minus sign' da Belfar)
+    # Procura por (qualquer caractere não-espaço, : ou ;) 
+    # seguido por (espaço opcional)
+    # seguido por (marcador de tópico)
+    # e insere um <br>
+    
+    # (\S|[:;]) -> Captura um não-espaço OU : OU ;
+    # \s* -> Corresponde a zero ou mais espaços (incluindo &nbsp; se for texto)
+    # ([•*−]) -> Captura o marcador de tópico
+    # Substitui por: \1 (o caractere antes) + <br> + \2 (o marcador)
+    topic_regex = r'(\S|[:;])\s*([•*−])'
+    html_content = re.sub(topic_regex, r'\1<br>\2', html_content)
+    
+    # --- [FIM DA CORREÇÃO v18.24] ---
+
+    # 5. O que sobrou de \n é texto contínuo, vira espaço
+    html_content = html_content.replace('\n', ' ') 
+    
+    # 6. Substitui os placeholders
+    html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>') # Restaura parágrafos
+    
+    # 7. Limpeza final
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content) 
     html_content = re.sub(r'(<br><br>\s*)+<strong>', r'<br><br><strong>', html_content) 
     html_content = re.sub(r'\s{2,}', ' ', html_content) 
-    # Remove <br> indesejados antes de tópicos que seguem títulos
     html_content = re.sub(r'(<strong>.*?</strong>)(\s*<br>\s*)(<br>\s*[-–•*−])', r'\1\3', html_content)
-    # Limpa <br> que pode ter sobrado de um \n entre o : e o primeiro tópico
     html_content = re.sub(r'(:)(\s*<br>\s*)(<br>\s*[-–•*−])', r'\1\3', html_content)
-    # Limpa espaço antes de uma quebra de linha
     html_content = re.sub(r'\s+<br>', '<br>', html_content)
 
     return html_content
@@ -921,4 +926,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.21 | Correção Extração de Texto (tópicos) e Data ANVISA (Regex)")
+st.caption("Sistema de Auditoria de Bulas v18.24 | Correção Tópicos (Regex v4) e Data ANVISA (Regex v3)")
