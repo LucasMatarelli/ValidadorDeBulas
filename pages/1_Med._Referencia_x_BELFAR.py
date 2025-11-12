@@ -13,11 +13,39 @@ import unicodedata
 
 hide_streamlit_UI = """
 <style>
-[data-testid="stHeader"], [data-testid="main-menu-button"],
-[data-testid="stStatusWidget"], [data-testid="stCreatedBy"],
-[data-testid="stHostedBy"], footer {
-    display: none !important;
-    visibility: hidden !important;
+/* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
+[data-testid="stHeader"] {
+display: none !important;
+visibility: hidden !important;
+}
+/* Esconde o menu hamburger (dentro do app) */
+[data-testid="main-menu-button"] {
+display: none !important;
+}
+/* Esconde o rodapé genérico (garantia extra) */
+footer {
+display: none !important;
+visibility: hidden !important;
+}
+
+/* --- NOVOS SELETORES (MAIS AGRESSIVOS) PARA O BADGE INFERIOR --- */
+
+/* Esconde o container principal do badge */
+[data-testid="stStatusWidget"] {
+display: none !important;
+visibility: hidden !important;
+}
+
+/* Esconde o 'Created by' */
+[data-testid="stCreatedBy"] {
+display: none !important;
+visibility: hidden !important;
+}
+
+/* Esconde o 'Hosted with Streamlit' */
+[data-testid="stHostedBy"] {
+display: none !important;
+visibility: hidden !important;
 }
 </style>
 """
@@ -38,6 +66,8 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 # ----------------- EXTRAÇÃO -----------------
+# --- [INÍCIO DA CORREÇÃO v18.27] ---
+# Revertido para get_text("text") para preservar quebras de linha de tópicos
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -48,6 +78,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
+                    # Usa get_text("text") para preservar a formatação (quebras de linha)
                     full_text_list.append(page.get_text("text", sort=True))
             texto = "\n".join(full_text_list)
         elif tipo_arquivo == 'docx':
@@ -63,25 +94,24 @@ def extrair_texto(arquivo, tipo_arquivo):
             
             texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
 
-            # Remove rodapé
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula do paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             texto = "\n".join(linhas_filtradas)
 
-            # --- NOVO TRECHO: quebra linha antes de tópicos ---
-            texto = re.sub(r'(?<!\n)(\s*)(?=(?:\d+\)|\d+\.\s|[a-z]\)|•|-|–)\s)', r'\n', texto)
-            texto = re.sub(r'\n{3,}', '\n\n', texto)
-            texto = re.sub(r'[ \t]+', ' ', texto)
+            texto = re.sub(r'\n{3,}', '\n\n', texto) 
+            texto = re.sub(r'[ \t]+', ' ', texto) 
             texto = texto.strip()
 
         return texto, None
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+# --- [FIM DA CORREÇÃO v18.27] ---
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
+    # --- [CORREÇÃO v18.25] --- Adiciona \s* para datas com espaço
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
     match = re.search(regex_anvisa, texto, re.IGNORECASE)
     if match:
@@ -140,8 +170,6 @@ def obter_secoes_ignorar_comparacao():
 # ----------------- NORMALIZAÇÃO -----------------
 
 def normalizar_texto(texto):
-    if not isinstance(texto, str):
-        return ""
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
     texto = ' '.join(texto.split())
@@ -934,7 +962,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if not erro_belfar:
                 texto_belfar = corrigir_quebras_em_titulos(texto_belfar, tipo_bula_selecionado)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
-            # --- [FIM DA MODIFKAÇÃO v18.25] ---
+            # --- [FIM DA MODIFICAÇÃO v18.25] ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
