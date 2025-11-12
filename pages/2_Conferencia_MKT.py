@@ -867,7 +867,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.success("🎉 **Bula aprovada!** Nenhum problema crítico encontrado.")
 
     st.divider()
-    st.subheader("Visualização Lado a Lado com Destaques")
+    st.subheader("🎨 Visualização Lado a Lado com Destaques")
 
     legend_style = (
         "font-size: 14px; "
