@@ -180,21 +180,90 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
+
+# --- [INÍCIO DA NOVA FUNÇÃO (Importada da v26.58)] ---
+def corrigir_quebras_em_titulos(texto):
+    """
+    Corrige títulos que foram quebrados em múltiplas linhas (ex: "COMPOSIÇÃO"
+    em uma linha e "DO MEDICAMENTO" em outra) juntando-os.
+    Preserva quebras de parágrafo (\n\n) e quebras de linha de conteúdo.
+    """
+    linhas = texto.split("\n")
+    linhas_corrigidas = []
+    buffer = ""
+
+    for linha in linhas:
+        linha_strip = linha.strip()
+
+        if not linha_strip:
+            # É uma linha em branco (parte de um \n\n)
+            if buffer:
+                # O buffer (título) terminou antes da linha em branco
+                linhas_corrigidas.append(buffer)
+                buffer = ""
+            linhas_corrigidas.append("") # Preserva a linha em branco
+            continue
+
+        # Verifica se a linha parece ser um título ou fragmento de título
+        # (CURTA, MAIÚSCA, ou começando com NÚMERO.)
+        is_potential_title = (
+            linha_strip.isupper() and len(linha_strip) < 70
+        ) or re.match(r'^\d+\.', linha_strip)
+
+        if is_potential_title:
+            if buffer:
+                # Já temos um título no buffer, junta com espaço
+                buffer += " " + linha_strip
+            else:
+                # Começa um novo título no buffer
+                buffer = linha_strip
+        else:
+            # Esta linha é conteúdo
+            if buffer:
+                # Descarrega o título do buffer antes do conteúdo
+                linhas_corrigidas.append(buffer)
+                buffer = ""
+            linhas_corrigidas.append(linha_strip) # Adiciona a linha de conteúdo
+
+    if buffer:
+        # Adiciona o último título que estava no buffer
+        linhas_corrigidas.append(buffer)
+
+    # Reconstrói o texto preservando a estrutura de parágrafos
+    return "\n".join(linhas_corrigidas)
+# --- [FIM DA NOVA FUNÇÃO] ---
+
+
 # ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES -----------------
 # Funções de mapeamento v18.12 (mantidas)
 def is_titulo_secao(linha):
+    """Atualizado para a lógica mais robusta da v26.58"""
     linha = linha.strip()
     if len(linha) < 4:
         return False
+    if re.match(r'^\d+\.\s+[A-Z]', linha): # Ex: 9. O QUE FAZER...
+        return True
     if len(linha.split()) > 20:
         return False
     if linha.endswith('.') or linha.endswith(':'):
         return False
-    if re.search(r'\>\s*\<', linha):
+    if re.search(r'>\s*<', linha):
         return False
-    if len(linha) > 120:
+    if len(linha) > 100: # Reduzido de 120 para 100
         return False
-    return True
+    
+    # Se for toda maiúscula
+    if linha.isupper():
+        return True
+    
+    # Lógica para títulos mistos (ex: "1. PARA QUE...")
+    upper_chars = sum(1 for c in linha if c.isupper())
+    lower_chars = sum(1 for c in linha if c.islower())
+    
+    if upper_chars > lower_chars and lower_chars < 10:
+         return True
+         
+    return False
 
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
@@ -209,6 +278,8 @@ def mapear_secoes(texto_completo, secoes_esperadas):
 
     for idx, linha in enumerate(linhas):
         linha_limpa = linha.strip()
+        
+        # Agora usamos a is_titulo_secao mais robusta
         if not is_titulo_secao(linha_limpa):
             continue
 
@@ -225,6 +296,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 best_match_score = score
                 best_match_canonico = titulo_canonico
 
+        # Mantido em 98 para alta precisão, já que corrigir_quebras_em_titulos ajuda
         if best_match_score >= 98:
             if not mapa or mapa[-1]['canonico'] != best_match_canonico:
                 mapa.append({
@@ -276,6 +348,8 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         linha_inicio_conteudo = linha_inicio + 1
 
         prox_idx = None
+        # O lookahead aqui é para encontrar o *próximo* título
+        # (corrigir_quebras_em_titulos já corrigiu o título *atual*)
         for j in range(linha_inicio_conteudo, len(linhas_texto)):
             linha_atual = linhas_texto[j].strip()
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
@@ -284,26 +358,9 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             if linha_atual_norm in titulos_norm_set:
                 prox_idx = j 
                 break 
-
-            if (j + 1) < len(linhas_texto):
-                linha_seguinte = linhas_texto[j + 1].strip()
-                titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
-                titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
-
-                if titulo_duas_linhas_norm in titulos_norm_set:
-                    prox_idx = j 
-                    break 
-
-            if (j + 2) < len(linhas_texto):
-                linha_seguinte = linhas_texto[j + 1].strip()
-                linha_terceira = linhas_texto[j + 2].strip()
-                
-                titulo_tres_linhas = f"{linha_atual} {linha_seguinte} {linha_terceira}"
-                titulo_tres_linhas_norm = normalizar_titulo_para_comparacao(titulo_tres_linhas)
-
-                if titulo_tres_linhas_norm in titulos_norm_set:
-                    prox_idx = j 
-                    break 
+            
+            # Não precisamos mais do lookahead de 2 ou 3 linhas aqui
+            # porque corrigir_quebras_em_titulos já juntou os próximos títulos.
 
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
 
@@ -500,13 +557,14 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             anchor_id = _create_anchor_id(secao_canonico, "ref" if eh_referencia else "bel")
             conteudo_com_ancora = f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{conteudo_marcado}</div>"
 
-            # Adiciona checagem 'if conteudo_a_marcar' para evitar erro em seções vazias
             if conteudo_a_marcar and conteudo_a_marcar in texto_trabalho:
-                texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora)
+                try:
+                    texto_trabalho = texto_trabalho.replace(conteudo_a_marcar, conteudo_com_ancora)
+                except re.error: # Fallback em caso de erro de regex no replace
+                    pass 
 
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
-            # Regex atualizado para não marcar dentro de tags HTML (evita quebrar <mark>)
             pattern = r'\b(' + re.escape(erro) + r')\b(?![^<]*?>)'
             texto_trabalho = re.sub(
                 pattern,
@@ -517,10 +575,9 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
             
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     
-    # Função helper para garantir que a marcação da data não seja quebrada por outras marcações
     def remove_marks_da_data(match):
         frase_anvisa = match.group(1)
-        frase_limpa = re.sub(r'<mark.*?>|</mark>', '', frase_anvisa) # Limpa marks de ortografia/diferença
+        frase_limpa = re.sub(r'<mark.*?>|</mark>', '', frase_anvisa) 
         return f"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>{frase_limpa}</mark>"
 
     texto_trabalho = re.sub(
@@ -534,111 +591,61 @@ def marcar_divergencias_html(texto_original, secoes_problema, erros_ortograficos
     return texto_trabalho
 
 
-# --- [INÍCIO DA FUNÇÃO DE LAYOUT MODIFICADA] ---
-# (Baseada na v26.58 que você enviou)
+# --- [FUNÇÃO DE LAYOUT (v18.14) - MANTIDA] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
-    """
-    Recebe html_content (texto que pode conter quebras '\n' e marcações)
-    e transforma em HTML de leitura (com <br><br>, strong, etc.).
-    """
     if html_content is None:
         return ""
 
-    # 1. Normaliza quebras múltiplas no formato temporário
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
 
-    # 2. Pega os títulos que este script (v18.12) conhece
     titulos_base = obter_secoes_por_tipo(tipo_bula)
     aliases = list(obter_aliases_secao().keys())
-    # Remove duplicados e garante que os mais longos sejam processados primeiro
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
-
-    # 3. Cria padrões regex robustos para os títulos (ignora <mark> e números)
-    titulos_lista = []
-    for t in titulos_unicos:
-        # Escapa caracteres como '?'
-        t_escaped = re.escape(t)
-        
-        # --- [INÍCIO DA CORREÇÃO] ---
-        # O erro estava aqui. \s é um escape inválido em strings de *substituição* re.
-        # Precisamos usar \\s para que o re.sub entenda como "literal \s".
-        t_regex = re.sub(r'([A-ZÀ-ÖØ-Þ])', r'(?:<[^>]+>)*\\s*\1', t_escaped, flags=re.IGNORECASE)
-        # --- [FIM DA CORREÇÃO] ---
-        
-        t_regex = re.sub(r'\\ ', r'\\s+', t_regex) # Permite múltiplos espaços
-        
-        # Padrão final: (Início de linha ou Parágrafo) + (Opcional Num. e Ponto) + (Título com marks) + (Fim de linha ou Parágrafo)
-        pattern = rf'(^|\[\[PARAGRAPH\]\])\s*(\d+\.\s*)?({t_regex})\s*($|\[\[PARAGRAPH\]\]|\n)'
-        titulos_lista.append(pattern)
-
-
-    # Sub-função para aplicar o negrito e a quebra de parágrafo
-    def aplicar_formatacao_titulo(match):
-        inicio = match.group(1) # ^ ou [[PARAGRAPH]]
-        numero_opcional = match.group(2) or "" # "1. " ou ""
-        titulo_capturado = match.group(3) # O título em si
-        fim = match.group(4) # $ ou [[PARAGRAPH]] ou \n
-
-        # Limpa o título de tags <mark> APENAS para re-aplicar o strong
-        # (O conteúdo das tags <mark> é preservado)
-        titulo_limpo = re.sub(r'</?mark[^>]*>', '', titulo_capturado, flags=re.IGNORECASE)
-        # Remove espaços extras causados pelo regex
-        titulo_limpo_sem_espaco = re.sub(r'\s+', ' ', titulo_limpo).strip()
-        
-        # Reconstrói o título com o número (se aplicar_numeracao=True e ele existir)
-        # No v18.12, preferimos não forçar a numeração, apenas manter se existir.
-        titulo_final = f"{numero_opcional}{titulo_limpo_sem_espaco}"
-
-        # A MÁGICA: Garante a quebra de parágrafo ANTES do título
-        return f'{inicio}<strong>{titulo_final}</strong>{fim}'
-
-    # 4. Aplica a formatação de título
-    # (Itera para evitar sobreposição complexa de regex)
-    # Esta lógica é mais simples que a v26.58 mas resolve o "grudado"
     
-    # Primeiro, marca todos os títulos com <strong> e [[PARAGRAPH]]
-    # Usamos placeholders para evitar quebra de linha dupla
-    
-    # Regex simplificado para encontrar títulos do nosso script (v18.12)
-    # Pega todos os títulos e cria um grande regex (ex: TÍTULO A|TÍTULO B|...)
-    titulos_regex_base = []
-    for t in titulos_unicos:
-        t_escaped = re.escape(t)
-        t_regex = re.sub(r'\\ ', r'\\s+', t_escaped)
-        t_regex_sem_pontuacao = t_regex.replace(r'\?', r'') # Remove '?' para match mais amplo
-        titulos_regex_base.append(t_regex_sem_pontuacao)
-
-    # (COMPOSIÇÃO|APRESENTAÇÕES|PARA QUE ESTE...)
-    pattern_todos_titulos = r'(' + r'|'.join(titulos_regex_base) + r')'
-    
-    # Regex para encontrar títulos (com ou sem numeração) que estejam no início de uma linha
-    # e envolvê-los em <strong>, garantindo a quebra [[PARAGRAPH]]
-    
+    # Esta sub-função interna é a que aplica a formatação
     def formatar_titulo_v18(match):
-        # match.group(0) é o texto inteiro encontrado
         titulo_texto = match.group(0).strip()
         
-        # Remove tags <mark> para não duplicar
         titulo_limpo = re.sub(r'</?mark[^>]*>', '', titulo_texto, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
         
-        # Se for um título conhecido, formata.
         for t_check in titulos_unicos:
             if fuzz.ratio(normalizar_texto(t_check), normalizar_texto(titulo_limpo)) > 95:
-                 # Adiciona a quebra de parágrafo ANTES do título
                 return f'[[PARAGRAPH]]<strong>{titulo_texto}</strong>'
         
-        # Se não for um título conhecido (ex: lixo de extração), retorna como estava
         return match.group(0)
 
     # Aplica a formatação APENAS em linhas que PARECEM títulos
     # (Início de linha, opc. número, opc. <mark>, texto, opc. </mark>, fim de linha)
-    html_content = re.sub(
-        r'^(?!\n)\s*(\d+\.\s*)?(<mark[^>]*>)?.*?(</mark>)?\s*$',
-        formatar_titulo_v18,
-        html_content,
-        flags=re.MULTILINE | re.IGNORECASE
-    )
+    # A lógica da v18.14 estava muito complexa e causando erros de 'bad escape'
+    # Esta é uma abordagem mais simples e segura:
+    
+    linhas_formatadas = []
+    for linha in html_content.split('\n'):
+        linha_strip = linha.strip()
+        if not linha_strip: # Preserva linhas que agora são '[[PARAGRAPH]]'
+            linhas_formatadas.append(linha)
+            continue
+        
+        # Testa se a linha é um título
+        titulo_limpo = re.sub(r'</?mark[^>]*>', '', linha_strip, flags=re.IGNORECASE)
+        titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+        
+        eh_titulo = False
+        if is_titulo_secao(titulo_limpo): # Usa a função de checagem de título
+             for t_check in titulos_unicos:
+                if fuzz.ratio(normalizar_texto(t_check), normalizar_texto(titulo_limpo)) > 95:
+                    eh_titulo = True
+                    break
+        
+        if eh_titulo:
+            # Adiciona a quebra de parágrafo ANTES do título
+            linhas_formatadas.append(f"[[PARAGRAPH]]<strong>{linha_strip}</strong>")
+        else:
+            # É uma linha de conteúdo normal
+            linhas_formatadas.append(linha)
+
+    html_content = "\n".join(linhas_formatadas)
 
     # 5. Lista e quebras
     html_content = re.sub(r'(\n)(\s*[-–•*])', r'[[LIST_ITEM]]\2', html_content)
@@ -771,14 +778,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
                 
-                # --- [INÍCIO DA MODIFICAÇÃO DE RENDER] ---
-                # Usa a nova função de formatação
-                
-                # 1. Pega o conteúdo de texto cru (com \n)
                 conteudo_ref_bruto = diff['conteudo_ref']
                 conteudo_belfar_bruto = diff['conteudo_belfar']
 
-                # 2. Adiciona marcações de diferença (ainda com \n)
                 html_ref_bruto_expander = marcar_diferencas_palavra_por_palavra(
                     conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=True
                 )
@@ -786,10 +788,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     conteudo_ref_bruto, conteudo_belfar_bruto, eh_referencia=False
                 )
 
-                # 3. Formata para HTML (converte \n em <br><br> ou espaço, e adiciona <strong>)
                 expander_html_ref = formatar_html_para_leitura(html_ref_bruto_expander, tipo_bula, aplicar_numeracao=True)
                 expander_html_belfar = formatar_html_para_leitura(html_belfar_bruto_expander, tipo_bula, aplicar_numeracao=False)
-                # --- [FIM DA MODIFICAÇÃO DE RENDER] ---
                 
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
@@ -826,8 +826,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
-    # --- [INÍCIO DA MODIFICAÇÃO DE RENDER] ---
-    # 1. Marca o texto cru (com \n)
     html_ref_bruto = marcar_divergencias_html(
         texto_original=texto_ref, secoes_problema=diferencas_conteudo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True
     )
@@ -835,10 +833,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         texto_original=texto_belfar, secoes_problema=diferencas_conteudo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False
     )
     
-    # 2. Formata para HTML (converte \n e aplica <strong>)
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, tipo_bula, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_bruto, tipo_bula, aplicar_numeracao=False)
-    # --- [FIM DA MODIFICAÇÃO DE RENDER] ---
 
     caixa_style = (
         "height: 700px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; "
@@ -884,10 +880,15 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_ref)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, tipo_belfar)
 
+            # --- [INÍCIO DA MODIFICAÇÃO] ---
+            # Chama a função de correção de títulos aqui
             if not erro_ref:
+                texto_ref = corrigir_quebras_em_titulos(texto_ref)
                 texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
+                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
+            # --- [FIM DA MODIFICAÇÃO] ---
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
@@ -897,4 +898,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.14 | Correção Regex Escape (formatar_html_para_leitura)")
+st.caption("Sistema de Auditoria de Bulas v18.15 | Correção de Mapeamento (corrigir_quebras_em_titulos)")
