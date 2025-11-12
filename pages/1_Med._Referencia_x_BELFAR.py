@@ -363,10 +363,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     similaridade_geral = []
     relatorio_completo = [] 
     
-    # --- [MUDANÇA v18.17] ---
-    # Pega a nova lista de seções ignoradas
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
-    # --- [FIM DA MUDANÇA] ---
 
     linhas_ref = texto_ref.split('\n')
     linhas_belfar = texto_belfar.split('\n')
@@ -615,7 +612,7 @@ def marcar_divergencias_html(texto_original, relatorio_completo, erros_ortografi
     return texto_trabalho
 
 
-# --- [FUNÇÃO DE LAYOUT (v18.17) - CORRIGIDA PARA TÓPICOS] ---
+# --- [FUNÇÃO DE LAYOUT (v18.18) - CORRIGIDA PARA TÓPICOS] ---
 def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -628,7 +625,7 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
     aliases = list(obter_aliases_secao().keys())
     titulos_unicos = sorted(list(set(titulos_base + aliases)), key=len, reverse=True)
     
-    # 4. Formata Títulos
+    # 3. Formata Títulos
     linhas_formatadas = []
     for linha in html_content.split('\n'):
         linha_strip = linha.strip()
@@ -656,15 +653,18 @@ def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False)
 
     html_content = "\n".join(linhas_formatadas)
 
-    # 5. Lista e quebras (LÓGICA CORRIGIDA)
-    # Qualquer \n que sobrou (que não é um \n\n) é uma quebra de linha (tópico ou linha contínua)
-    html_content = html_content.replace('\n', '[[LINE_BREAK]]') 
+    # 4. Lista e quebras (LÓGICA CORRIGIDA v18.18)
+    # Marca tópicos PRIMEIRO
+    html_content = re.sub(r'\n(\s*[-–•*])', r'[[LIST_ITEM]]\1', html_content)
+    
+    # O que sobrou de \n é texto contínuo, vira espaço
+    html_content = html_content.replace('\n', ' ') 
     
     # Substitui os placeholders
     html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>') # Restaura parágrafos
-    html_content = html_content.replace('[[LINE_BREAK]]', '<br>') # Restaura quebras de linha/tópicos
+    html_content = html_content.replace('[[LIST_ITEM]]', '<br>') # Restaura quebras de TÓPICO
     
-    # 6. Limpeza final
+    # 5. Limpeza final
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content) 
     html_content = re.sub(r'(<br><br>\s*)+<strong>', r'<br><br><strong>', html_content) 
     html_content = re.sub(r'\s{2,}', ' ', html_content) 
@@ -912,4 +912,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v18.17 | Correção Seção 5 e Formatação de Tópicos")
+st.caption("Sistema de Auditoria de Bulas v18.18 | Correção Seção 5 e Formatação de Tópicos v2")
