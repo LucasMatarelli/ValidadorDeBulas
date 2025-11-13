@@ -1,11 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v36 - Correção Definitiva do Mapeamento
-# - DESATIVADA a função 'corrigir_quebras_em_titulos' na UI.
-# - RESTAURADA a função 'mapear_secoes' (v29) que faz a coleta
-#   robusta de títulos multi-linha (Corrige "6 engolindo 7").
-# - RESTAURADA a função 'obter_dados_secao' (v33) que
-#   funciona com a 'num_linhas_titulo' do mapeador v29.
+# Versão v40 - Correção Definitiva do Mapeamento
+# - CORRIGIDA a função 'corrigir_quebras_em_titulos' (v40).
+#   Ela agora ignora linhas vazias e junta corretamente os
+#   títulos de MKT separados por '\n\n'.
+# - Isso corrige o bug "4 não ta puxando" e o "6 engolindo 7".
 # - Mantém o foco 100% em Paciente e o layout "achatado" do MKT.
 # - Mantém a correção do '\n' em 'normalizar_texto' (v32).
 # - Mantém a correção do 'is_titulo_secao' (v34).
@@ -171,12 +170,75 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
-# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (NÃO USADA) -----------------
-# Esta função é desnecessária se 'mapear_secoes' (v29) fizer o trabalho.
+# ----------------- DETECÇÃO DE TÍTULOS (v34 - Corrigida) -----------------
+def is_titulo_secao(linha):
+    if not linha:
+        return False
+    ln = linha.strip()
+    if len(ln) < 4:
+        return False
+    if len(ln.split('\n')) > 3: # Se tiver mais de 3 linhas juntas, não é um título
+        return False
+        
+    ln_primeira_linha = ln.split('\n')[0] # Checa só a primeira linha
+    
+    if len(ln_primeira_linha.split()) > 20: # Um título não deve ser tão longo
+        return False
+
+    # Regra 1: Começa com número (Ex: "1. ... INDICADO?")
+    if re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln_primeira_linha):
+        return True
+    
+    # Regra 2: É TUDO MAIÚSCULO (Ex: "APRESENTAÇÕES")
+    if ln_primeira_linha.isupper():
+        # [CORREÇÃO V34] - A exceção agora é se terminar com PONTO.
+        # Isso filtra "TODO MEDICAMENTO..." mas permite títulos
+        # que contenham a palavra "medicamento".
+        if ln_primeira_linha.endswith('.'):
+             return False
+        return True # É maiúsculo e não termina com ponto.
+        
+    return False
+
+# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (v40 - Corrigida) -----------------
+# Esta função é ESSENCIAL para juntar os títulos do MKT
 def corrigir_quebras_em_titulos(texto):
-    pass
-    # O código antigo foi removido para evitar confusão.
-    # A lógica foi movida para 'mapear_secoes'.
+    if not texto:
+        return texto
+    linhas = texto.split("\n")
+    linhas_corrigidas = []
+    buffer = ""
+    for linha in linhas:
+        linha_strip = linha.strip()
+        
+        if not linha_strip: # É uma linha vazia
+            # Se temos um buffer, não fazemos NADA.
+            # Apenas ignoramos a linha vazia e esperamos
+            # para ver se a próxima linha é uma continuação.
+            if not buffer:
+                # Se não há buffer, é uma linha vazia normal.
+                linhas_corrigidas.append("")
+            continue # Ignora a linha vazia se houver buffer
+        
+        is_potential_title = is_titulo_secao(linha_strip)
+        
+        if is_potential_title and len(linha_strip.split()) < 20: # Se for um título potencial
+            if buffer:
+                buffer += "\n" + linha_strip # Junta com a linha anterior
+            else:
+                buffer = linha_strip # Começa um novo título
+        else: # É uma linha de conteúdo
+            if buffer:
+                linhas_corrigidas.append(buffer) # Salva o título anterior
+                buffer = ""
+            linhas_corrigidas.append(linha_strip) # Salva a linha de conteúdo
+            
+    if buffer: # Salva o último título
+        linhas_corrigidas.append(buffer)
+    
+    # Limpa quebras de linha duplas
+    resultado = "\n".join(linhas_corrigidas)
+    return re.sub(r'\n{2,}', '\n', resultado)
 
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES (v30 - Paciente Apenas) -----------------
@@ -221,43 +283,13 @@ def obter_secoes_ignorar_comparacao():
 def obter_secoes_ignorar_ortografia():
     return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- DETECÇÃO DE TÍTULOS (v34 - Corrigida) -----------------
-def is_titulo_secao(linha):
-    if not linha:
-        return False
-    ln = linha.strip()
-    if len(ln) < 4:
-        return False
-    if len(ln.split('\n')) > 3: # Se tiver mais de 3 linhas juntas, não é um título
-        return False
-        
-    ln_primeira_linha = ln.split('\n')[0] # Checa só a primeira linha
-    
-    if len(ln_primeira_linha.split()) > 20: # Um título não deve ser tão longo
-        return False
-
-    # Regra 1: Começa com número (Ex: "1. ... INDICADO?")
-    if re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln_primeira_linha):
-        return True
-    
-    # Regra 2: É TUDO MAIÚSCULO (Ex: "APRESENTAÇÕES")
-    if ln_primeira_linha.isupper():
-        # [CORREÇÃO V34] - A exceção agora é se terminar com PONTO.
-        # Isso filtra "TODO MEDICAMENTO..." mas permite títulos
-        # que contenham a palavra "medicamento".
-        if ln_primeira_linha.endswith('.'):
-             return False
-        return True # É maiúsculo e não termina com ponto.
-        
-    return False
-
-# ----------------- FUNÇÃO 'CORE' (v33 - Lógica V29 Restaurada) -----------------
-# Lógica robusta (inspirada na sua Sub V29) para corrigir o "6 engolindo 7".
+# ----------------- FUNÇÃO 'CORE' (v31 - Simplificada) -----------------
+# Lógica simples que depende do 'corrigir_quebras_em_titulos'
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
-    # O texto aqui é o RAW, sem 'corrigir_quebras_em_titulos'
-    texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo or "") 
-    linhas = texto_normalizado.split('\n')
+    texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo or "")
+    # As linhas agora vêm pré-juntadas por 'corrigir_quebras_em_titulos'
+    linhas = texto_normalizado.split('\n') 
     aliases = obter_aliases_secao()
 
     # 1. Criar lookup de todos os títulos possíveis
@@ -271,91 +303,49 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
     limiar_score = 85
 
-    idx = 0
-    while idx < len(linhas):
-        linha_atual = linhas[idx].strip()
-        if not linha_atual or not is_titulo_secao(linha_atual):
-            idx += 1
+    for idx, linha in enumerate(linhas):
+        linha_strip = linha.strip()
+        
+        # 2. Checa se a linha (que pode ser multi-linha, ex: "TITULO\nPARTE 2") é um título
+        if not linha_strip or not is_titulo_secao(linha_strip):
             continue
-
-        # 2. Lógica de coleta (v29) - Tenta achar o melhor match
-        # Tenta primeiro com 1 linha
-        linha_candidata = linha_atual
-        # [Correção v32] A normalização aqui trata o '\n'
-        norm_candidato = normalizar_titulo_para_comparacao(linha_candidata) 
+        
+        # [Correção v32] A normalização agora trata o '\n'
+        norm_linha = normalizar_titulo_para_comparacao(linha_strip)
+        
         best_score = 0
         best_canonico = None
-        
-        # Acha o melhor score para a linha atual
         for titulo_norm, canonico in titulos_norm_lookup.items():
-            score = fuzz.token_set_ratio(titulo_norm, norm_candidato)
+            score = fuzz.token_set_ratio(titulo_norm, norm_linha)
             if score > best_score:
                 best_score = score
                 best_canonico = canonico
-
-        # 3. Tenta expandir para multi-linha (se o score não for perfeito)
-        collected_linhas = [linha_atual]
-        num_linhas_coletadas = 1
         
-        if best_score < 100:
-            j = idx + 1
-            # Tenta adicionar as próximas 2 linhas (evita ser muito "guloso")
-            for _ in range(2): 
-                if j >= len(linhas):
+        if best_score < limiar_score:
+             for titulo_norm, canonico in titulos_norm_lookup.items():
+                if titulo_norm and titulo_norm in norm_linha:
+                    best_score = 90
+                    best_canonico = canonico
                     break
-                
-                next_ln = linhas[j].strip()
-                if not next_ln or not is_titulo_secao(next_ln):
-                    break # Para se a próxima linha não parecer um título
 
-                # Testa com a linha nova
-                novo_candidato_str = linha_candidata + "\n" + next_ln
-                # [Correção v32] A normalização aqui trata o '\n'
-                norm_novo_candidato = normalizar_titulo_para_comparacao(novo_candidato_str)
-                
-                new_best_score = 0
-                new_best_canonico = None
-                for titulo_norm, canonico in titulos_norm_lookup.items():
-                    score = fuzz.token_set_ratio(titulo_norm, norm_novo_candidato)
-                    if score > new_best_score:
-                        new_best_score = score
-                        new_best_canonico = canonico
-                
-                # Se o score melhorou, expanda a seleção
-                if new_best_score > best_score:
-                    best_score = new_best_score
-                    best_canonico = new_best_canonico
-                    linha_candidata = novo_candidato_str
-                    collected_linhas.append(next_ln)
-                    num_linhas_coletadas += 1
-                    j += 1
-                else:
-                    # Adicionar esta linha piorou o score, pare.
-                    break
-        
-        # 4. Avalia o match final
+        # 3. Avalia o match
         if best_score >= limiar_score and best_canonico:
-            titulo_encontrado = "\n".join(collected_linhas)
+            num_lines = len(linha_strip.split('\n')) # Conta as linhas que foram "coladas"
             
-            # Evita adicionar o mesmo título duas vezes
             if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
                     'canonico': best_canonico,
-                    'titulo_encontrado': titulo_encontrado,
+                    'titulo_encontrado': linha_strip,
                     'linha_inicio': idx,
                     'score': best_score,
-                    'num_linhas_titulo': num_linhas_coletadas
+                    'num_linhas_titulo': num_lines
                 })
-            idx += num_linhas_coletadas # Pula as linhas que processamos
-        else:
-            idx += 1 # Não foi um match, vá para a próxima linha
-
+    
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
 
-# ----------------- OBTER DADOS DE SEÇÃO (v33 - Lógica Original Restaurada) -----------------
-# Esta versão funciona com a 'num_linhas_titulo' do mapeador v29
+# ----------------- OBTER DADOS DE SEÇÃO (v35 - Lógica v31 Restaurada) -----------------
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     idx_secao_atual = -1
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -372,11 +362,8 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     # 'linha_inicio' é o índice (em linhas_texto_split) onde esse título colado está
     linha_inicio = secao_atual_info['linha_inicio']
     
-    # 'num_linhas_titulo' é o número de linhas que o mapeador v29 "colou"
-    num_linhas_titulo = secao_atual_info.get('num_linhas_titulo', 1)
-    
-    # O conteúdo começa DEPOIS da última linha do título
-    linha_inicio_conteudo = linha_inicio + num_linhas_titulo
+    # O conteúdo começa na linha SEGUINTE do 'linhas_texto_split'
+    linha_inicio_conteudo = linha_inicio + 1 
     
     linha_fim = len(linhas_texto_split)
     if (idx_secao_atual + 1) < len(mapa_secoes):
@@ -462,7 +449,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     similaridade_geral = []
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
-    # v33 - As linhas aqui são o RAW, sem 'corrigir_quebras_em_titulos'
+    # Importante: As linhas aqui já estão "coladas" pelo 'corrigir_quebras_em_titulos'
     linhas_ref = re.sub(r'\n{2,}', '\n', texto_ref or "").split('\n')
     linhas_belfar = re.sub(r'\n{2,}', '\n', texto_belfar or "").split('\n')
 
@@ -693,7 +680,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
     secoes_ignorar_comp = [s.upper() for s in obter_secoes_ignorar_comparacao()]
     
     # Mapear o texto que estamos processando (Ref ou Belfar)
-    # v36 - Usando o texto RAW
+    # v40 - Usando o texto PRÉ-PROCESSADO por 'corrigir_quebras_em_titulos'
     linhas_texto = re.sub(r'\n{2,}', '\n', texto_original).split('\n')
     mapa_secoes_texto = mapear_secoes(texto_original, secoes_esperadas)
 
@@ -707,7 +694,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
         secao_canonico = secao_info['canonico']
         
         # Obter o conteúdo completo desta seção (com título)
-        # v33 - Usando o 'obter_dados_secao' corrigido
+        # v40 - Usando o 'obter_dados_secao' corrigido
         encontrou, titulo, conteudo_secao_atual = obter_dados_secao(secao_canonico, mapa_secoes_texto, linhas_texto)
         
         if not encontrou:
@@ -894,7 +881,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         with st.spinner("🔄 Processando e analisando as bulas..."):
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # [v36] O texto RAW é passado para o 'verificar_secoes_e_conteudo'
+            # [v40] Texto RAW é extraído
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
@@ -902,12 +889,12 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_belfar_processado = texto_belfar_raw
 
             if not erro_ref:
-                # [CORREÇÃO v36] Desativado. Lógica agora em mapear_secoes.
-                # texto_ref_processado = corrigir_quebras_em_titulos(texto_ref_raw)
+                # [CORREÇÃO v40] RE-ATIVADO para pré-processar
+                texto_ref_processado = corrigir_quebras_em_titulos(texto_ref_raw)
                 texto_ref_processado = truncar_apos_anvisa(texto_ref_processado)
             if not erro_belfar:
-                # [CORREÇÃO v36] Desativado. Lógica agora em mapear_secoes.
-                # texto_belfar_processado = corrigir_quebras_em_titulos(texto_belfar_raw)
+                # [CORREÇÃO v40] RE-ATIVADO para pré-processar
+                texto_belfar_processado = corrigir_quebras_em_titulos(texto_belfar_raw)
                 texto_belfar_processado = truncar_apos_anvisa(texto_belfar_processado)
 
             if erro_ref or erro_belfar:
@@ -915,9 +902,8 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             elif not texto_ref_processado or not texto_belfar_processado:
                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
-                # [CORREÇÃO v30] - Passando o "tipo_bula" hardcoded
-                # [v36] Passa o texto RAW para o verificador
-                gerar_relatorio_final(texto_ref_raw, texto_belfar_raw, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
+                # [v40] Passa o texto PRÉ-PROCESSADO para o verificador
+                gerar_relatorio_final(texto_ref_processado, texto_belfar_processado, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v36 | Mapeamento V29 Restaurado e Corrigido.")
+st.caption("Sistema de Auditoria de Bulas v40 | Mapeamento Pré-processado (Corrigido).")
