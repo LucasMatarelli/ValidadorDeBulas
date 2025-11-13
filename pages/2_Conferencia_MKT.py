@@ -584,7 +584,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     return resultado
 
 # ----------------- FORMATAÇÃO PARA LEITURA (mantida) -----------------
-# ----------------- FORMATAÇÃO PARA LEITURA (v4 - Correção de Quebra de Linha) -----------------
+# ----------------- FORMATAÇÃO PARA LEITURA (v5 - Layout Original + Correção de Quebra) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -605,34 +605,31 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
     estilo_titulo_inline = f"font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: {cor_titulo}; font-size:15px; margin-bottom:8px;"
 
-    # 1. Substitui quebras de parágrafo (2+ \n) por um placeholder
-    html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
+    # 1. Divide o texto por CADA quebra de linha
+    linhas = html_content.split('\n')
     
-    # 2. Divide o conteúdo em blocos usando o placeholder
-    #    Isso garante que "CONTEUDO_A\nCONTEUDO_B" (single \n) fique no mesmo bloco
-    blocos = html_content.split('[[PARAGRAPH]]')
-    
-    blocos_formatados = []
+    linhas_formatadas = []
 
-    for bloco in blocos:
-        bloco_strip = bloco.strip()
-        if not bloco_strip: # Ignora blocos totalmente vazios
+    for linha in linhas:
+        linha_strip = linha.strip()
+        
+        # 2. Se a linha é VAZIA (será um <br> extra, criando o parágrafo)
+        if not linha_strip:
+            linhas_formatadas.append("") # Adiciona uma string vazia
             continue
 
+        # 3. Verifica se a linha é um TÍTULO
         # Limpa as tags HTML APENAS para verificação
-        bloco_strip_sem_tags = re.sub(r'</?(?:mark|strong)[^>]*>', '', bloco_strip, flags=re.IGNORECASE).strip()
+        linha_strip_sem_tags = re.sub(r'</?(?:mark|strong)[^>]*>', '', linha_strip, flags=re.IGNORECASE).strip()
         
         is_title = False
-        if bloco_strip_sem_tags: # Se não estiver vazio após tirar tags
-            # Normaliza para comparação
-            bloco_norm_sem_tags = normalizar_titulo_para_comparacao(bloco_strip_sem_tags)
-            
-            # Verifica se o título normalizado está na lista de títulos válidos
-            if bloco_norm_sem_tags in titulos_validos_norm:
+        if linha_strip_sem_tags: # Se não estiver vazia após tirar tags
+            linha_norm_sem_tags = normalizar_titulo_para_comparacao(linha_strip_sem_tags)
+            if linha_norm_sem_tags in titulos_validos_norm:
                 is_title = True
 
         if is_title:
-            titulo_formatado = bloco_strip # O bloco original, com tags <mark>
+            titulo_formatado = linha_strip # A linha original, com tags <mark>
             
             if not aplicar_numeracao:
                  # Remove o N. do início, preservando as tags <mark>
@@ -642,19 +639,17 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
                  titulo_formatado = re.sub(r'^\s*\d+\s*[\.\-)]*\s*', '', titulo_formatado, count=1)
             
             # Adiciona a div de estilo
-            blocos_formatados.append(f'<div style="{estilo_titulo_inline}">{titulo_formatado.strip()}</div>')
+            linhas_formatadas.append(f'<div style="{estilo_titulo_inline}">{titulo_formatado.strip()}</div>')
         
         else: 
-            # NÃO é um título, é um bloco de conteúdo
-            # 3. Substitui quebras de linha *únicas* (que não são parágrafos) por um espaço
-            bloco_com_espacos = bloco_strip.replace('\n', ' ')
-            
-            # 4. Recria os itens de lista
-            bloco_com_espacos = re.sub(r'(\s*[-–•*]\s*)', r'<br>\1', bloco_com_espacos)
-            blocos_formatados.append(bloco_com_espacos)
+            # 4. NÃO é um título, é um CONTEÚDO.
+            # Adiciona a linha de conteúdo como está (preservando o layout original)
+            linhas_formatadas.append(linha_strip)
     
-    # 5. Junta todos os blocos com <br><br>
-    html_content_final = "<br><br>".join(blocos_formatados)
+    # 5. Junta todas as linhas com <br>
+    #    - "titulo<br>conteudo" (se era \n)
+    #    - "titulo<br><br>conteudo" (se era \n\n, pois a linha vazia vira um <br>)
+    html_content_final = "<br>".join(linhas_formatadas)
 
     # 6. Limpeza final
     html_content_final = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content_final)
