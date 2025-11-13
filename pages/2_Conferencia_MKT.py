@@ -7,6 +7,11 @@
 #    eram apenas números (ex: "1.").
 #  - A exceção foi removida. Agora, *qualquer* linha no MKT
 #    que não contiver letras será descartada.
+#  - Ajuste: adicionada seção "INFORMAÇÕES AO PACIENTE" como seção canônica
+#    para evitar que seu conteúdo seja "vazado" para COMPOSIÇÃO.
+#  - Ajuste: obter_dados_secao agora injeta o título da própria seção
+#    como primeira linha do conteúdo retornado (para que o título apareça
+#    dentro da caixa/expander como você pediu).
 
 # --- IMPORTS ---
 import re
@@ -20,7 +25,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.56 - MANTIDO, + ESTILO DE TÍTULO DENTRO DO CONTEÚDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.56 - MANTIDO) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     """
     Recebe html_content (texto que pode conter quebras '\n' e marcações geradas pela função de marcação)
@@ -65,7 +70,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
 
     # 3) Títulos que reconhecemos (padrões e versões com número já presentes)
     titulos_lista = [
-        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS",
+        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS", "INFORMAÇÕES AO PACIENTE",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
         r"(9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
         r"(O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
@@ -115,12 +120,11 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         elif 'QUANTIDADE MAIOR' in titulo_upper:
             numero_prefix = "9. "
 
-        # Para APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS mantém-se sem prefixo
-        if any(k in titulo_upper for k in ['APRESENTAÇÕES', 'COMPOSIÇÃO', 'DIZERES LEGAIS']):
+        # Para APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS/INFORMAÇÕES AO PACIENTE mantém-se sem prefixo
+        if any(k in titulo_upper for k in ['APRESENTAÇÕES', 'COMPOSIÇÃO', 'DIZERES LEGAIS', 'INFORMAÇÕES AO PACIENTE']):
             numero_prefix = ""
 
         # Renderiza o título como DIV estilizado (inserido dentro do conteúdo)
-        # cor e estilo são decididos pelo parâmetro aplicar_numeracao (fechado pela closure)
         cor = cor_titulo
         return f'[[PARAGRAPH]]<div style="{estilo_titulo_inline}">{numero_prefix}{titulo_sem_numero}</div>'
 
@@ -207,7 +211,7 @@ nlp = carregar_modelo_spacy()
 # ----------------- EXTRAÇÃO (v26.58 - LÓGICA CORRIGIDA) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
-        return "", f"Arquivo {tipo_arquivo} não enviado."
+        return "", f"Erro ao ler o arquivo {tipo_arquivo}: arquivo não enviado."
     try:
         arquivo.seek(0)
         texto = ""
@@ -309,7 +313,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
                 linha_limpa = re.sub(r'\s{2,}', ' ', linha_strip).strip()
 
-                if is_marketing_pdf and not re.search(r'[a-zA-Z]', linha_limpa):
+                # NOVA REGRA: se for PDF marketing e a linha não contiver letras, descarta.
+                if is_marketing_pdf and not re.search(r'[A-Za-zÁÉÍÓÚÂÊÔÃÕÇáéíóúâêôãõç]', linha_limpa):
                     continue
 
                 if linha_limpa:
@@ -352,6 +357,7 @@ def obter_secoes_por_tipo(tipo_bula):
         "Paciente": [
             "APRESENTAÇÕES",
             "COMPOSIÇÃO",
+            "INFORMAÇÕES AO PACIENTE",
             "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
             "2.COMO ESTE MEDICAMENTO FUNCIONA?",
             "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
@@ -366,6 +372,7 @@ def obter_secoes_por_tipo(tipo_bula):
         "Profissional": [
             "APRESENTAÇÕES",
             "COMPOSIÇÃO",
+            "INFORMAÇÕES AO PACIENTE",
             "1. INDICAÇÕES",
             "2. RESULTADOS DE EFICÁCIA",
             "3. CARACTERÍSTICAS FARMACOLÓGICAS",
@@ -473,6 +480,7 @@ def corrigir_quebras_em_titulos(texto):
 
     # Reconstrói o texto preservando a estrutura de parágrafos
     return "\n".join(linhas_corrigidas)
+
 # ----------------- FIM DA FUNÇÃO -----------------
 
 def is_titulo_secao(linha):
@@ -552,6 +560,10 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
+    """
+    Agora esta função injeta o título encontrado como primeira linha do conteúdo
+    retornado (para que o título apareça dentro da caixa/expander).
+    """
     idx_secao_atual = -1
     for i, secao_mapa in enumerate(mapa_secoes):
         if secao_mapa['canonico'] == secao_canonico:
@@ -575,7 +587,14 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
 
     conteudo = [linhas_texto_split[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
     # Reconstrói com \n para formatar_html_para_leitura (que espera \n ou \n\n)
-    conteudo_final = "\n".join(conteudo).strip()
+    conteudo_final_sem_titulo = "\n".join(conteudo).strip()
+
+    # INJETAR O TÍTULO COMO PRIMEIRA LINHA DO CONTEÚDO (formatação posterior irá estilizar)
+    # Se já existir conteúdo, coloca título + \n + conteúdo; caso contrário, apenas título.
+    if conteudo_final_sem_titulo:
+        conteudo_final = f"{titulo_encontrado}\n\n{conteudo_final_sem_titulo}"
+    else:
+        conteudo_final = f"{titulo_encontrado}"
 
     return True, titulo_encontrado, conteudo_final
 
@@ -906,6 +925,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+
 # ----------------- LAYOUT -----------------
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Sistema avançado de comparação literal e validação de bulas farmacêuticas")
@@ -951,4 +971,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.58 | Correção Extração MKT")
+st.caption("Sistema de Auditoria de Bulas v26.58 | Correção Extração MKT | Título dentro do conteúdo para visual consistente")
