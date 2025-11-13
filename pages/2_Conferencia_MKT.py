@@ -1,13 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.58 - Arquivo completo corrigido
-# - Ajustes mínimos e seguros:
-#   * Preservação de títulos multilinha (mapear_secoes reúne linhas contíguas de título).
-#   * Obter dados de seção injeta o título multilinha como primeira parte do conteúdo (mantém \n).
-#   * formatar_html_para_leitura renderiza o título injetado preservando quebras (converte \n em <br>)
-#     e aplicando a mesma tipografia/cor usada no app (não altera layout geral).
-#   * Realocação de qualifiers permanece conservadora (só "USO NASAL" + "ADULTO" como solicitado).
-# - O resto do comportamento (regras de negócio, UI, marcação de divergências) segue a lógica original v26.58.
+# Versão v26.58 - Arquivo completo corrigido (truncar_apos_anvisa incluída)
+# - Correção: NameError causado pela ausência de truncar_apos_anvisa; função
+#   adicionada antes do uso.
+# - Mantive as outras correções anteriores (preservação de títulos multilinha,
+#   realocação restrita de "USO NASAL ADULTO", destaque de títulos diferentes).
+# - Substitua seu arquivo atual por este e reinicie o Streamlit.
 
 import re
 import difflib
@@ -45,6 +43,25 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
+# ----------------- FUNÇÃO MISSING: truncar_apos_anvisa -----------------
+def truncar_apos_anvisa(texto):
+    """
+    Corta o texto após a menção de aprovação na ANVISA (mantém até a data).
+    Retorna o texto truncado ou o texto original se não encontrar a expressão.
+    """
+    if not isinstance(texto, str):
+        return texto
+    regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
+    match = re.search(regex_anvisa, texto, re.IGNORECASE)
+    if not match:
+        return texto
+    cut_off_position = match.end(1)
+    # mantem um possível ponto logo após
+    pos_match = re.search(r'^\s*\.', texto[cut_off_position:], re.IGNORECASE)
+    if pos_match:
+        cut_off_position += pos_match.end()
+    return texto[:cut_off_position]
+
 # ----------------- EXTRAÇÃO (PDF/DOCX) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
@@ -81,7 +98,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
 
-            # padroes de ruído de linha (mantidos da v26.58)
+            # padrões de ruído (mantidos da v26.58)
             padrao_ruido_linha_regex = (
                 r'bula do paciente|página \d+\s*de\s*\d+'
                 r'|(Tipologie|Tipologia) da bula:.*|(Merida|Medida) da (bula|trúa):?.*'
@@ -168,7 +185,6 @@ def corrigir_quebras_em_titulos(texto):
         is_potential_title = (linha_strip.isupper() and len(linha_strip) < 80) or re.match(r'^\d+\.', linha_strip)
         if is_potential_title:
             if buffer:
-                # preserve quebras dentro do título para multilinha
                 buffer += "\n" + linha_strip
             else:
                 buffer = linha_strip
@@ -252,16 +268,12 @@ def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4:
         return False
-    # evita classificar frases muito longas
     if len(ln.split()) > 20:
         return False
-    # se está em maiúsculas e curta, provavelmente é título
     if ln.isupper():
         return True
-    # títulos numéricos
     if re.match(r'^\d+\.\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln):
         return True
-    # heurística de proporção de uppercase
     upper_chars = sum(1 for c in ln if c.isupper())
     lower_chars = sum(1 for c in ln if c.islower())
     if upper_chars > lower_chars and lower_chars < 10:
@@ -269,10 +281,6 @@ def is_titulo_secao(linha):
     return False
 
 def mapear_secoes(texto_completo, secoes_esperadas):
-    """
-    Mapeia secões, agora reunindo títulos que se estendem por várias linhas contíguas.
-    Guarda 'num_linhas_titulo' e 'titulo_encontrado' preservando quebras (\n).
-    """
     mapa = []
     texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo or "")
     linhas = texto_normalizado.split('\n')
@@ -298,7 +306,6 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             idx += 1
             continue
 
-        # coleta linhas contíguas de título (multi-line)
         collected = [linha]
         j = idx + 1
         while j < len(linhas):
@@ -311,7 +318,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 continue
             break
 
-        titulo_candidato = "\n".join(collected)  # preserva quebras
+        titulo_candidato = "\n".join(collected)
         norm_linha = normalizar_titulo_para_comparacao(titulo_candidato)
 
         best_score = 0
@@ -323,7 +330,6 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 best_canonico = canonico
 
         if best_score < limiar_score:
-            # fallback por contains
             for titulo_norm, canonico in titulos_norm_lookup.items():
                 if titulo_norm and titulo_norm in norm_linha:
                     best_score = 90
@@ -373,7 +379,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
         conteudo_final = f"{titulo_encontrado}"
     return True, titulo_encontrado, conteudo_final
 
-# ----------------- EXTRAI QUALIFIERS INICIAIS (RESTRITO: USO NASAL + ADULTO) -----------------
+# ----------------- EXTRAI QUALIFIERS INICIAIS (RESTRITO) -----------------
 def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
     if not texto:
         return [], texto
@@ -390,7 +396,6 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
             qualifiers.append(ln)
             i += 1
             continue
-        # caso dividido em duas linhas: 'USO NASAL' e depois 'USO ADULTO' ou 'ADULTO'
         if 'USO NASAL' in ln_up and i+1 < len(linhas) and 'ADULTO' in linhas[i+1].upper():
             qualifiers.append(ln)
             qualifiers.append(linhas[i+1].strip())
@@ -424,7 +429,6 @@ def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_secti
     if normalizar_texto(qual_text) in dst_norm:
         src['conteudo_bel'] = restante_bel
         return
-    # Inserir após o título (título já está injetado como primeira linha)
     lines_dst = dst.get('conteudo_bel', "").split('\n')
     title_dst = lines_dst[0] if lines_dst and lines_dst[0].strip() else dst_section
     rest_dst = '\n'.join(lines_dst[1:]).strip() if len(lines_dst) > 1 else ""
@@ -432,7 +436,7 @@ def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_secti
     dst['conteudo_bel'] = combined
     src['conteudo_bel'] = restante_bel
 
-# ----------------- CHECAGEM E COMPARAÇÃO (APLICA REALOCAÇÃO RESTRITA) -----------------
+# ----------------- VERIFICAÇÃO E COMPARAÇÃO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes = []
@@ -462,7 +466,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         if not encontrou_bel:
             secoes_faltantes.append(sec)
 
-    # aplica realocação restrita (USO NASAL + ADULTO)
     realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES')
 
     for sec in secoes_esperadas:
@@ -474,7 +477,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         titulo_ref = item.get('titulo_ref') or ""
         titulo_bel = item.get('titulo_bel') or ""
 
-        # se títulos diferem, destacar o título injetado do MKT em amarelo (mantendo fonte/estilo)
         if titulo_bel and titulo_ref and normalizar_titulo_para_comparacao(titulo_bel) != normalizar_titulo_para_comparacao(titulo_ref):
             estilo_titulo_inline = "font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: #0b8a3e; font-size:15px; margin-bottom:8px;"
             titulo_html = titulo_bel.replace('\n', '<br>')
@@ -577,10 +579,39 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- FORMATAÇÃO FINAL (mantida, título multilinha preservado) -----------------
-def formatar_html_para_leitura_final(texto, aplicar_numeracao=False):
-    # reutiliza a função principal formatar_html_para_leitura (mantida compatibilidade)
-    return formatar_html_para_leitura(texto, aplicar_numeracao=aplicar_numeracao)
+# ----------------- FORMATAÇÃO PARA LEITURA (mantida) -----------------
+def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
+    if html_content is None:
+        return ""
+    cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
+    estilo_titulo_inline = f"font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: {cor_titulo}; font-size:15px; margin-bottom:8px;"
+    if not aplicar_numeracao:
+        html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*(?:[\n\r]+)', '\n\n', html_content, flags=re.IGNORECASE)
+        html_content = re.sub(r'^\s*\d+\.\s*(?:[\n\r]+)', '', html_content, flags=re.IGNORECASE)
+        html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*$', '', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
+
+    # Se título multilinha foi injetado ( contém <br> quando substituído ), preservamos.
+    # Aqui deixamos a lógica de títulos originais (v26.56) intacta.
+    titulos_lista = [
+        "APRESENTAÇÕES", "APRESENTACOES", "COMPOSIÇÃO", "COMPOSICAO", "DIZERES LEGAIS", "INFORMAÇÕES AO PACIENTE", "INFORMACOES AO PACIENTE"
+    ]
+    def limpar_e_numerar_titulo(match):
+        titulo = match.group(0)
+        titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
+        titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
+        titulo_sem_numero = re.sub(r'^\d+\.\s*', '', titulo_limpo)
+        return f'[[PARAGRAPH]]<div style="{estilo_titulo_inline}">{titulo_sem_numero}</div>'
+    for titulo_pattern in titulos_lista:
+        html_content = re.sub(titulo_pattern, limpar_e_numerar_titulo, html_content, flags=re.IGNORECASE)
+
+    html_content = re.sub(r'(\n)(\s*[-–•*])', r'[[LIST_ITEM]]\2', html_content)
+    html_content = html_content.replace('\n', ' ')
+    html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
+    html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
+    html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
+    html_content = re.sub(r'\s{2,}', ' ', html_content)
+    return html_content
 
 # ----------------- GERAÇÃO DE RELATÓRIO E UI (mantido layout original) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
@@ -717,4 +748,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.58 | Correções de preservação de títulos multilinha aplicadas")
+st.caption("Sistema de Auditoria de Bulas v26.58 | Correções aplicadas: truncar_apos_anvisa presente, preservação de títulos multilinha.")
