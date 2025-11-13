@@ -1,12 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v31 - Correção Completa
-# - Lógica de "Profissional" REMOVIDA. Foco 100% em Paciente.
-# - RE-ATIVADA a função 'corrigir_quebras_em_titulos', que era
-#   essencial para juntar títulos MKT. Isso corrige o bug "6 engolindo 7".
-# - 'formatar_html_para_leitura' (v31) corrige o layout do MKT
-#   para "achatar" os títulos em uma linha, como no ANVISA.
-# - 'is_titulo_secao' (v31) está mais restrito.
+# Versão v32 - Correção da Comparação de Títulos
+# - A função 'normalizar_texto' agora substitui '\n' por ' ',
+#   corrigindo o bug de mapeamento que causava o "6 engolindo 7".
+# - Mantém todas as melhorias da v31 (Foco Paciente, Layout MKT, etc.)
 
 import re
 import difflib
@@ -30,10 +27,11 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- UTILITÁRIOS DE NORMALIZAÇÃO -----------------
+# ----------------- UTILITÁRIOS DE NORMALIZAÇÃO (v32) -----------------
 def normalizar_texto(texto):
     if not isinstance(texto, str):
         return ""
+    texto = texto.replace('\n', ' ') # <-- [CORREÇÃO V32] Essencial para comparar títulos MKT
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
     texto = ' '.join(texto.split())
@@ -305,6 +303,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if not linha_strip or not is_titulo_secao(linha_strip):
             continue
         
+        # [Correção v32] A normalização agora trata o '\n'
         norm_linha = normalizar_titulo_para_comparacao(linha_strip)
         
         best_score = 0
@@ -339,7 +338,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     return mapa
 
 
-# ----------------- OBTER DADOS DE SEÇÃO (INJETA TÍTULO MULTILINHA) -----------------
+# ----------------- OBTER DADOS DE SEÇÃO (v32 - Corrigido) -----------------
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     idx_secao_atual = -1
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -349,21 +348,23 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     if idx_secao_atual == -1:
         return False, None, ""
     secao_atual_info = mapa_secoes[idx_secao_atual]
+    
+    # O 'titulo_encontrado' é a linha "colada" (ex: "TITULO\nPARTE 2")
     titulo_encontrado = secao_atual_info['titulo_encontrado']
+    
+    # 'linha_inicio' é o índice (em linhas_texto_split) onde esse título colado está
     linha_inicio = secao_atual_info['linha_inicio']
     
-    # O 'corrigir_quebras' já juntou as linhas de título,
-    # então 'num_linhas_titulo' é o número de linhas DENTRO do título
-    num_linhas_titulo_juntadas = secao_atual_info.get('num_linhas_titulo', 1)
-    
-    # A linha de início do CONTEÚDO é a próxima linha no arquivo original
+    # O conteúdo começa na linha SEGUINTE do 'linhas_texto_split'
     linha_inicio_conteudo = linha_inicio + 1 
     
     linha_fim = len(linhas_texto_split)
     if (idx_secao_atual + 1) < len(mapa_secoes):
+        # O fim é o início da próxima seção mapeada
         linha_fim = mapa_secoes[idx_secao_atual + 1]['linha_inicio']
     
     # Pega o conteúdo, ignorando o próprio título
+    # (range(start, end) exclui 'end', então ele para exatamente antes da próxima seção)
     conteudo = [linhas_texto_split[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
     
     conteudo_final_sem_titulo = "\n".join(conteudo).strip()
@@ -474,8 +475,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         titulo_ref = item.get('titulo_ref') or ""
         titulo_bel = item.get('titulo_bel') or ""
 
-        # [CORREÇÃO v28] - Bloco desativado para evitar que o HTML
-        # seja injetado antes da hora e "quebre" o marca-texto.
+        # [CORREÇÃO v28] - Bloco desativado
         # if titulo_bel and titulo_ref and normalizar_titulo_para_comparacao(titulo_bel) != normalizar_titulo_para_comparacao(titulo_ref):
         #     estilo_titulo_inline = "font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: #0b8a3e; font-size:15px; margin-bottom:8px;"
         #     titulo_html = titulo_bel.replace('\n', '<br>')
@@ -620,6 +620,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         
         is_title = False
         if linha_strip_sem_tags:
+            # [Correção v32] A normalização aqui também trata o '\n'
             linha_norm_sem_tags = normalizar_titulo_para_comparacao(linha_strip_sem_tags)
             if linha_norm_sem_tags in titulos_validos_norm:
                 is_title = True
@@ -891,4 +892,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v31 | Foco em Paciente | Correções de mapeamento MKT e layout.")
+st.caption("Sistema de Auditoria de Bulas v32 | Correção de Mapeamento Paciente.")
