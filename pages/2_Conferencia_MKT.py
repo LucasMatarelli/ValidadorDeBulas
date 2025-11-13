@@ -3,6 +3,9 @@
 # Versão v26.58 (Correção Definitiva: Lógica de Extração)
 # Ajustes: refinamento da realocação de qualificadores (USO NASAL / USO ADULTO / EMBALAGENS)
 # e prevenção de duplicações no destino. Títulos continuam sendo injetados dentro da seção.
+# - Tornada a realocação mais conservadora e segura
+# - Se APRESENTAÇÕES não existir no MKT, criaremos título+qualifiers apenas quando for seguro
+# - Evita mover linhas que claramente parecem fórmula/composição
 
 import re
 import difflib
@@ -27,7 +30,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*$', '', html_content, flags=re.IGNORECASE)
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
     titulos_lista = [
-        "APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS", "INFORMAÇÕES AO PACIENTE",
+        "APRESENTAÇÕES", "APRESENTACOES", "COMPOSIÇÃO", "COMPOSICAO", "DIZERES LEGAIS", "INFORMAÇÕES AO PACIENTE", "INFORMACOES AO PACIENTE",
         "IDENTIFICAÇÃO DO MEDICAMENTO", "INFORMAÇÕES AO PACIENTE",
         r"(9\.?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
         r"(O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M\s+USAR\s+UMA\s+QUANTIDADE\s+MAIOR\s+DO\s+QUE\s+A\s+INDICADA[\s\S]{0,10}?DESTE\s+MEDICAMENTO\??)",
@@ -73,8 +76,9 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
             numero_prefix = "8. "
         elif 'QUANTIDADE MAIOR' in titulo_upper:
             numero_prefix = "9. "
-        if any(k in titulo_upper for k in ['APRESENTAÇÕES', 'COMPOSIÇÃO', 'DIZERES LEGAIS', 'INFORMAÇÕES AO PACIENTE']):
+        if any(k in titulo_upper for k in ['APRESENTAÇÕES', 'APRESENTACOES', 'COMPOSIÇÃO', 'COMPOSICAO', 'DIZERES LEGAIS', 'INFORMAÇÕES AO PACIENTE']):
             numero_prefix = ""
+        estilo_titulo_inline = f"font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: {'#0b5686' if aplicar_numeracao else '#0b8a3e'}; font-size:15px; margin-bottom:8px;"
         return f'[[PARAGRAPH]]<div style="{estilo_titulo_inline}">{numero_prefix}{titulo_sem_numero}</div>'
     for titulo_pattern in titulos_lista:
         html_content = re.sub(titulo_pattern, limpar_e_numerar_titulo, html_content, flags=re.IGNORECASE)
@@ -212,7 +216,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
-# ----------------- FUNÇÕES AUXILIARES (mantidas) -----------------
+# ----------------- FUNÇÕES AUXILIARES e MAPEAMENTO (mantidas) -----------------
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
@@ -420,21 +424,13 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
         conteudo_final = f"{titulo_encontrado}"
     return True, titulo_encontrado, conteudo_final
 
-# ----------------- EXTRAI QUALIFIERS (refinado) -----------------
+# ----------------- EXTRAI QUALIFIERS (refinado/conservador) -----------------
 def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
-    """
-    Extrai, de maneira conservadora, linhas qualificadoras do topo do texto:
-    - Somente as primeiras max_lines linhas
-    - Linha é curta (<= 12 palavras) e contém palavras-chaves de apresentação
-      OU é majoritariamente em caixa alta e curta.
-    - Ignora linhas que sejam exatamente títulos como 'APRESENTAÇÃO', 'COMPOSIÇÃO'.
-    Retorna (qualifiers_list, restante_texto).
-    """
     if not texto:
         return [], texto
     linhas = texto.split('\n')
     qualifiers = []
-    keys = {'USO', 'NASAL', 'ADULTO', 'EMBALAGENS', 'EMBALAGEM', 'FRASCOS', 'APRESENTAÇÃO', 'APRESENTACAO', 'APRESENTAÇÕES', 'GOTAS', 'ML', 'MG'}
+    keys = {'USO', 'NASAL', 'ADULTO', 'EMBALAGENS', 'EMBALAGEM', 'FRASCOS', 'APRESENTAÇÃO', 'APRESENTACAO', 'APRESENTACOES', 'GOTAS', 'ML', 'MG'}
     i = 0
     while i < min(len(linhas), max_lines):
         ln = linhas[i].strip()
@@ -442,23 +438,18 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
             i += 1
             continue
         ln_upper = ln.upper()
-        # ignore exact header words (to avoid moving section titles)
-        if ln_upper in {'APRESENTAÇÃO', 'APRESENTAÇÕES', 'COMPOSIÇÃO', 'DIZERES LEGAIS', 'INFORMAÇÕES AO PACIENTE'}:
+        if ln_upper in {'APRESENTAÇÃO', 'APRESENTAÇÕES', 'APRESENTACOES', 'COMPOSIÇÃO', 'COMPOSICAO', 'DIZERES LEGAIS', 'INFORMAÇÕES AO PACIENTE', 'INFORMACOES AO PACIENTE'}:
             break
         words = ln.split()
         word_count = len(words)
         uppercase_letters = sum(1 for ch in ln if ch.isalpha() and ch.isupper())
         alpha_letters = sum(1 for ch in ln if ch.isalpha())
         uppercase_ratio = (uppercase_letters / alpha_letters) if alpha_letters > 0 else 0
-        # heurística: curta e com keywords OR curta e em caixa alta
         contains_key = any(k in ln_upper for k in keys)
         is_short = word_count <= 12 and len(ln) < 140
         is_upper = uppercase_ratio > 0.6 and is_short
-        # ensure not a typical composition line (contains '=' or ':' or 'contém' or 'mg' in a composition-like pattern)
-        looks_like_composition_line = bool(re.search(r'\b(?:cont[eé]m|equivalente|mg|ml|g{1,2}|veículo|veiculo|q\.s\.p|qsp)\b', ln_upper))
-        # We want qualifiers for presentation, but avoid moving lines that are clearly composition formula
+        looks_like_composition_line = bool(re.search(r'\b(?:cont[eé]m|equivalente|mg\b|ml\b|g\b|ve[ií]culo|veiculo|q\.s\.p|qsp|%|\d+ mg|\d+ ml)\b', ln_upper))
         if (contains_key and is_short) or is_upper:
-            # if it looks like composition formula, skip (don't treat as qualifier)
             if looks_like_composition_line and not contains_key:
                 break
             qualifiers.append(ln)
@@ -480,7 +471,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     linhas_belfar = re.sub(r'\n{2,}', '\n', texto_belfar).split('\n')
     mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
     mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
-    # extrai conteúdos com título injetado
     conteudos = {}
     for sec in secoes_esperadas:
         encontrou_ref, _, conteudo_ref = obter_dados_secao(sec, mapa_ref, linhas_ref)
@@ -493,13 +483,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         }
         if not encontrou_bel:
             secoes_faltantes.append(sec)
-    # Realocação segura: move qualificadores do início de COMPOSIÇÃO -> APRESENTAÇÕES somente quando:
-    # - qualifiers existem no topo do conteúdo BELFAR da COMPOSIÇÃO
-    # - qualifiers contêm palavras-chave de apresentação ou são MAIÚSCULAS curtas
-    # - APRESENTAÇÕES existe no mapa_belfar (evita mover para seção inexistente)
     def _contains_similar(dst_text, qualifiers):
-        # small normalization and containment check to avoid duplicates
-        dst_norm = normalizar_texto(dst_text)
+        dst_norm = normalizar_texto(dst_text or "")
         for q in qualifiers:
             if normalizar_texto(q) in dst_norm:
                 return True
@@ -507,51 +492,70 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     def realocar_qualifiers_inplace(map_conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
         src = map_conteudos.get(src_section)
         dst = map_conteudos.get(dst_section)
-        if not src or not dst:
+        if not src:
             return
         if not src['conteudo_bel'].strip():
             return
-        # extract qualifiers from BELFAR COMPOSIÇÃO
         qualifiers_bel, restante_bel = _extrair_linhas_qualificadoras_iniciais(src['conteudo_bel'], max_lines=4)
         if qualifiers_bel:
-            # ensure destination exists in MKT (dst['encontrou_bel'] True) before moving
-            if dst['encontrou_bel']:
-                # avoid duplicates in destination
+            qual_text = '\n'.join([q for q in qualifiers_bel if q.strip() != ""]).strip()
+            # Se qual_text parece claramente composição (tem 'contém', 'mg', 'ml' como parte da fórmula), não mover
+            looks_like_comp = any(re.search(r'\b(?:cont[eé]m|mg\b|ml\b|equivalente|ve[ií]culo|q\.s\.p|qsp)\b', q.upper()) for q in qualifiers_bel)
+            if looks_like_comp and len(qualifiers_bel) <= 2:
+                # muito provável que seja parte da composição — não mover
+                return
+            # se destino existe no MKT, anexar após título; se não, criar destino (mas faça isso apenas se não duplicar)
+            if dst and dst.get('encontrou_bel', False):
                 if not _contains_similar(dst['conteudo_bel'], qualifiers_bel):
-                    # prepare qual text, ensure not to repeat title words
-                    qual_text = '\n'.join([q for q in qualifiers_bel if q.strip().upper() not in {'APRESENTAÇÃO','APRESENTAÇÕES'}]).strip()
-                    if qual_text:
-                        # insert qualifiers after the destination title (title is first line)
-                        lines_dst = dst['conteudo_bel'].split('\n')
-                        if lines_dst:
-                            title_dst = lines_dst[0]
-                            rest_dst = '\n'.join(lines_dst[1:]).strip()
-                            # avoid double blank lines
-                            combined = f"{title_dst}\n\n{qual_text}\n\n{rest_dst}".strip()
+                    lines_dst = dst['conteudo_bel'].split('\n')
+                    title_dst = lines_dst[0] if lines_dst else dst_section
+                    rest_dst = '\n'.join(lines_dst[1:]).strip() if len(lines_dst) > 1 else ""
+                    combined = f"{title_dst}\n\n{qual_text}\n\n{rest_dst}".strip()
+                    dst['conteudo_bel'] = combined
+                    src['conteudo_bel'] = restante_bel
+            else:
+                # destino não detectado no MKT: criar APRESENTAÇÕES no MKT somente se
+                # - qual_text contiver chaves muito fortes (EX: 'USO NASAL', 'FRASCOS', 'EMBALAGENS') AND
+                # - não parece composição
+                strong_keys = any(k in q.upper() for q in qualifiers_bel for k in ['USO NASAL', 'USO ADULTO', 'EMBALAGENS', 'FRASCOS', 'APRESENTAÇ', 'APRESENTAC'])
+                if strong_keys and not looks_like_comp:
+                    # criar destino content (injetando título)
+                    created = f"APRESENTAÇÕES\n\n{qual_text}"
+                    # only create if not already contained elsewhere
+                    if not _contains_similar(map_conteudos.get(dst_section, {}).get('conteudo_bel', ""), qualifiers_bel):
+                        if dst:
+                            dst['conteudo_bel'] = created + ("\n\n" + dst['conteudo_bel'] if dst['conteudo_bel'] else "")
+                            dst['encontrou_bel'] = True
                         else:
-                            combined = qual_text
-                        dst['conteudo_bel'] = combined
-                # update source content (remove qualifiers)
-                src['conteudo_bel'] = restante_bel
-        # now process REFERÊNCIA similarly but only if qualifiers present
+                            map_conteudos[dst_section] = {'encontrou_ref': False, 'conteudo_ref': "", 'encontrou_bel': True, 'conteudo_bel': created}
+                        src['conteudo_bel'] = restante_bel
+        # processar referêncial (ANVISA) com mesma lógica (mais permissiva)
         qualifiers_ref, restante_ref = _extrair_linhas_qualificadoras_iniciais(src['conteudo_ref'], max_lines=4)
         if qualifiers_ref:
-            if dst['encontrou_ref']:
+            qual_text_ref = '\n'.join([q for q in qualifiers_ref if q.strip() != ""]).strip()
+            if dst and dst.get('encontrou_ref', False):
                 if not _contains_similar(dst['conteudo_ref'], qualifiers_ref):
-                    qual_text_ref = '\n'.join([q for q in qualifiers_ref if q.strip().upper() not in {'APRESENTAÇÃO','APRESENTAÇÕES'}]).strip()
-                    if qual_text_ref:
-                        lines_dst = dst['conteudo_ref'].split('\n')
-                        if lines_dst:
-                            title_dst = lines_dst[0]
-                            rest_dst = '\n'.join(lines_dst[1:]).strip()
-                            combined_ref = f"{title_dst}\n\n{qual_text_ref}\n\n{rest_dst}".strip()
-                        else:
-                            combined_ref = qual_text_ref
+                    lines_dst = dst['conteudo_ref'].split('\n')
+                    title_dst = lines_dst[0] if lines_dst else dst_section
+                    rest_dst = '\n'.join(lines_dst[1:]).strip() if len(lines_dst) > 1 else ""
+                    combined_ref = f"{title_dst}\n\n{qual_text_ref}\n\n{rest_dst}".strip()
+                    dst['conteudo_ref'] = combined_ref
+                    src['conteudo_ref'] = restante_ref
+            else:
+                strong_keys_ref = any(k in q.upper() for q in qualifiers_ref for k in ['USO NASAL', 'USO ADULTO', 'EMBALAGENS', 'FRASCOS', 'APRESENTAÇ', 'APRESENTAC'])
+                looks_like_comp_ref = any(re.search(r'\b(?:cont[eé]m|mg\b|ml\b|equivalente|ve[ií]culo|q\.s\.p|qsp)\b', q.upper()) for q in qualifiers_ref)
+                if strong_keys_ref and not looks_like_comp_ref:
+                    if dst:
+                        dst['conteudo_ref'] = f"{dst.get('conteudo_ref','').strip()}"
+                        dst['encontrou_ref'] = True
+                        # prepend in safe manner
+                        lines_dst = dst['conteudo_ref'].split('\n') if dst.get('conteudo_ref') else []
+                        title_dst = lines_dst[0] if lines_dst else dst_section
+                        rest_dst = '\n'.join(lines_dst[1:]).strip() if len(lines_dst) > 1 else ""
+                        combined_ref = f"{title_dst}\n\n{qual_text_ref}\n\n{rest_dst}".strip()
                         dst['conteudo_ref'] = combined_ref
-                src['conteudo_ref'] = restante_ref
-    # call realocation (operate on the same 'conteudos' dict)
+                        src['conteudo_ref'] = restante_ref
     realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES')
-    # rebuild relatorio and similarity after relocation
     for sec in secoes_esperadas:
         item = conteudos[sec]
         encontrou_ref = item['encontrou_ref']
@@ -572,7 +576,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             else:
                 relatorio.append({'secao': sec, 'status': 'identica', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_bel})
                 similaridade_geral.append(100)
-    # detect title differences
     titulos_ref_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_ref}
     titulos_belfar_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_belfar}
     diferencas_titulos = []
