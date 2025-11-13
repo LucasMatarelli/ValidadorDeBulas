@@ -584,37 +584,71 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     return resultado
 
 # ----------------- FORMATAÇÃO PARA LEITURA (mantida) -----------------
+# ----------------- FORMATAÇÃO PARA LEITURA (mantida) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
     cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
     estilo_titulo_inline = f"font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: {cor_titulo}; font-size:15px; margin-bottom:8px;"
-    if not aplicar_numeracao:
-        html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*(?:[\n\r]+)', '\n\n', html_content, flags=re.IGNORECASE)
-        html_content = re.sub(r'^\s*\d+\.\s*(?:[\n\r]+)', '', html_content, flags=re.IGNORECASE)
-        html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*$', '', html_content, flags=re.IGNORECASE)
+
+    # if not aplicar_numeracao:
+    #     html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*(?:[\n\r]+)', '\n\n', html_content, flags=re.IGNORECASE)
+    #     html_content = re.sub(r'^\s*\d+\.\s*(?:[\n\r]+)', '', html_content, flags=re.IGNORECASE)
+    #     html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*$', '', html_content, flags=re.IGNORECASE)
+
+    # Substitui quebras de parágrafo por placeholder
     html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
+    
+    # --- NOVA LÓGICA DE TÍTULO ---
+    # Divide o conteúdo em linhas, tratando os placeholders de parágrafo como \n
+    linhas = html_content.replace('[[PARAGRAPH]]', '\n').split('\n')
+    linhas_formatadas = []
 
-    # Se título multilinha foi injetado ( contém <br> quando substituído ), preservamos.
-    # Aqui deixamos a lógica de títulos originais (v26.56) intacta.
-    titulos_lista = [
-        "APRESENTAÇÕES", "APRESENTACOES", "COMPOSIÇÃO", "COMPOSICAO", "DIZERES LEGAIS", "INFORMAÇÕES AO PACIENTE", "INFORMACOES AO PACIENTE"
-    ]
-    def limpar_e_numerar_titulo(match):
-        titulo = match.group(0)
-        titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
-        titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
-        titulo_sem_numero = re.sub(r'^\d+\.\s*', '', titulo_limpo)
-        return f'[[PARAGRAPH]]<div style="{estilo_titulo_inline}">{titulo_sem_numero}</div>'
-    for titulo_pattern in titulos_lista:
-        html_content = re.sub(titulo_pattern, limpar_e_numerar_titulo, html_content, flags=re.IGNORECASE)
+    for linha in linhas:
+        # Limpa as tags HTML APENAS para verificação
+        linha_strip_sem_tags = re.sub(r'</?(?:mark|strong)[^>]*>', '', linha, flags=re.IGNORECASE).strip()
+        
+        # Lógica de detecção de título (baseada em is_titulo_secao)
+        is_title = False
+        if 3 < len(linha_strip_sem_tags) < 120 and len(linha_strip_sem_tags.split()) < 25:
+            if linha_strip_sem_tags.isupper():
+                is_title = True
+            elif re.match(r'^\d+\.\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_strip_sem_tags):
+                is_title = True
+            elif re.match(r'^\d+\s+INDICAÇÕES', linha_strip_sem_tags): # Caso especial
+                 is_title = True
 
-    html_content = re.sub(r'(\n)(\s*[-–•*])', r'[[LIST_ITEM]]\2', html_content)
+        if is_title:
+            titulo_formatado = linha.strip() # A linha original, com tags <mark>
+            if not aplicar_numeracao:
+                 # Remove o N. do início, preservando as tags <mark>
+                 # Caso 1: <mark>1.</mark>
+                 titulo_formatado = re.sub(r'^\s*(<mark[^>]*>)\s*\d+\.\s*(</mark>)', r'\1\2', titulo_formatado, count=1, flags=re.IGNORECASE)
+                 # Caso 2: <mark>1. TITULO</mark>
+                 titulo_formatado = re.sub(r'^\s*(<mark[^>]*>)\s*\d+\.\s*', r'\1', titulo_formatado, count=1, flags=re.IGNORECASE)
+                 # Caso 3: 1. <mark>TITULO</mark>
+                 titulo_formatado = re.sub(r'^\s*\d+\.\s*(<mark[^>]*>)', r'\1', titulo_formatado, count=1, flags=re.IGNORECASE)
+                 # Caso 4: 1. TITULO (sem marcação)
+                 titulo_formatado = re.sub(r'^\s*\d+\.\s*', '', titulo_formatado, count=1)
+            
+            # Adiciona a div de estilo
+            linhas_formatadas.append(f'<div style="{estilo_titulo_inline}">{titulo_formatado.strip()}</div>')
+        elif linha.strip(): # Adiciona apenas se não for linha vazia
+            linhas_formatadas.append(linha)
+    
+    # Junta com <br><br>
+    html_content = "<br><br>".join(linhas_formatadas)
+    # --- FIM DA NOVA LÓGICA ---
+
+    # Processa itens de lista e limpa
+    html_content = re.sub(r'(\n)(\s*[-–•*])', r'<br>\2', html_content) # \n não deve mais existir
     html_content = html_content.replace('\n', ' ')
-    html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
-    html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
+    html_content = html_content.replace('[[LIST_ITEM]]', '<br>') # Trata itens de lista
     html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
     html_content = re.sub(r'\s{2,}', ' ', html_content)
+    # Garante que o primeiro item não seja um <br><br>
+    html_content = re.sub(r'^\s*(<br\s*/?>\s*)+', '', html_content)
+    
     return html_content
 
 # ----------------- MARCAÇÃO HTML (FUNÇÃO AUSENTE) -----------------
