@@ -59,11 +59,9 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    # --- [INÍCIO DA CORREÇÃO 4: TEXTO GRUDADO] ---
                     # Troca "blocks" por "text" para preservar
                     # perfeitamente o layout original, incluindo quebras de linha e bullets.
                     page_text = page.get_text("text", sort=True)
-                    # --- [FIM DA CORREÇÃO 4] ---
                     full_text_list.append(page_text)
             texto = "\n".join(full_text_list)
         elif tipo_arquivo == 'docx':
@@ -172,12 +170,10 @@ def is_titulo_secao(linha):
     if not linha or len(linha) < 4:
         return False
         
-    # --- [INÍCIO DA CORREÇÃO 1: MAPEAMENTO DE TÍTULO] ---
     # Títulos falsos (como "ou se todos estes...") começam com minúscula.
     # Um título de seção real sempre começa com Maiúscula ou Número.
     if linha[0].islower():
         return False
-    # --- [FIM DA CORREÇÃO 1] ---
         
     if len(linha.split()) > 20:
         return False
@@ -496,13 +492,13 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     def tokenizar(txt):
-        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+|[^\w\s]', txt, re.UNICODE)
+        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', txt, re.UNICODE) # Adicionado •
 
     def norm(tok):
         if tok == '\n':
             return ' '
         
-        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+$', tok):
+        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): # Adicionado •
             return normalizar_texto(tok)
         return tok
 
@@ -520,6 +516,10 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     tokens = ref_tokens if eh_referencia else bel_tokens
     marcado = []
     for idx, tok in enumerate(tokens):
+        if tok == '\n':
+            marcado.append('<br>') # Converte \n para <br> aqui
+            continue
+            
         if idx in indices and tok.strip() != '':
             marcado.append(f"<mark style='background-color: #ffff99; padding: 2px;'>{tok}</mark>")
         else:
@@ -532,7 +532,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
             continue
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
         
-        if raw_tok == '\n':
+        if tok == '<br>' or marcado[i-1] == '<br>': # Checa se o token atual ou anterior é <br>
             resultado += tok
         elif re.match(r'^[^\w\s]$', raw_tok):
             resultado += tok
@@ -542,7 +542,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r'\s+([.,;:!?)])', r'\1', resultado)
     resultado = re.sub(r'(\()\s+', r'\1', resultado)
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
-    return resultado
+    return resultado # Retorna HTML com <br> e sem \n
 
 # ----------------- [CORREÇÃO 3: LAYOUT REFERÊNCIA] -----------------
 # Esta função substitui a antiga 'marcar_divergencias_html'
@@ -607,9 +607,14 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
             
         # Aplica marcações
         if diff['tem_diferenca'] and not diff['ignorada'] and not diff['faltante']:
+            # --- [INÍCIO DA CORREÇÃO (BUG "TUDO JUNTO")] ---
+            # Adiciona o .replace('\n', '<br>') que estava faltando,
+            # para garantir que qualquer \n que a função de diff deixou passar
+            # seja convertido para <br>.
             conteudo_marcado = marcar_diferencas_palavra_por_palavra(
                 diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia
-            )
+            ).replace('\n', '<br>')
+            # --- [FIM DA CORREÇÃO] ---
         else:
             conteudo_marcado = conteudo.replace('\n', '<br>')
             
@@ -710,7 +715,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
             "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
         }
-        # --- [INÍCIO DA CORREÇÃO 2: ENUMERAÇÃO PROFISSIONAL] ---
         prefixos_profissional = {
             "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
             "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
@@ -718,7 +722,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
         }
         prefixos_map = prefixos_paciente if tipo_bula == "Paciente" else prefixos_profissional
-        # --- [FIM DA CORREÇÃO 2] ---
 
         for diff in secoes_analisadas:
             
@@ -757,10 +760,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 else:
                     expander_html_ref = marcar_diferencas_palavra_por_palavra(
                         diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
-                    ).replace('\n', '<br>')
+                    ).replace('\n', '<br>') # O replace aqui é a "chave"
                     expander_html_belfar = marcar_diferencas_palavra_por_palavra(
                         diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
-                    ).replace('\n', '<br>')
+                    ).replace('\n', '<br>') # O replace aqui é a "chave"
                 
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
                 
@@ -852,4 +855,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21 | Layout Unificado | Extração de Texto Fiel")
+st.caption("Sistema de Auditoria de Bulas v21.1 | Layout Lado-a-Lado Corrigido")
