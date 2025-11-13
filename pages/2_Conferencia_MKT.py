@@ -1,9 +1,15 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v32 - Correção da Comparação de Títulos
-# - A função 'normalizar_texto' agora substitui '\n' por ' ',
-#   corrigindo o bug de mapeamento que causava o "6 engolindo 7".
-# - Mantém todas as melhorias da v31 (Foco Paciente, Layout MKT, etc.)
+# Versão v33 - Correção Definitiva (Base v32 + Mapeamento v29)
+# - RESTAURADA a função 'mapear_secoes' (v29) que faz a coleta
+#   robusta de títulos multi-linha (Corrige "6 engolindo 7").
+# - CORRIGIDA a função 'normalizar_texto' para tratar '\n',
+#   permitindo que o 'mapear_secoes' v29 funcione.
+# - RESTAURADA a função 'obter_dados_secao' original (v26) que
+#   funciona com a 'num_linhas_titulo' do mapeador v29.
+# - DESATIVADA a 'corrigir_quebras_em_titulos' na UI, pois a
+#   lógica agora está 100% dentro de 'mapear_secoes'.
+# - MANTÉM o foco 100% em Paciente e o layout "achatado" do MKT.
 
 import re
 import difflib
@@ -166,43 +172,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
-# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (RE-ATIVADO - v31) -----------------
-# Esta função é ESSENCIAL para juntar os títulos do MKT
+# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (NÃO USADA) -----------------
+# Esta função é desnecessária se 'mapear_secoes' (v29) fizer o trabalho.
 def corrigir_quebras_em_titulos(texto):
-    if not texto:
-        return texto
-    linhas = texto.split("\n")
-    linhas_corrigidas = []
-    buffer = ""
-    for linha in linhas:
-        linha_strip = linha.strip()
-        if not linha_strip:
-            if buffer:
-                linhas_corrigidas.append(buffer)
-                buffer = ""
-            linhas_corrigidas.append("")
-            continue
-        
-        # v31 - Lógica de detecção de título simplificada
-        is_potential_title = (
-            (linha_strip.isupper() and len(linha_strip) < 120) 
-            or re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_strip)
-        )
-        
-        if is_potential_title and len(linha_strip.split()) < 20: # Se for um título potencial
-            if buffer:
-                buffer += "\n" + linha_strip # Junta com a linha anterior
-            else:
-                buffer = linha_strip # Começa um novo título
-        else: # É uma linha de conteúdo
-            if buffer:
-                linhas_corrigidas.append(buffer) # Salva o título anterior
-                buffer = ""
-            linhas_corrigidas.append(linha_strip) # Salva a linha de conteúdo
-            
-    if buffer: # Salva o último título
-        linhas_corrigidas.append(buffer)
-    return "\n".join(linhas_corrigidas)
+    pass
+    # O código antigo foi removido para evitar confusão.
+    # A lógica foi movida para 'mapear_secoes'.
+
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES (v30 - Paciente Apenas) -----------------
 def obter_secoes_por_tipo(tipo_bula):
@@ -276,13 +252,13 @@ def is_titulo_secao(linha):
         
     return False
 
-# ----------------- FUNÇÃO 'CORE' (v31 - Simplificada) -----------------
-# Lógica simples que depende do 'corrigir_quebras_em_titulos'
+# ----------------- FUNÇÃO 'CORE' (v33 - Lógica V29 Restaurada) -----------------
+# Lógica robusta (inspirada na sua Sub V29) para corrigir o "6 engolindo 7".
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
-    texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo or "")
-    # As linhas agora vêm pré-juntadas por 'corrigir_quebras_em_titulos'
-    linhas = texto_normalizado.split('\n') 
+    # O texto aqui é o RAW, sem 'corrigir_quebras_em_titulos'
+    texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo or "") 
+    linhas = texto_normalizado.split('\n')
     aliases = obter_aliases_secao()
 
     # 1. Criar lookup de todos os títulos possíveis
@@ -296,49 +272,91 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
     limiar_score = 85
 
-    for idx, linha in enumerate(linhas):
-        linha_strip = linha.strip()
-        
-        # 2. Checa se a linha (que pode ser multi-linha, ex: "TITULO\nPARTE 2") é um título
-        if not linha_strip or not is_titulo_secao(linha_strip):
+    idx = 0
+    while idx < len(linhas):
+        linha_atual = linhas[idx].strip()
+        if not linha_atual or not is_titulo_secao(linha_atual):
+            idx += 1
             continue
-        
-        # [Correção v32] A normalização agora trata o '\n'
-        norm_linha = normalizar_titulo_para_comparacao(linha_strip)
-        
+
+        # 2. Lógica de coleta (v29) - Tenta achar o melhor match
+        # Tenta primeiro com 1 linha
+        linha_candidata = linha_atual
+        # [Correção v32] A normalização aqui trata o '\n'
+        norm_candidato = normalizar_titulo_para_comparacao(linha_candidata) 
         best_score = 0
         best_canonico = None
+        
+        # Acha o melhor score para a linha atual
         for titulo_norm, canonico in titulos_norm_lookup.items():
-            score = fuzz.token_set_ratio(titulo_norm, norm_linha)
+            score = fuzz.token_set_ratio(titulo_norm, norm_candidato)
             if score > best_score:
                 best_score = score
                 best_canonico = canonico
-        
-        if best_score < limiar_score:
-             for titulo_norm, canonico in titulos_norm_lookup.items():
-                if titulo_norm and titulo_norm in norm_linha:
-                    best_score = 90
-                    best_canonico = canonico
-                    break
 
-        # 3. Avalia o match
+        # 3. Tenta expandir para multi-linha (se o score não for perfeito)
+        collected_linhas = [linha_atual]
+        num_linhas_coletadas = 1
+        
+        if best_score < 100:
+            j = idx + 1
+            # Tenta adicionar as próximas 2 linhas (evita ser muito "guloso")
+            for _ in range(2): 
+                if j >= len(linhas):
+                    break
+                
+                next_ln = linhas[j].strip()
+                if not next_ln or not is_titulo_secao(next_ln):
+                    break # Para se a próxima linha não parecer um título
+
+                # Testa com a linha nova
+                novo_candidato_str = linha_candidata + "\n" + next_ln
+                # [Correção v32] A normalização aqui trata o '\n'
+                norm_novo_candidato = normalizar_titulo_para_comparacao(novo_candidato_str)
+                
+                new_best_score = 0
+                new_best_canonico = None
+                for titulo_norm, canonico in titulos_norm_lookup.items():
+                    score = fuzz.token_set_ratio(titulo_norm, norm_novo_candidato)
+                    if score > new_best_score:
+                        new_best_score = score
+                        new_best_canonico = canonico
+                
+                # Se o score melhorou, expanda a seleção
+                if new_best_score > best_score:
+                    best_score = new_best_score
+                    best_canonico = new_best_canonico
+                    linha_candidata = novo_candidato_str
+                    collected_linhas.append(next_ln)
+                    num_linhas_coletadas += 1
+                    j += 1
+                else:
+                    # Adicionar esta linha piorou o score, pare.
+                    break
+        
+        # 4. Avalia o match final
         if best_score >= limiar_score and best_canonico:
-            num_lines = len(linha_strip.split('\n')) # Conta as linhas que foram "coladas"
+            titulo_encontrado = "\n".join(collected_linhas)
             
+            # Evita adicionar o mesmo título duas vezes
             if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
                     'canonico': best_canonico,
-                    'titulo_encontrado': linha_strip,
+                    'titulo_encontrado': titulo_encontrado,
                     'linha_inicio': idx,
                     'score': best_score,
-                    'num_linhas_titulo': num_lines
+                    'num_linhas_titulo': num_linhas_coletadas
                 })
-    
+            idx += num_linhas_coletadas # Pula as linhas que processamos
+        else:
+            idx += 1 # Não foi um match, vá para a próxima linha
+
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
 
-# ----------------- OBTER DADOS DE SEÇÃO (v32 - Corrigido) -----------------
+# ----------------- OBTER DADOS DE SEÇÃO (v33 - Lógica Original Restaurada) -----------------
+# Esta versão funciona com a 'num_linhas_titulo' do mapeador v29
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     idx_secao_atual = -1
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -355,8 +373,11 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     # 'linha_inicio' é o índice (em linhas_texto_split) onde esse título colado está
     linha_inicio = secao_atual_info['linha_inicio']
     
-    # O conteúdo começa na linha SEGUINTE do 'linhas_texto_split'
-    linha_inicio_conteudo = linha_inicio + 1 
+    # 'num_linhas_titulo' é o número de linhas que o mapeador v29 "colou"
+    num_linhas_titulo = secao_atual_info.get('num_linhas_titulo', 1)
+    
+    # O conteúdo começa DEPOIS da última linha do título
+    linha_inicio_conteudo = linha_inicio + num_linhas_titulo
     
     linha_fim = len(linhas_texto_split)
     if (idx_secao_atual + 1) < len(mapa_secoes):
@@ -442,7 +463,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     similaridade_geral = []
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
-    # Importante: As linhas aqui já estão "coladas" pelo 'corrigir_quebras_em_titulos'
+    # v33 - As linhas aqui são o RAW, sem 'corrigir_quebras_em_titulos'
     linhas_ref = re.sub(r'\n{2,}', '\n', texto_ref or "").split('\n')
     linhas_belfar = re.sub(r'\n{2,}', '\n', texto_belfar or "").split('\n')
 
@@ -673,6 +694,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
     secoes_ignorar_comp = [s.upper() for s in obter_secoes_ignorar_comparacao()]
     
     # Mapear o texto que estamos processando (Ref ou Belfar)
+    # v33 - Usando o texto RAW
     linhas_texto = re.sub(r'\n{2,}', '\n', texto_original).split('\n')
     mapa_secoes_texto = mapear_secoes(texto_original, secoes_esperadas)
 
@@ -686,6 +708,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
         secao_canonico = secao_info['canonico']
         
         # Obter o conteúdo completo desta seção (com título)
+        # v33 - Usando o 'obter_dados_secao' corrigido
         encontrou, titulo, conteudo_secao_atual = obter_dados_secao(secao_canonico, mapa_secoes_texto, linhas_texto)
         
         if not encontrou:
@@ -875,12 +898,12 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
 
             if not erro_ref:
-                # [CORREÇÃO v31] RE-ATIVADO
-                texto_ref = corrigir_quebras_em_titulos(texto_ref)
+                # [CORREÇÃO v33] Desativado. Lógica agora em mapear_secoes.
+                # texto_ref = corrigir_quebras_em_titulos(texto_ref)
                 texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
-                # [CORREÇÃO v31] RE-ATIVADO
-                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                # [CORREÇÃO v33] Desativado. Lógica agora em mapear_secoes.
+                # texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
@@ -892,4 +915,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v32 | Correção de Mapeamento Paciente.")
+st.caption("Sistema de Auditoria de Bulas v33 | Mapeamento V29 Restaurado e Corrigido.")
