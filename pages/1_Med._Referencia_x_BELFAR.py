@@ -257,6 +257,9 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
     Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
     Esta versão verifica se o próximo título está em 1, 2 ou 3 linhas consecutivas.
+
+    Correção principal: agora considera também cabeçalhos numéricos explícitos (ex.: "9.", "10)")
+    como início de nova seção, evitando que a seção N+1 seja lida como conteúdo da seção N.
     """
     TITULOS_OFICIAIS = {
         "Paciente": [
@@ -287,6 +290,13 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         if canonico in titulos_lista:
                 titulos_norm_set.add(normalizar_titulo_para_comparacao(alias))
 
+    # Determina o número (posição) esperado da seção atual, quando possível.
+    secao_num = None
+    try:
+        if secao_canonico in titulos_lista:
+            secao_num = titulos_lista.index(secao_canonico) + 1
+    except Exception:
+        secao_num = None
 
     for i, secao_mapa in enumerate(mapa_secoes):
         if secao_mapa['canonico'] != secao_canonico:
@@ -306,10 +316,12 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
             # --- [FIM DA CORREÇÃO] ---
 
-            if linha_atual_norm in titulos_norm_set: 
+            # 1) Se a linha normalizada é exatamente um título canônico (ou alias), marcamos o próximo índice
+            if linha_atual_norm in titulos_norm_set:
                 prox_idx = j
-                break 
+                break
 
+            # 2) Verifica títulos compostos por 2 ou 3 linhas (j+1, j+2)
             if (j + 1) < len(linhas_texto):
                 linha_seguinte = linhas_texto[j + 1].strip()
                 titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
@@ -328,7 +340,25 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
                 if titulo_tres_linhas_norm in titulos_norm_set:
                     prox_idx = j
-                    break 
+                    break
+
+            # 3) NOVA VERIFICAÇÃO: detecta cabeçalhos numéricos explícitos como "9.", "10)" etc.
+            #     Se houver uma linha que comece por um número (seguido de ponto, parêntese ou traço),
+            #     trata-se do início de uma nova seção — interrompe a seção atual.
+            num_match = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', linha_atual)
+            if num_match:
+                try:
+                    found_num = int(num_match.group(1))
+                    # Se o número encontrado corresponder a outra seção válida, consideramos limite.
+                    if found_num >= 1 and found_num <= len(titulos_lista):
+                        # Se for diferente do número da seção atual (ou se não conseguimos determinar o número atual),
+                        # encerramos a seção atual aqui.
+                        if secao_num is None or found_num != secao_num:
+                            prox_idx = j
+                            break
+                except Exception:
+                    # qualquer exceção ao converter -> ignoramos esse caminho
+                    pass
 
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
 
@@ -773,7 +803,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     ) # Não precisa de .replace(), a função já faz
                 
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
-                
+
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
                 html_bel_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_belfar}</div>"
 
