@@ -1,13 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v29 - Correção completa de mapeamento e formatação.
-# - (Bug 1) 'formatar_html_para_leitura' agora recebe o 'tipo_bula'
-#   para não colorir títulos de "Profissional" em bulas de "Paciente".
-# - (Bug 2) 'mapear_secoes' (v29) implementa lógica robusta (inspirada na
-#   sua Sub V29) para "juntar" títulos de MKT em múltiplas linhas.
-#   Isso corrige o "6 engolindo 7" e os títulos MKT sem cor.
-# - (Bug 3) 'formatar_html_para_leitura' agora "achata" os títulos MKT
-#   para que o layout fique similar ao da ANVISA.
+# Versão v30 - Focada apenas em Bula do Paciente.
+# - Removido o st.radio e 'tipo_bula' hardcoded para "Paciente".
+# - Removida a lógica, seções e aliases de "Profissional".
+# - 'mapear_secoes' (v29) corrige o bug "6 engolindo 7".
+# - 'formatar_html_para_leitura' (v30) corrige o layout do MKT.
+# - 'is_titulo_secao' (v28) ignora frases em maiúsculas (ex: "TODO MEDICAMENTO...").
 
 import re
 import difflib
@@ -200,7 +198,7 @@ def corrigir_quebras_em_titulos(texto):
         linhas_corrigidas.append(buffer)
     return "\n".join(linhas_corrigidas)
 
-# ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
+# ----------------- CONFIGURAÇÃO DE SEÇÕES (v30 - Paciente Apenas) -----------------
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
         "Paciente": [
@@ -216,26 +214,14 @@ def obter_secoes_por_tipo(tipo_bula):
             "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
             "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
-        ],
-        "Profissional": [
-            "APRESENTAÇÕES",
-            "COMPOSIÇÃO",
-            "1. INDICAÇÕES",
-            "2. RESULTADOS DE EFICÁCIA",
-            "3. CARACTERÍSTICAS FARMACOLÓGICAS",
-            "4. CONTRAINDICAÇÕES",
-            "5. ADVERTÊNCIAS E PRECAUÇÕES",
-            "6. INTERAÇÕES MEDICAMENTOSAS",
-            "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
-            "8. POSOLOGIA E MODO DE USAR",
-            "9. REAÇÕES ADVERSAS",
-            "10. SUPERDOSE",
-            "DIZERES LEGAIS"
         ]
+        # "Profissional" key removida
     }
+    # Retorna as seções do Paciente se tipo_bula="Paciente", ou lista vazia
     return secoes.get(tipo_bula, [])
 
 def obter_aliases_secao():
+    # v30 - Apenas Aliases de Paciente
     return {
         "PARA QUE ESTE MEDICAMENTO É INDICADO?": "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
         "COMO ESTE MEDICAMENTO FUNCIONA?": "2.COMO ESTE MEDICAMENTO FUNCIONA?",
@@ -246,16 +232,6 @@ def obter_aliases_secao():
         "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
         "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "INDICAÇÕES": "1. INDICAÇÕES",
-        "RESULTADOS DE EFICÁCIA": "2. RESULTADOS DE EFICÁCIA",
-        "CARACTERÍSTICAS FARMACOLÓGICAS": "3. CARACTERÍSTICAS FARMACOLÓGICAS",
-        "CONTRAINDICAÇÕES": "4. CONTRAINDICAÇÕES",
-        "ADVERTÊNCIAS E PRECAUÇÕES": "5. ADVERTÊNCIAS E PRECAUÇÕES",
-        "INTERAÇÕES MEDICAMENTOSAS": "6. INTERAÇÕES MEDICAMENTOSAS",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
-        "POSOLOGIA E MODO DE USAR": "8. POSOLOGIA E MODO DE USAR",
-        "REAÇÕES ADVERSAS": "9. REAÇÕES ADVERSAS",
-        "SUPERDOSE": "10. SUPERDOSE"
     }
 
 def obter_secoes_ignorar_comparacao():
@@ -290,8 +266,7 @@ def is_titulo_secao(linha):
     return False
 
 # ----------------- FUNÇÃO 'CORE' (v29) -----------------
-# Esta é a função que você me deu na memória: Sub PreencherMapaDeVendas_Final_V29()
-# Estou aplicando a mesma lógica robusta aqui para corrigir o "6 engolindo 7".
+# Lógica robusta (inspirada na sua Sub V29) para corrigir o "6 engolindo 7".
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo or "")
@@ -616,21 +591,19 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- FORMATAÇÃO PARA LEITURA (v7 - Corrige "Interações" e Layout) -----------------
-def formatar_html_para_leitura(html_content, tipo_bula, aplicar_numeracao=False):
+# ----------------- FORMATAÇÃO PARA LEITURA (v30 - Corrige Layout MKT) -----------------
+def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
     
-    # --- LÓGICA DE TÍTULO RESTRITA (Usa o tipo_bula correto) ---
+    # --- LÓGICA DE TÍTULO RESTRITA (v30 - Paciente Apenas) ---
     try:
-        secoes_validas = obter_secoes_por_tipo(tipo_bula)
-        aliases = obter_aliases_secao()
-        
-        # Filtra aliases para pertencerem apenas às seções deste tipo_bula
-        aliases_validos = {a: c for a, c in aliases.items() if c in secoes_validas}
+        # Hardcoded para "Paciente"
+        secoes_validas = obter_secoes_por_tipo("Paciente") 
+        aliases = obter_aliases_secao() # Já filtrado
         
         titulos_validos_norm = set(normalizar_titulo_para_comparacao(s) for s in secoes_validas)
-        titulos_validos_norm.update(normalizar_titulo_para_comparacao(a) for a in aliases_validos.keys())
+        titulos_validos_norm.update(normalizar_titulo_para_comparacao(a) for a in aliases.keys())
     except NameError:
         titulos_validos_norm = set()
     # --- FIM DA LÓGICA DE TÍTULO ---
@@ -833,13 +806,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Arquivo ANVISA:**")
-                    # [CORREÇÃO v29] Adicionado tipo_bula
-                    html_ref = formatar_html_para_leitura(conteudo_ref_str, tipo_bula=tipo_bula, aplicar_numeracao=True)
+                    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+                    html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**Arquivo MKT:**")
-                    # [CORREÇÃO v29] Adicionado tipo_bula
-                    html_bel = formatar_html_para_leitura(conteudo_belfar_str, tipo_bula=tipo_bula, aplicar_numeracao=False)
+                    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+                    html_bel = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
         else:
             expander_title = f"📄 {secao_nome} - ✅ CONTEÚDO IDÊNTICO"
@@ -849,13 +822,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Arquivo ANVISA:**")
-                    # [CORREÇÃO v29] Adicionado tipo_bula
-                    html_ref = formatar_html_para_leitura(conteudo_ref_str, tipo_bula=tipo_bula, aplicar_numeracao=True)
+                    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+                    html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**Arquivo MKT:**")
-                    # [CORREÇÃO v29] Adicionado tipo_bula
-                    html_bel = formatar_html_para_leitura(conteudo_belfar_str, tipo_bula=tipo_bula, aplicar_numeracao=False)
+                    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+                    html_bel = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
 
     if erros_ortograficos:
@@ -867,9 +840,9 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref or "", secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar or "", secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # [CORREÇÃO v29] Adicionado tipo_bula
-    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, tipo_bula=tipo_bula, aplicar_numeracao=True)
-    html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, tipo_bula=tipo_bula, aplicar_numeracao=False)
+    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
+    html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
 
     caixa_style = (
         "max-height: 700px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px 24px; "
@@ -886,13 +859,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
 
-# ----------------- INTERFACE PRINCIPAL (UI) -----------------
+# ----------------- INTERFACE PRINCIPAL (UI) (v30 - Paciente Apenas) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Envie o arquivo da ANVISA (pdf/docx) e o PDF Marketing (MKT).")
 
 st.divider()
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
+# [CORREÇÃO v30] - Removido st.radio, hardcoded para "Paciente"
+tipo_bula_selecionado = "Paciente" 
+
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("📄 Arquivo ANVISA")
@@ -924,7 +899,8 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             elif not texto_ref or not texto_belfar:
                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
+                # [CORREÇÃO v30] - Passando o "tipo_bula" hardcoded
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v29 | Correções de mapeamento multi-linha e formatação de tipo de bula.")
+st.caption("Sistema de Auditoria de Bulas v30 | Foco em Paciente | Correções de mapeamento MKT e layout.")
