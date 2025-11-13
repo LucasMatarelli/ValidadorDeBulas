@@ -248,7 +248,6 @@ def corrigir_quebras_em_titulos(texto):
     resultado = "\n".join(linhas_corrigidas)
     return re.sub(r'\n{3,}', '\n\n', resultado)
 
-
 # ----------------- CONFIGURAÇÃO DE SEÇÕES (v30 - Paciente Apenas) -----------------
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
