@@ -1,11 +1,12 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v30 - Focada apenas em Bula do Paciente.
-# - Removido o st.radio e 'tipo_bula' hardcoded para "Paciente".
-# - Removida a lógica, seções e aliases de "Profissional".
-# - 'mapear_secoes' (v29) corrige o bug "6 engolindo 7".
-# - 'formatar_html_para_leitura' (v30) corrige o layout do MKT.
-# - 'is_titulo_secao' (v28) ignora frases em maiúsculas (ex: "TODO MEDICAMENTO...").
+# Versão v31 - Correção Completa
+# - Lógica de "Profissional" REMOVIDA. Foco 100% em Paciente.
+# - RE-ATIVADA a função 'corrigir_quebras_em_titulos', que era
+#   essencial para juntar títulos MKT. Isso corrige o bug "6 engolindo 7".
+# - 'formatar_html_para_leitura' (v31) corrige o layout do MKT
+#   para "achatar" os títulos em uma linha, como no ANVISA.
+# - 'is_titulo_secao' (v31) está mais restrito.
 
 import re
 import difflib
@@ -167,8 +168,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
-# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (NÃO USADA) -----------------
-# Esta função foi desativada no v28 por causar bugs na junção de seções.
+# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (RE-ATIVADO - v31) -----------------
+# Esta função é ESSENCIAL para juntar os títulos do MKT
 def corrigir_quebras_em_titulos(texto):
     if not texto:
         return texto
@@ -183,18 +184,25 @@ def corrigir_quebras_em_titulos(texto):
                 buffer = ""
             linhas_corrigidas.append("")
             continue
-        is_potential_title = (linha_strip.isupper() and len(linha_strip) < 80) or re.match(r'^\d+\.', linha_strip)
-        if is_potential_title:
+        
+        # v31 - Lógica de detecção de título simplificada
+        is_potential_title = (
+            (linha_strip.isupper() and len(linha_strip) < 120) 
+            or re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_strip)
+        )
+        
+        if is_potential_title and len(linha_strip.split()) < 20: # Se for um título potencial
             if buffer:
-                buffer += "\n" + linha_strip
+                buffer += "\n" + linha_strip # Junta com a linha anterior
             else:
-                buffer = linha_strip
-        else:
+                buffer = linha_strip # Começa um novo título
+        else: # É uma linha de conteúdo
             if buffer:
-                linhas_corrigidas.append(buffer)
+                linhas_corrigidas.append(buffer) # Salva o título anterior
                 buffer = ""
-            linhas_corrigidas.append(linha_strip)
-    if buffer:
+            linhas_corrigidas.append(linha_strip) # Salva a linha de conteúdo
+            
+    if buffer: # Salva o último título
         linhas_corrigidas.append(buffer)
     return "\n".join(linhas_corrigidas)
 
@@ -240,37 +248,43 @@ def obter_secoes_ignorar_comparacao():
 def obter_secoes_ignorar_ortografia():
     return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- DETECÇÃO DE TÍTULOS (v28) -----------------
+# ----------------- DETECÇÃO DE TÍTULOS (v31) -----------------
 def is_titulo_secao(linha):
     if not linha:
         return False
     ln = linha.strip()
     if len(ln) < 4:
         return False
-    if len(ln.split()) > 20: # Um título não deve ser tão longo
+    if len(ln.split('\n')) > 3: # Se tiver mais de 3 linhas juntas, não é um título
+        return False
+        
+    ln_primeira_linha = ln.split('\n')[0] # Checa só a primeira linha
+    
+    if len(ln_primeira_linha.split()) > 20: # Um título não deve ser tão longo
         return False
 
     # Regra 1: Começa com número (Ex: "1. INDICAÇÕES")
-    if re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln):
+    if re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln_primeira_linha):
         return True
     
     # Regra 2: É TUDO MAIÚSCULO
-    if ln.isupper():
+    if ln_primeira_linha.isupper():
         # Exceção: Se for maiúsculo mas contiver palavras de "conteúdo",
         # é provável que seja um aviso (como "TODO MEDICAMENTO...").
-        if re.search(r'\b(medicamento|paciente|crianças|deve ser mantido|antes de usar)\b', ln, re.IGNORECASE):
-            if len(ln.split()) > 10: # Se for longo, definitivamente não é título
+        if re.search(r'\b(medicamento|paciente|crianças|deve ser mantido|antes de usar)\b', ln_primeira_linha, re.IGNORECASE):
+            if len(ln_primeira_linha.split()) > 10: # Se for longo, definitivamente não é título
                 return False 
         return True # É maiúsculo e passou na verificação
         
     return False
 
-# ----------------- FUNÇÃO 'CORE' (v29) -----------------
-# Lógica robusta (inspirada na sua Sub V29) para corrigir o "6 engolindo 7".
+# ----------------- FUNÇÃO 'CORE' (v31 - Simplificada) -----------------
+# Lógica simples que depende do 'corrigir_quebras_em_titulos'
 def mapear_secoes(texto_completo, secoes_esperadas):
     mapa = []
     texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo or "")
-    linhas = texto_normalizado.split('\n')
+    # As linhas agora vêm pré-juntadas por 'corrigir_quebras_em_titulos'
+    linhas = texto_normalizado.split('\n') 
     aliases = obter_aliases_secao()
 
     # 1. Criar lookup de todos os títulos possíveis
@@ -284,85 +298,46 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
     limiar_score = 85
 
-    idx = 0
-    while idx < len(linhas):
-        linha_atual = linhas[idx].strip()
-        if not linha_atual or not is_titulo_secao(linha_atual):
-            idx += 1
+    for idx, linha in enumerate(linhas):
+        linha_strip = linha.strip()
+        
+        # 2. Checa se a linha (que pode ser multi-linha, ex: "TITULO\nPARTE 2") é um título
+        if not linha_strip or not is_titulo_secao(linha_strip):
             continue
-
-        # 2. Lógica de coleta (v29) - Tenta achar o melhor match
-        # Tenta primeiro com 1 linha
-        linha_candidata = linha_atual
-        norm_candidato = normalizar_titulo_para_comparacao(linha_candidata)
+        
+        norm_linha = normalizar_titulo_para_comparacao(linha_strip)
+        
         best_score = 0
         best_canonico = None
-        
-        # Acha o melhor score para a linha atual
         for titulo_norm, canonico in titulos_norm_lookup.items():
-            score = fuzz.token_set_ratio(titulo_norm, norm_candidato)
+            score = fuzz.token_set_ratio(titulo_norm, norm_linha)
             if score > best_score:
                 best_score = score
                 best_canonico = canonico
-
-        # 3. Tenta expandir para multi-linha (se o score não for perfeito)
-        collected_linhas = [linha_atual]
-        num_linhas_coletadas = 1
         
-        if best_score < 100:
-            j = idx + 1
-            # Tenta adicionar as próximas 2 linhas (evita ser muito "guloso")
-            for _ in range(2): 
-                if j >= len(linhas):
+        if best_score < limiar_score:
+             for titulo_norm, canonico in titulos_norm_lookup.items():
+                if titulo_norm and titulo_norm in norm_linha:
+                    best_score = 90
+                    best_canonico = canonico
                     break
-                
-                next_ln = linhas[j].strip()
-                if not next_ln or not is_titulo_secao(next_ln):
-                    break # Para se a próxima linha não parecer um título
 
-                # Testa com a linha nova
-                novo_candidato_str = linha_candidata + "\n" + next_ln
-                norm_novo_candidato = normalizar_titulo_para_comparacao(novo_candidato_str)
-                
-                new_best_score = 0
-                new_best_canonico = None
-                for titulo_norm, canonico in titulos_norm_lookup.items():
-                    score = fuzz.token_set_ratio(titulo_norm, norm_novo_candidato)
-                    if score > new_best_score:
-                        new_best_score = score
-                        new_best_canonico = canonico
-                
-                # Se o score melhorou, expanda a seleção
-                if new_best_score > best_score:
-                    best_score = new_best_score
-                    best_canonico = new_best_canonico
-                    linha_candidata = novo_candidato_str
-                    collected_linhas.append(next_ln)
-                    num_linhas_coletadas += 1
-                    j += 1
-                else:
-                    # Adicionar esta linha piorou o score, pare.
-                    break
-        
-        # 4. Avalia o match final
+        # 3. Avalia o match
         if best_score >= limiar_score and best_canonico:
-            titulo_encontrado = "\n".join(collected_linhas)
+            num_lines = len(linha_strip.split('\n')) # Conta as linhas que foram "coladas"
             
-            # Evita adicionar o mesmo título duas vezes
             if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
                     'canonico': best_canonico,
-                    'titulo_encontrado': titulo_encontrado,
+                    'titulo_encontrado': linha_strip,
                     'linha_inicio': idx,
                     'score': best_score,
-                    'num_linhas_titulo': num_linhas_coletadas
+                    'num_linhas_titulo': num_lines
                 })
-            idx += num_linhas_coletadas # Pula as linhas que processamos
-        else:
-            idx += 1 # Não foi um match, vá para a próxima linha
-
+    
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
+
 
 # ----------------- OBTER DADOS DE SEÇÃO (INJETA TÍTULO MULTILINHA) -----------------
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
@@ -376,17 +351,28 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     secao_atual_info = mapa_secoes[idx_secao_atual]
     titulo_encontrado = secao_atual_info['titulo_encontrado']
     linha_inicio = secao_atual_info['linha_inicio']
-    num_linhas_titulo = secao_atual_info.get('num_linhas_titulo', 1)
-    linha_inicio_conteudo = linha_inicio + num_linhas_titulo
+    
+    # O 'corrigir_quebras' já juntou as linhas de título,
+    # então 'num_linhas_titulo' é o número de linhas DENTRO do título
+    num_linhas_titulo_juntadas = secao_atual_info.get('num_linhas_titulo', 1)
+    
+    # A linha de início do CONTEÚDO é a próxima linha no arquivo original
+    linha_inicio_conteudo = linha_inicio + 1 
+    
     linha_fim = len(linhas_texto_split)
     if (idx_secao_atual + 1) < len(mapa_secoes):
         linha_fim = mapa_secoes[idx_secao_atual + 1]['linha_inicio']
+    
+    # Pega o conteúdo, ignorando o próprio título
     conteudo = [linhas_texto_split[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
+    
     conteudo_final_sem_titulo = "\n".join(conteudo).strip()
+    
     if conteudo_final_sem_titulo:
         conteudo_final = f"{titulo_encontrado}\n\n{conteudo_final_sem_titulo}"
     else:
         conteudo_final = f"{titulo_encontrado}"
+        
     return True, titulo_encontrado, conteudo_final
 
 # ----------------- EXTRAI QUALIFIERS INICIAIS (RESTRITO) -----------------
@@ -455,6 +441,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     similaridade_geral = []
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
+    # Importante: As linhas aqui já estão "coladas" pelo 'corrigir_quebras_em_titulos'
     linhas_ref = re.sub(r'\n{2,}', '\n', texto_ref or "").split('\n')
     linhas_belfar = re.sub(r'\n{2,}', '\n', texto_belfar or "").split('\n')
 
@@ -591,7 +578,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- FORMATAÇÃO PARA LEITURA (v30 - Corrige Layout MKT) -----------------
+# ----------------- FORMATAÇÃO PARA LEITURA (v31 - Corrige Layout MKT) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -640,8 +627,9 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         if is_title:
             titulo_formatado = linha_strip # A linha original, com tags <mark>
             
-            # --- CORREÇÃO DE LAYOUT MKT (BUG 4) ---
+            # --- CORREÇÃO DE LAYOUT MKT (v31) ---
             # "Achata" o título, removendo quebras de linha de dentro dele
+            # Isso faz com que "O QUE DEVO...\nMEDICAMENTO?" vire "O QUE DEVO... MEDICAMENTO?"
             titulo_formatado = titulo_formatado.replace("\n", " ").replace("<br>", " ")
             titulo_formatado = re.sub(r'\s{2,}', ' ', titulo_formatado)
             # --- FIM DA CORREÇÃO DE LAYOUT ---
@@ -806,12 +794,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Arquivo ANVISA:**")
-                    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+                    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
                     html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**Arquivo MKT:**")
-                    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+                    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
                     html_bel = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
         else:
@@ -822,12 +810,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Arquivo ANVISA:**")
-                    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+                    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
                     html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**Arquivo MKT:**")
-                    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+                    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
                     html_bel = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
 
@@ -840,7 +828,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref or "", secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar or "", secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # [CORREÇÃO v30] - Simplificado, sem tipo_bula
+    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
 
@@ -859,7 +847,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.markdown(f"<div style='{title_style}'>{nome_belfar}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
 
-# ----------------- INTERFACE PRINCIPAL (UI) (v30 - Paciente Apenas) -----------------
+# ----------------- INTERFACE PRINCIPAL (UI) (v31 - Paciente Apenas) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Envie o arquivo da ANVISA (pdf/docx) e o PDF Marketing (MKT).")
@@ -886,12 +874,12 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
 
             if not erro_ref:
-                # [CORREÇÃO v28] Desativado para corrigir bugs
-                # texto_ref = corrigir_quebras_em_titulos(texto_ref)
+                # [CORREÇÃO v31] RE-ATIVADO
+                texto_ref = corrigir_quebras_em_titulos(texto_ref)
                 texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
-                # [CORREÇÃO v28] Desativado para corrigir bugs
-                # texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                # [CORREÇÃO v31] RE-ATIVADO
+                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
@@ -903,4 +891,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v30 | Foco em Paciente | Correções de mapeamento MKT e layout.")
+st.caption("Sistema de Auditoria de Bulas v31 | Foco em Paciente | Correções de mapeamento MKT e layout.")
