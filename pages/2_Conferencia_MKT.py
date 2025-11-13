@@ -1,21 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
 # Versão v26.58 (Correção Definitiva: Lógica de Extração)
-#  - O bug dos números soltos ('1.', '2.') persistia.
-#  - O erro estava em `extrair_texto`. O filtro de ruído (etapa 3)
-#    tinha uma exceção incorreta que *mantinha* linhas que
-#    eram apenas números (ex: "1.").
-#  - A exceção foi removida. Agora, *qualquer* linha no MKT
-#    que não contiver letras será descartada.
-#  - Ajuste: adicionada seção "INFORMAÇÕES AO PACIENTE" como seção canônica
-#    para evitar que seu conteúdo seja "vazado" para COMPOSIÇÃO.
-#  - Ajuste: obter_dados_secao injeta o título da própria seção como primeira linha
-#    do conteúdo retornado (para que o título apareça dentro da caixa/expander).
-#  - Ajuste: pós-processamento que detecta e realoca linhas curtas/qualificadores
-#    (ex.: "USO NASAL", "USO ADULTO", "EMBALAGENS ...") que foram extraídas
-#    como parte da COMPOSIÇÃO no arquivo MKT para APRESENTAÇÕES quando apropriado.
+# Ajustes: refinamento da realocação de qualificadores (USO NASAL / USO ADULTO / EMBALAGENS)
+# e prevenção de duplicações no destino. Títulos continuam sendo injetados dentro da seção.
 
-# --- IMPORTS ---
 import re
 import difflib
 import unicodedata
@@ -27,7 +15,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.56 - MANTIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (mantida) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -100,7 +88,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content = re.sub(r'\s{2,}', ' ', html_content)
     return html_content
 
-# ----------------- MARCAÇÃO DE DIVERGÊNCIAS (v26.27) -----------------
+# ----------------- MARCAÇÃO DE DIVERGÊNCIAS (mantida) -----------------
 def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia=False):
     texto_trabalho = texto_original
     if secoes_problema_lista_dicionarios:
@@ -135,7 +123,7 @@ def carregar_modelo_spacy():
         return None
 nlp = carregar_modelo_spacy()
 
-# ----------------- EXTRAÇÃO (v26.58 - LÓGICA CORRIGIDA) -----------------
+# ----------------- EXTRAÇÃO (mantida) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: arquivo não enviado."
@@ -224,7 +212,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
-# ----------------- FUNÇÕES RESTANTES (v26.45 - MANTIDO) -----------------
+# ----------------- FUNÇÕES AUXILIARES (mantidas) -----------------
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str):
         return texto
@@ -316,7 +304,7 @@ def normalizar_titulo_para_comparacao(texto):
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
-# ----------------- FUNÇÃO (v26.55 - MANTIDA) -----------------
+# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (mantida) -----------------
 def corrigir_quebras_em_titulos(texto):
     linhas = texto.split("\n")
     linhas_corrigidas = []
@@ -344,6 +332,7 @@ def corrigir_quebras_em_titulos(texto):
         linhas_corrigidas.append(buffer)
     return "\n".join(linhas_corrigidas)
 
+# ----------------- DETECÇÃO E MAPEAMENTO (mantido) -----------------
 def is_titulo_secao(linha):
     linha = linha.strip()
     if len(linha) < 4:
@@ -405,6 +394,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
+# ----------------- EXTRAÇÃO DE DADOS POR SEÇÃO (injeta título) -----------------
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     idx_secao_atual = -1
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -430,31 +420,47 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
         conteudo_final = f"{titulo_encontrado}"
     return True, titulo_encontrado, conteudo_final
 
-# ----------------- NOVO: utilitário para extrair linhas qualificadoras -----------------
-def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=3):
+# ----------------- EXTRAI QUALIFIERS (refinado) -----------------
+def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
     """
-    Retorna (qualifiers_lines, restante_texto)
-    Qualifiers = primeiras linhas curtas e majoritariamente em caixa alta ou contendo palavras-chaves
-    que normalmente pertencem a APRESENTAÇÕES (ex.: 'USO NASAL', 'USO ADULTO', 'EMBALAGENS ...').
+    Extrai, de maneira conservadora, linhas qualificadoras do topo do texto:
+    - Somente as primeiras max_lines linhas
+    - Linha é curta (<= 12 palavras) e contém palavras-chaves de apresentação
+      OU é majoritariamente em caixa alta e curta.
+    - Ignora linhas que sejam exatamente títulos como 'APRESENTAÇÃO', 'COMPOSIÇÃO'.
+    Retorna (qualifiers_list, restante_texto).
     """
     if not texto:
         return [], texto
     linhas = texto.split('\n')
     qualifiers = []
-    keys = {'USO', 'NASAL', 'ADULTO', 'EMBALAGENS', 'APRESENTAÇÃO', 'APRESENTAÇAO', 'FORMA', 'VEÍCULO', 'USO NASAL', 'USO ADULTO'}
+    keys = {'USO', 'NASAL', 'ADULTO', 'EMBALAGENS', 'EMBALAGEM', 'FRASCOS', 'APRESENTAÇÃO', 'APRESENTACAO', 'APRESENTAÇÕES', 'GOTAS', 'ML', 'MG'}
     i = 0
     while i < min(len(linhas), max_lines):
         ln = linhas[i].strip()
         if not ln:
             i += 1
             continue
-        # condição heurística: curta (<=10 palavras), em uppercase (ou contém key words), e não tem muitos sinais de composição
+        ln_upper = ln.upper()
+        # ignore exact header words (to avoid moving section titles)
+        if ln_upper in {'APRESENTAÇÃO', 'APRESENTAÇÕES', 'COMPOSIÇÃO', 'DIZERES LEGAIS', 'INFORMAÇÕES AO PACIENTE'}:
+            break
         words = ln.split()
         word_count = len(words)
-        uppercase_ratio = sum(1 for ch in ln if ch.isupper()) / max(1, sum(1 for ch in ln if ch.isalpha()))
-        contains_key = any(k in ln.upper() for k in keys)
-        is_short = word_count <= 10 and len(ln) < 120
-        if (uppercase_ratio > 0.5 and is_short) or contains_key:
+        uppercase_letters = sum(1 for ch in ln if ch.isalpha() and ch.isupper())
+        alpha_letters = sum(1 for ch in ln if ch.isalpha())
+        uppercase_ratio = (uppercase_letters / alpha_letters) if alpha_letters > 0 else 0
+        # heurística: curta e com keywords OR curta e em caixa alta
+        contains_key = any(k in ln_upper for k in keys)
+        is_short = word_count <= 12 and len(ln) < 140
+        is_upper = uppercase_ratio > 0.6 and is_short
+        # ensure not a typical composition line (contains '=' or ':' or 'contém' or 'mg' in a composition-like pattern)
+        looks_like_composition_line = bool(re.search(r'\b(?:cont[eé]m|equivalente|mg|ml|g{1,2}|veículo|veiculo|q\.s\.p|qsp)\b', ln_upper))
+        # We want qualifiers for presentation, but avoid moving lines that are clearly composition formula
+        if (contains_key and is_short) or is_upper:
+            # if it looks like composition formula, skip (don't treat as qualifier)
+            if looks_like_composition_line and not contains_key:
+                break
             qualifiers.append(ln)
             i += 1
             continue
@@ -462,7 +468,7 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=3):
     restante = '\n'.join(linhas[i:]).strip()
     return qualifiers, restante
 
-# ----------------- VERIFICAÇÃO DE SEÇÕES E CONTEÚDO (com realocação de qualifiers) -----------------
+# ----------------- VERIFICAÇÃO DE SEÇÕES E CONTEÚDO (com realocação segura) -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes = []
@@ -474,7 +480,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     linhas_belfar = re.sub(r'\n{2,}', '\n', texto_belfar).split('\n')
     mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
     mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
-    # primeiro, extrai conteúdos (com título injetado) para todos
+    # extrai conteúdos com título injetado
     conteudos = {}
     for sec in secoes_esperadas:
         encontrou_ref, _, conteudo_ref = obter_dados_secao(sec, mapa_ref, linhas_ref)
@@ -487,57 +493,65 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         }
         if not encontrou_bel:
             secoes_faltantes.append(sec)
-    # agora: heurística de realocação de qualifiers do início de COMPOSIÇÃO -> APRESENTAÇÕES
-    # aplica tanto para Arquivo MKT quanto para Arquivo ANVISA (mas prioriza MKT caso o usuário reportou problema lá)
-    def realocar_qualifiers(orig_map, target_map, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
-        """
-        orig_map: conteudos dict
-        Modifica orig_map in-place: extrai linhas qualificadoras do início de src_section.conteudo_bel
-        e as adiciona (apend/prepend) ao dst_section.conteudo_bel.
-        Também verifica content_ref analogamente.
-        """
-        src = orig_map.get(src_section)
-        dst = orig_map.get(dst_section)
+    # Realocação segura: move qualificadores do início de COMPOSIÇÃO -> APRESENTAÇÕES somente quando:
+    # - qualifiers existem no topo do conteúdo BELFAR da COMPOSIÇÃO
+    # - qualifiers contêm palavras-chave de apresentação ou são MAIÚSCULAS curtas
+    # - APRESENTAÇÕES existe no mapa_belfar (evita mover para seção inexistente)
+    def _contains_similar(dst_text, qualifiers):
+        # small normalization and containment check to avoid duplicates
+        dst_norm = normalizar_texto(dst_text)
+        for q in qualifiers:
+            if normalizar_texto(q) in dst_norm:
+                return True
+        return False
+    def realocar_qualifiers_inplace(map_conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
+        src = map_conteudos.get(src_section)
+        dst = map_conteudos.get(dst_section)
         if not src or not dst:
             return
-        # processar BELFAR (MKT) primeiro
+        if not src['conteudo_bel'].strip():
+            return
+        # extract qualifiers from BELFAR COMPOSIÇÃO
         qualifiers_bel, restante_bel = _extrair_linhas_qualificadoras_iniciais(src['conteudo_bel'], max_lines=4)
         if qualifiers_bel:
-            # Prepend qualifiers to dst content if not already present
-            # join with a blank line between title and content
-            new_dst_bel = dst['conteudo_bel'].strip()
-            qual_text = '\n'.join(qualifiers_bel).strip()
-            if qual_text and qual_text not in new_dst_bel:
-                # ensure title remains as first line of dst content (we inject title earlier)
-                # we want to keep title at top, but qualifiers appear after title line
-                lines_dst = new_dst_bel.split('\n')
-                if lines_dst:
-                    title_dst = lines_dst[0]
-                    rest_dst = '\n'.join(lines_dst[1:]).strip()
-                    combined = f"{title_dst}\n\n{qual_text}\n\n{rest_dst}".strip()
-                else:
-                    combined = f"{qual_text}"
-                dst['conteudo_bel'] = combined
-            # update source
-            src['conteudo_bel'] = restante_bel
-        # processar REFERÊNCIA (ANVISA) também (se necessário)
+            # ensure destination exists in MKT (dst['encontrou_bel'] True) before moving
+            if dst['encontrou_bel']:
+                # avoid duplicates in destination
+                if not _contains_similar(dst['conteudo_bel'], qualifiers_bel):
+                    # prepare qual text, ensure not to repeat title words
+                    qual_text = '\n'.join([q for q in qualifiers_bel if q.strip().upper() not in {'APRESENTAÇÃO','APRESENTAÇÕES'}]).strip()
+                    if qual_text:
+                        # insert qualifiers after the destination title (title is first line)
+                        lines_dst = dst['conteudo_bel'].split('\n')
+                        if lines_dst:
+                            title_dst = lines_dst[0]
+                            rest_dst = '\n'.join(lines_dst[1:]).strip()
+                            # avoid double blank lines
+                            combined = f"{title_dst}\n\n{qual_text}\n\n{rest_dst}".strip()
+                        else:
+                            combined = qual_text
+                        dst['conteudo_bel'] = combined
+                # update source content (remove qualifiers)
+                src['conteudo_bel'] = restante_bel
+        # now process REFERÊNCIA similarly but only if qualifiers present
         qualifiers_ref, restante_ref = _extrair_linhas_qualificadoras_iniciais(src['conteudo_ref'], max_lines=4)
         if qualifiers_ref:
-            new_dst_ref = dst['conteudo_ref'].strip()
-            qual_text_ref = '\n'.join(qualifiers_ref).strip()
-            if qual_text_ref and qual_text_ref not in new_dst_ref:
-                lines_dst = new_dst_ref.split('\n')
-                if lines_dst:
-                    title_dst = lines_dst[0]
-                    rest_dst = '\n'.join(lines_dst[1:]).strip()
-                    combined_ref = f"{title_dst}\n\n{qual_text_ref}\n\n{rest_dst}".strip()
-                else:
-                    combined_ref = f"{qual_text_ref}"
-                dst['conteudo_ref'] = combined_ref
-            src['conteudo_ref'] = restante_ref
-    # call realocation for both maps (content dict)
-    realocar_qualifiers(conteudos, conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES')
-    # after potential move, rebuild relatorio entries and similarity
+            if dst['encontrou_ref']:
+                if not _contains_similar(dst['conteudo_ref'], qualifiers_ref):
+                    qual_text_ref = '\n'.join([q for q in qualifiers_ref if q.strip().upper() not in {'APRESENTAÇÃO','APRESENTAÇÕES'}]).strip()
+                    if qual_text_ref:
+                        lines_dst = dst['conteudo_ref'].split('\n')
+                        if lines_dst:
+                            title_dst = lines_dst[0]
+                            rest_dst = '\n'.join(lines_dst[1:]).strip()
+                            combined_ref = f"{title_dst}\n\n{qual_text_ref}\n\n{rest_dst}".strip()
+                        else:
+                            combined_ref = qual_text_ref
+                        dst['conteudo_ref'] = combined_ref
+                src['conteudo_ref'] = restante_ref
+    # call realocation (operate on the same 'conteudos' dict)
+    realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES')
+    # rebuild relatorio and similarity after relocation
     for sec in secoes_esperadas:
         item = conteudos[sec]
         encontrou_ref = item['encontrou_ref']
@@ -558,7 +572,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             else:
                 relatorio.append({'secao': sec, 'status': 'identica', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_bel})
                 similaridade_geral.append(100)
-    # detect differences in titles
+    # detect title differences
     titulos_ref_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_ref}
     titulos_belfar_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_belfar}
     diferencas_titulos = []
