@@ -137,7 +137,13 @@ def extrair_texto_estruturado(arquivo, tipo_arquivo):
         if tipo_arquivo == 'pdf':
             doc = fitz.open(stream=arquivo.read(), filetype="pdf")
             for page in doc:
-                blocks = page.get_text("dict", flags=fitz.TEXTFLAGS_INHIBIT_SPACES)["blocks"]
+                
+                # --- [INÍCIO DA CORREÇÃO] ---
+                # Removida a flag 'flags=fitz.TEXTFLAGS_INHIBIT_SPACES'
+                # para compatibilidade com versões mais antigas do PyMuPDF.
+                blocks = page.get_text("dict")["blocks"]
+                # --- [FIM DA CORREÇÃO] ---
+
                 for b in blocks:
                     if b['type'] == 0:  # Bloco de texto
                         for l in b["lines"]:
@@ -811,4 +817,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas vPerfeito | Detecção por Fonte | Config Central")
+st.caption("Sistema de Auditoria de Bulas vPerfeito-Compat | Detecção por Fonte | Config Central")
