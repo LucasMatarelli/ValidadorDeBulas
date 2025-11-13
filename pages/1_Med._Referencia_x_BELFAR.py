@@ -118,7 +118,7 @@ def limpar_texto_extraido(texto):
         texto = texto.replace(char, '')
     texto = texto.replace('\r\n', '\n').replace('\r', '\n')
     texto = texto.replace('\u00A0', ' ')
-    texto = re.sub(r'[ \t]+', ' ', texto)
+    texto = re.sub(r'[ \t]+', ' ', texto) # Remove espaços duplicados
     return texto.strip()
 
 @st.cache_data(show_spinner=False)
@@ -137,13 +137,7 @@ def extrair_texto_estruturado(arquivo, tipo_arquivo):
         if tipo_arquivo == 'pdf':
             doc = fitz.open(stream=arquivo.read(), filetype="pdf")
             for page in doc:
-                
-                # --- [INÍCIO DA CORREÇÃO] ---
-                # Removida a flag 'flags=fitz.TEXTFLAGS_INHIBIT_SPACES'
-                # para compatibilidade com versões mais antigas do PyMuPDF.
                 blocks = page.get_text("dict")["blocks"]
-                # --- [FIM DA CORREÇÃO] ---
-
                 for b in blocks:
                     if b['type'] == 0:  # Bloco de texto
                         for l in b["lines"]:
@@ -151,12 +145,16 @@ def extrair_texto_estruturado(arquivo, tipo_arquivo):
                             font_sizes = []
                             is_bold = False
                             for s in l["spans"]:
-                                line_text += s["text"]
+                                # --- [INÍCIO DA CORREÇÃO 1: TEXTO GRUDADO] ---
+                                # Adiciona um espaço entre os spans para evitar
+                                # que palavras de spans diferentes se juntem.
+                                line_text += s["text"] + " "
+                                # --- [FIM DA CORREÇÃO 1] ---
                                 font_sizes.append(round(s["size"]))
                                 if "bold" in s["font"].lower():
                                     is_bold = True
                             
-                            line_text_limpo = limpar_texto_extraido(line_text)
+                            line_text_limpo = limpar_texto_extraido(line_text) # Limpa os espaços extras
                             if line_text_limpo:
                                 linhas_estruturadas.append({
                                     "texto": line_text_limpo,
@@ -185,9 +183,6 @@ def extrair_texto_estruturado(arquivo, tipo_arquivo):
             for p in doc.paragraphs:
                 texto_limpo = limpar_texto_extraido(p.text)
                 if texto_limpo:
-                    # DOCX não nos dá tamanho de fonte confiável, então "enganamos" o sistema
-                    # marcando tudo com a mesma fonte e sem negrito.
-                    # A detecção de título para DOCX dependerá apenas do fuzzy matching.
                     is_bold_docx = any(run.bold for run in p.runs)
                     font_size_docx = 10 # Tamanho padrão
                     if p.style and 'heading' in p.style.name.lower():
@@ -281,20 +276,25 @@ def mapear_secoes(linhas_estruturadas, tipo_bula):
         linha_limpa = linha["texto"].strip()
         if not linha_limpa or len(linha_limpa) < 4:
             continue
-        
+            
+        # --- [INÍCIO DA CORREÇÃO 2: MAPEAMENTO DE TÍTULO] ---
+        # Títulos falsos (como "ou se todos estes...") começam com minúscula.
+        # Um título de seção real sempre começa com Maiúscula ou Número.
+        if re.match(r'^[a-záéíóúâêôãõç]', linha_limpa):
+            continue
+        # --- [FIM DA CORREÇÃO 2] ---
+            
         # --- [LÓGICA DE DETECÇÃO DE TÍTULO] ---
-        # 1. É negrito E fonte maior ou igual ao padrão? (PDF)
-        # 2. OU tem mais de 3 palavras E menos de 20? (DOCX fallback)
-        is_possivel_titulo = (
-            (linha["negrito"] and linha["fonte"] >= fonte_padrao) or
-            (3 < len(linha_limpa.split()) < 20)
-        )
+        # É negrito E fonte maior ou igual ao padrão? (PDF)
+        is_possivel_titulo_pdf = (linha["negrito"] and linha["fonte"] >= fonte_padrao)
+        # É um fallback para DOCX ou PDFs mal formatados
+        is_possivel_titulo_fallback = (3 < len(linha_limpa.split()) < 20)
         
-        if not is_possivel_titulo:
+        if not (is_possivel_titulo_pdf or is_possivel_titulo_fallback):
             continue
             
         linha_norm = normalizar_titulo_para_comparacao(linha_limpa)
-        if not linha_norm:
+        if not linha_norm: # Ignora linhas que são só números (ex: "1.")
             continue
 
         best_match_score = 0
@@ -817,4 +817,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas vPerfeito-Compat | Detecção por Fonte | Config Central")
+st.caption("Sistema de Auditoria de Bulas vPerfeito-R2 | Correção de Mapeamento e Extração")
