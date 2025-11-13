@@ -20,37 +20,39 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- FORMATAÇÃO HTML (v26.56 - MANTIDO) -----------------
+# ----------------- FORMATAÇÃO HTML (v26.56 - MANTIDO, + ESTILO DE TÍTULO DENTRO DO CONTEÚDO) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     """
     Recebe html_content (texto que pode conter quebras '\n' e marcações geradas pela função de marcação)
     e transforma em HTML de leitura (com <br><br>, strong, marcação de listas, e numeração correta).
-    Se aplicar_numeracao == True (Arquivo ANVISA), força numeração nos títulos esperados.
-    Se aplicar_numeracao == False (Arquivo MKT), remove números soltos e adiciona numeração direta aos títulos.
+    Se aplicar_numeracao == True (Arquivo ANVISA), força numeração nos títulos esperados e
+    pinta o título em azul escuro. Se False (Arquivo MKT), pinta o título em verde.
+    Observação: os títulos são inseridos COMO PARTE DO CONTEÚDO (dentro do bloco), usando
+    um <div> estilizado inline para preservar o visual que você mostrou nas imagens.
     """
 
     if html_content is None:
         return ""
 
+    # escolha de cor para o título dentro do conteúdo:
+    cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
+    # estilo inline para o título (mantém fonte serif, negrito e tamanho similar ao layout)
+    estilo_titulo_inline = f"font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: {cor_titulo}; font-size:15px; margin-bottom:8px;"
+
     # 1) REMOÇÃO DE NÚMEROS SOLTOS (v26.56 - LÓGICA ROBUSTA)
-    # Esta etapa (mantida por segurança) remove números soltos
-    # caso a extração falhe.
     if not aplicar_numeracao:
-        # Remove padrão: (quebra) N. (quebra) -> (número sozinho no meio)
         html_content = re.sub(
             r'(?:[\n\r]+)\s*\d+\.\s*(?:[\n\r]+)',
             '\n\n',
             html_content,
             flags=re.IGNORECASE
         )
-        # Remove padrão: N. (quebra) -> (número sozinho no início)
         html_content = re.sub(
             r'^\s*\d+\.\s*(?:[\n\r]+)',
             '',
             html_content,
             flags=re.IGNORECASE
         )
-        # Remove padrão: (quebra) N. -> (número sozinho no fim)
         html_content = re.sub(
             r'(?:[\n\r]+)\s*\d+\.\s*$',
             '',
@@ -89,57 +91,38 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         titulo = match.group(0)
         titulo_limpo = re.sub(r'</?(?:mark|strong)[^>]*>', '', titulo, flags=re.IGNORECASE)
         titulo_limpo = re.sub(r'\s+', ' ', titulo_limpo).strip()
-        
-        # Remove números que possam já estar no título
         titulo_sem_numero = re.sub(r'^\d+\.\s*', '', titulo_limpo)
 
-        if aplicar_numeracao:
-            titulo_upper = titulo_limpo.upper()
-            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>{titulo_sem_numero}</strong>'
-            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>1. {titulo_sem_numero}</strong>'
-            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>2. {titulo_sem_numero}</strong>'
-            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>3. {titulo_sem_numero}</strong>'
-            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>4. {titulo_sem_numero}</strong>'
-            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>5. {titulo_sem_numero}</strong>'
-            elif 'COMO DEVO USAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>6. {titulo_sem_numero}</strong>'
-            elif 'ESQUECER' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>7. {titulo_sem_numero}</strong>'
-            elif 'QUAIS OS MALES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>8. {titulo_sem_numero}</strong>'
-            elif 'QUANTIDADE MAIOR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>9. {titulo_sem_numero}</strong>'
-        else:
-            # Para MKT: adiciona numeração diretamente
-            titulo_upper = titulo_limpo.upper()
-            if 'APRESENTAÇÕES' in titulo_upper or 'COMPOSIÇÃO' in titulo_upper or 'DIZERES LEGAIS' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>{titulo_sem_numero}</strong>'
-            elif 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>1. {titulo_sem_numero}</strong>'
-            elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>2. {titulo_sem_numero}</strong>'
-            elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>3. {titulo_sem_numero}</strong>'
-            elif 'O QUE DEVO SABER ANTES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>4. {titulo_sem_numero}</strong>'
-            elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>5. {titulo_sem_numero}</strong>'
-            elif 'COMO DEVO USAR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>6. {titulo_sem_numero}</strong>'
-            elif 'ESQUECER' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>7. {titulo_sem_numero}</strong>'
-            elif 'QUAIS OS MALES' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>8. {titulo_sem_numero}</strong>'
-            elif 'QUANTIDADE MAIOR' in titulo_upper:
-                return f'[[PARAGRAPH]]<strong>9. {titulo_sem_numero}</strong>'
+        # Decide a numeração textual
+        titulo_upper = titulo_limpo.upper()
+        numero_prefix = ""
+        if 'PARA QUE' in titulo_upper and 'INDICADO' in titulo_upper:
+            numero_prefix = "1. "
+        elif 'COMO ESTE MEDICAMENTO FUNCIONA' in titulo_upper:
+            numero_prefix = "2. "
+        elif 'QUANDO NÃO DEVO' in titulo_upper or 'QUANDO NAO DEVO' in titulo_upper:
+            numero_prefix = "3. "
+        elif 'O QUE DEVO SABER ANTES' in titulo_upper:
+            numero_prefix = "4. "
+        elif 'ONDE' in titulo_upper and 'GUARDAR' in titulo_upper:
+            numero_prefix = "5. "
+        elif 'COMO DEVO USAR' in titulo_upper:
+            numero_prefix = "6. "
+        elif 'ESQUECER' in titulo_upper:
+            numero_prefix = "7. "
+        elif 'QUAIS OS MALES' in titulo_upper:
+            numero_prefix = "8. "
+        elif 'QUANTIDADE MAIOR' in titulo_upper:
+            numero_prefix = "9. "
 
-        return f'[[PARAGRAPH]]<strong>{titulo_sem_numero}</strong>'
+        # Para APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS mantém-se sem prefixo
+        if any(k in titulo_upper for k in ['APRESENTAÇÕES', 'COMPOSIÇÃO', 'DIZERES LEGAIS']):
+            numero_prefix = ""
+
+        # Renderiza o título como DIV estilizado (inserido dentro do conteúdo)
+        # cor e estilo são decididos pelo parâmetro aplicar_numeracao (fechado pela closure)
+        cor = cor_titulo
+        return f'[[PARAGRAPH]]<div style="{estilo_titulo_inline}">{numero_prefix}{titulo_sem_numero}</div>'
 
     # 4) Aplica substituição dos padrões de título
     for titulo_pattern in titulos_lista:
