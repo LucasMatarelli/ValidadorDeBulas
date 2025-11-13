@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
-# Aplicativo Streamlit: Auditoria de Bulas (v21.5)
-# Mudanças principais nesta versão:
-# - Restaurado layout com expander por seção (cada expander mostra Referência e BELFAR lado a lado)
-# - Mantidas regras: DIZERES LEGAIS vai até o final; COMPOSIÇÃO pega apenas seu conteúdo
-# - Não comparamos (marcamos como 'ignorado') APRESENTAÇÕES, COMPOSIÇÃO e DIZERES LEGAIS (mas exibimos conteúdo)
-# - Heurísticas de detecção de títulos e filtro de ortografia mantidos e refinados
-# - Destaques visuais preservados (diferenças, ortografia, ANVISA)
-#
-# Substitua seu arquivo atual por este e rode o Streamlit normalmente.
+# Aplicativo Streamlit: Auditoria de Bulas (v21.6)
+# Ajustes nesta versão:
+# - Removido o "Resumo das Seções".
+# - Restaurada a seção "🎨 Visualização Lado a Lado com Destaques" (exibição completa lado a lado),
+#   mantendo os expanders por seção acima.
+# - Mantida a regra DIZERES LEGAIS até o fim; COMPOSIÇÃO somente seu conteúdo;
+#   APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS marcadas como ignoradas para comparação.
+# - Layout de texto/fonte preservado (font-family: Georgia / serif) para ficar igual ao visual anterior.
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -28,13 +27,27 @@ GLOBAL_CSS = """
 [data-testid="stHeader"] { display: none !important; }
 footer { display: none !important; }
 
-/* Container visual global */
+/* Container visual global (tipografia igual ao visual anterior) */
 .bula-box {
   height: 420px;
   overflow-y: auto;
   border: 1px solid #dcdcdc;
   border-radius: 6px;
   padding: 18px;
+  background: #ffffff;
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #111;
+}
+
+/* Container para visualização completa (lado a lado) */
+.bula-box-full {
+  height: 700px;
+  overflow-y: auto;
+  border: 1px solid #dcdcdc;
+  border-radius: 6px;
+  padding: 20px;
   background: #ffffff;
   font-family: "Georgia", "Times New Roman", serif;
   font-size: 14px;
@@ -62,6 +75,7 @@ mark.anvisa { background-color: #cce5ff; padding:0 2px; font-weight:500; }
 .bel-title { color: #0b8a3e; font-weight:700; }
 
 .small-muted { color:#666; font-size:12px; }
+.legend { font-size:13px; margin-bottom:8px; }
 </style>
 """
 st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
@@ -139,7 +153,7 @@ def obter_secoes_por_tipo(tipo_bula):
         "Profissional": [
             "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
             "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
-            "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
+            "ADVERTÊNCIAS E PRECAUCAÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
             "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
             "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
         ]
@@ -506,9 +520,8 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- CONSTRUÇÃO DO HTML POR SEÇÃO (RESTAURADO) -----------------
+# ----------------- CONSTRUÇÃO DO HTML POR SEÇÃO -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_referencia=False):
-    # returns dict mapping secao -> html snippet (for reuse)
     html_map = {}
     prefixos_paciente = {
         "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
@@ -519,7 +532,7 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
     }
     prefixos_profissional = {
         "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
-        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
+        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕS": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
         "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
     }
@@ -547,7 +560,6 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
             title_html = f"<div class='section-title bel-title'>{titulo_display}</div>"
             conteudo = diff['conteudo_belfar'] or ""
 
-        # se a seção foi ignorada, não marcamos diferenças — apenas exibimos o conteúdo
         if diff.get('ignorada', False):
             conteudo_html = (conteudo or "").replace('\n', '<br>')
         else:
@@ -569,7 +581,7 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
         html_map[secao_canonico] = snippet
     return html_map
 
-# ----------------- RELATÓRIO (EXPANDERS POR SEÇÃO) -----------------
+# ----------------- RELATÓRIO (EXPANDERS POR SEÇÃO + VISUALIZAÇÃO COMPLETA) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     rx_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -609,7 +621,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
         exp_label = f"{sec} — {status}"
         with st.expander(exp_label, expanded=(diff.get('tem_diferenca', False) or diff.get('faltante', False))):
-            # Box titles and content
             col1, col2 = st.columns([1,1], gap="large")
             with col1:
                 st.markdown(f"**Referência: {nome_ref}**", unsafe_allow_html=True)
@@ -620,29 +631,32 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 snippet_bel = html_bel_map.get(sec, "<i>Conteúdo não encontrado</i>")
                 st.markdown(f"<div class='bula-box'>{snippet_bel}</div>", unsafe_allow_html=True)
 
-            # link para rolagem sincronizada: ao clicar no título da seção à esquerda, rola ambos
-            st.markdown("<div class='small-muted'>Clique em um título na lista (acima) para rolar; ou use os botões das caixas.</div>", unsafe_allow_html=True)
+            st.markdown("<div class='small-muted'>Clique no título da seção para abrir/fechar. As caixas exibem somente o conteúdo daquela seção.</div>", unsafe_allow_html=True)
 
-    # lista de seções com estado (compacta)
+    # --- NOVA: Visualização completa lado a lado (igual ao visual anterior) ---
     st.divider()
-    st.subheader("Resumo das Seções")
-    for diff in secoes_analisadas:
-        sec = diff['secao']
-        status = "✅"
-        if diff.get('faltante', False):
-            status = "🚨"
-        elif diff.get('ignorada', False):
-            status = "⚠️"
-        elif diff.get('tem_diferenca', False):
-            status = "❌"
-        st.write(f"{status} {sec}")
+    st.subheader("🎨 Visualização Lado a Lado com Destaques")
+    st.markdown("<div class='legend'><strong>Legenda:</strong> <mark class='diff'>Amarelo</mark> = Divergências | <mark class='ort'>Rosa</mark> = Erros ortográficos | <mark class='anvisa'>Azul</mark> = Data ANVISA</div>", unsafe_allow_html=True)
+
+    # Monta o HTML completo concatenando as seções na ordem original detectada
+    full_order = [s['secao'] for s in secoes_analisadas]
+    html_ref_full = "".join([html_ref_map.get(sec, "") for sec in full_order])
+    html_bel_full = "".join([html_bel_map.get(sec, "") for sec in full_order])
+
+    col_ref, col_bel = st.columns(2, gap="large")
+    with col_ref:
+        st.markdown(f"**📄 {nome_ref}**")
+        st.markdown(f"<div id='container-ref-full' class='bula-box-full'>{html_ref_full}</div>", unsafe_allow_html=True)
+    with col_bel:
+        st.markdown(f"**📄 {nome_belfar}**")
+        st.markdown(f"<div id='container-bel-full' class='bula-box-full'>{html_bel_full}</div>", unsafe_allow_html=True)
 
     if erros_ortograficos:
         st.info(f"📝 Erros ortográficos (sugeridos): {', '.join(erros_ortograficos)}")
 
 # ----------------- INTERFACE PRINCIPAL -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v21.5)")
-st.markdown("Layout restaurado: expander por seção com visualização lado-a-lado. Regras: DIZERES LEGAIS até o fim; não comparar APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS; COMPOSIÇÃO extrai apenas sua seção.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v21.6)")
+st.markdown("Layout restaurado: expanders por seção + visualização completa lado a lado. Regras: DIZERES LEGAIS até o fim; não comparar APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS; COMPOSIÇÃO extrai somente sua seção.")
 
 st.divider()
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
@@ -673,4 +687,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21.5 | Layout restaurado com expander por seção — ajustes para DIZERES LEGAIS e COMPOSIÇÃO.")
+st.caption("Sistema de Auditoria de Bulas v21.6 | Expander por seção + Visualização completa lado a lado. Resposta: Resumo das Seções removido; visual completo restaurado.")
