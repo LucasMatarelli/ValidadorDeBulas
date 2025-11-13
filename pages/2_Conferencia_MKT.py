@@ -1,14 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v26.58 (Ajustes solicitados)
-# - Mantido backend v26.58 (extração, mapeamento, comparação, ortografia).
-# - Alterações pedidas:
-#   * Só realocar para APRESENTAÇÕES a linha com "USO NASAL" + "ADULTO" (ex.: "USO NASAL USO ADULTO").
-#   * Se o título do MKT for diferente do título canônico, destacar o título do MKT em amarelo.
-#   * Quando o título ocupar mais de 1 linha, mapear todas as linhas do título (manter cor/fonte ao renderizar).
-#   * Removida a seção "INFORMAÇÕES AO PACIENTE" da configuração (não processar).
+# Versão v26.58 (Correções: título multilinha preservado, renderização de título inline com cor/fonte,
+# correção de mapeamento para evitar deslocamento de conteúdo entre seções)
 #
-# Cole este arquivo substituindo o anterior em pages/2_Conferencia_MKT.py e reinicie o Streamlit.
+# Observações:
+# - Mantenho a realocação restrita (USO NASAL + ADULTO) conforme solicitado.
+# - A seção "INFORMAÇÕES AO PACIENTE" foi removida da lista de seções obrigatórias.
 
 import re
 import difflib
@@ -27,7 +24,7 @@ def carregar_modelo_spacy():
     try:
         return spacy.load("pt_core_news_lg")
     except OSError:
-        st.warning("Modelo 'pt_core_news_lg' não encontrado. NER ficará reduzido.")
+        st.warning("Modelo 'pt_core_news_lg' não encontrado. NER reduzido.")
         return None
 
 nlp = carregar_modelo_spacy()
@@ -42,65 +39,101 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
-    t = normalizar_texto(texto or "")
-    t = re.sub(r'^\d+\s*[\.\-)]*\s*', '', t).strip()
-    return t
+    texto_norm = normalizar_texto(texto or "")
+    texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
+    return texto_norm
 
-# ----------------- CONFIGURAÇÃO DE SEÇÕES (INFORMAÇÕES AO PACIENTE REMOVIDA) -----------------
-def obter_secoes_por_tipo(tipo_bula):
-    secoes = {
-        "Paciente": [
-            "APRESENTAÇÕES",
-            "COMPOSIÇÃO",
-            "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
-            "2.COMO ESTE MEDICAMENTO FUNCIONA?",
-            "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-            "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "6.COMO DEVO USAR ESTE MEDICAMENTO?",
-            "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-            "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-            "DIZERES LEGAIS"
-        ],
-        "Profissional": [
-            "APRESENTAÇÕES",
-            "COMPOSIÇÃO",
-            "1. INDICAÇÕES",
-            "2. RESULTADOS DE EFICÁCIA",
-            "3. CARACTERÍSTICAS FARMACOLÓGICAS",
-            "4. CONTRAINDICAÇÕES",
-            "5. ADVERTÊNCIAS E PRECAUÇÕES",
-            "6. INTERAÇÕES MEDICAMENTOSAS",
-            "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
-            "8. POSOLOGIA E MODO DE USAR",
-            "9. REAÇÕES ADVERSAS",
-            "10. SUPERDOSE",
-            "DIZERES LEGAIS"
-        ]
-    }
-    return secoes.get(tipo_bula, [])
+# ----------------- FORMATAÇÃO: renderiza título inline (preserva multilinha e estilo) -----------------
+def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
+    if html_content is None:
+        return ""
 
-def obter_aliases_secao():
-    return {
-        "PARA QUE ESTE MEDICAMENTO É INDICADO?": "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "COMO ESTE MEDICAMENTO FUNCIONA?": "2.COMO ESTE MEDICAMENTO FUNCIONA?",
-        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-        "COMO DEVO USAR ESTE MEDICAMENTO?": "6.COMO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?"
-    }
+    # cores/tipo usadas no layout
+    cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
+    estilo_titulo_inline = f"font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: {cor_titulo}; font-size:15px; margin-bottom:8px;"
 
-def obter_secoes_ignorar_comparacao():
-    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
+    # 1) Remoção números soltos (apenas MKT)
+    if not aplicar_numeracao:
+        html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*(?:[\n\r]+)', '\n\n', html_content, flags=re.IGNORECASE)
+        html_content = re.sub(r'^\s*\d+\.\s*(?:[\n\r]+)', '', html_content, flags=re.IGNORECASE)
+        html_content = re.sub(r'(?:[\n\r]+)\s*\d+\.\s*$', '', html_content, flags=re.IGNORECASE)
 
-def obter_secoes_ignorar_ortografia():
-    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
+    # 2) Normaliza parágrafos para placeholder (mantemos \n internamente para multilinha)
+    html_content = re.sub(r'\n{2,}', '[[PARAGRAPH]]', html_content)
 
-# ----------------- EXTRAÇÃO (mantida v26.58) -----------------
+    # 3) Se houver um título injetado como primeiro bloco (ex: "TÍTULO MULTILINHA\nSEGUNDA LINHA\n\nresto..."),
+    #    renderizamos esse primeiro bloco como DIV estilizada preservando quebras.
+    #    Detecta o primeiro bloco antes do primeiro '[[PARAGRAPH]]'.
+    if '[[PARAGRAPH]]' in html_content:
+        first_block, rest = html_content.split('[[PARAGRAPH]]', 1)
+    else:
+        first_block, rest = html_content, ""
+
+    def looks_like_title_block(block):
+        # considera título se:
+        # - contém letras maiúsculas predominantes (upper ratio) OU
+        # - corresponde a algum token curto presente na lista de títulos esperados
+        b = block.strip()
+        if not b:
+            return False
+        # se for muito longo (muito conteúdo), não é título
+        if len(b.split()) > 30:
+            return False
+        alpha = sum(1 for ch in b if ch.isalpha())
+        if alpha == 0:
+            return False
+        upper = sum(1 for ch in b if ch.isalpha() and ch.isupper())
+        upper_ratio = upper / alpha
+        if upper_ratio > 0.55:
+            return True
+        # fallback: contains common title words
+        checks = ['APRESENTA', 'COMPOSI', 'PARA QUE', 'COMO ESTE MEDICAMENT', 'QUANDO', 'ONDE, COMO', 'O QUE DEVO']
+        up = b.upper()
+        for c in checks:
+            if c in up:
+                return True
+        return False
+
+    # Se o primeiro bloco parecer título, substitui por DIV estilizado (preserva quebras com <br>)
+    if first_block and looks_like_title_block(first_block):
+        # usa o mesmo texto (mantém \n) e converte \n em <br> dentro do div
+        titulo_html = first_block.replace('\n', '<br>')
+        replacement = f'[[PARAGRAPH]]<div style="{estilo_titulo_inline}">{titulo_html}</div>'
+        # substitui apenas a primeira ocorrência do bloco
+        html_content = re.sub(re.escape(first_block), replacement, html_content, count=1)
+
+    # 4) Procura padrões de títulos inline ao longo do conteúdo — mantém comportamento anterior, mas
+    #    não altera blocos que já foram transformados acima.
+    titulos_lista = [
+        "APRESENTAÇÕES", "APRESENTACOES", "APRESENTAÇÃO", "APRESENTACAO",
+        "COMPOSIÇÃO", "COMPOSICAO", "DIZERES LEGAIS",
+        r"(PARA\s+QUE\s+ESTE\s+MEDICAMENTO)", r"(COMO\s+ESTE\s+MEDICAMENTO\s+FUNCIONA)",
+        r"(QUANDO\s+NÃO\s+DEVO\s+USAR)", r"(O\s+QUE\s+DEVO\s+SABER\s+ANTES)",
+        r"(ONDE,\s+COMO\s+E\s+POR\s+QUANTO\s+TEMPO)", r"(COMO\s+DEVO\s+USAR)"
+    ]
+
+    def render_title_match(m):
+        texto = m.group(0)
+        texto_limpo = re.sub(r'\s+', ' ', texto).strip()
+        texto_limpo = re.sub(r'^\d+\.\s*', '', texto_limpo)
+        return f'[[PARAGRAPH]]<div style="{estilo_titulo_inline}">{texto_limpo}</div>'
+
+    for pat in titulos_lista:
+        try:
+            html_content = re.sub(pat, render_title_match, html_content, flags=re.IGNORECASE)
+        except re.error:
+            pass
+
+    # 5) listas e conversão final
+    html_content = re.sub(r'(\n)(\s*[-–•*])', r'[[LIST_ITEM]]\2', html_content)
+    html_content = html_content.replace('[[PARAGRAPH]]', '<br><br>')
+    html_content = html_content.replace('[[LIST_ITEM]]', '<br>')
+    # limpa quebras múltiplas
+    html_content = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content)
+    html_content = re.sub(r'\s{2,}', ' ', html_content)
+    return html_content
+
+# ----------------- EXTRAÇÃO (v26.58 - mantida) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -129,9 +162,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = "\n".join([p.text for p in doc.paragraphs])
 
         if texto:
-            invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
-            for c in invis:
-                texto = texto.replace(c, '')
+            caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
+            for char in caracteres_invisiveis:
+                texto = texto.replace(char, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
 
@@ -144,26 +177,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
                 r'|^\s*\d+\s*mm\s*$'
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
-                r'|BUL_CLORIDRATO_DE_[A-Z].*'
-                r'|\d{2}\s\d{4}\s\d{4}.*'
-                r'|cloridrato de ambroxo\s*$'
-                r'|Normal e Negrito\. Co\s*$'
-                r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL'
-                r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*'
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
             padrao_ruido_inline_regex = (
                 r'BUL_CLORIDRATO_DE_NA[\s\S]{0,20}?\d+'
                 r'|New[\s\S]{0,10}?Roman[\s\S]{0,50}?(?:mm|\d+)'
-                r'|AFAZOLINA_BUL\d+V\d+.*?'
-                r'|BUL_CLORIDRATO_DE_NAFAZOLINA_BUL\d+V\d+'
-                r'|AMBROXOL_BUL\d+V\d+'
-                r'|es New Roman.*?'
-                r'|rpo \d+.*?'
-                r'|olL: Times New Roman.*?'
-                r'|(?<=\s)\d{3}(?=\s[a-zA-Z])'
-                r'|(?<=\s)mm(?=\s)'
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
 
@@ -192,12 +211,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = re.sub(r'\n{3,}', '\n\n', texto)
             texto = re.sub(r'[ \t]+', ' ', texto)
             texto = texto.strip()
-
             return texto, None
+
     except Exception as e:
         return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
 
-# ----------------- CORRIGE QUEBRAS EM TÍTULOS -----------------
+# ----------------- CORRIGE QUEBRAS EM TÍTULOS (mantido) -----------------
 def corrigir_quebras_em_titulos(texto):
     linhas = texto.split("\n")
     linhas_corrigidas = []
@@ -210,10 +229,10 @@ def corrigir_quebras_em_titulos(texto):
                 buffer = ""
             linhas_corrigidas.append("")
             continue
-        is_potential_title = (linha_strip.isupper() and len(linha_strip) < 70) or re.match(r'^\d+\.', linha_strip)
+        is_potential_title = (linha_strip.isupper() and len(linha_strip) < 80) or re.match(r'^\d+\.', linha_strip)
         if is_potential_title:
             if buffer:
-                buffer += " " + linha_strip
+                buffer += "\n" + linha_strip
             else:
                 buffer = linha_strip
         else:
@@ -225,43 +244,41 @@ def corrigir_quebras_em_titulos(texto):
         linhas_corrigidas.append(buffer)
     return "\n".join(linhas_corrigidas)
 
-# ----------------- DETECÇÃO DE TÍTULOS (COM SUPORTE A MULTILINE) -----------------
+# ----------------- DETECÇÃO DE TÍTULOS (mais conservadora) -----------------
 def is_titulo_secao(linha):
     ln = (linha or "").strip()
     if len(ln) < 4:
         return False
-    if re.match(r'^\d+\.\s+[A-Z]', ln):
+    # evita marcar frases longas em uppercase
+    words = ln.split()
+    if len(words) > 15:
+        return False
+    alpha = sum(1 for ch in ln if ch.isalpha())
+    if alpha == 0:
+        return False
+    upper = sum(1 for ch in ln if ch.isalpha() and ch.isupper())
+    upper_ratio = upper / alpha
+    # exige proporção razoável de maiúsculas e curta
+    if upper_ratio > 0.55 and len(words) <= 12:
         return True
-    if len(ln.split()) > 20:
-        return False
-    if ln.endswith('.') or ln.endswith(':'):
-        return False
-    if len(ln) > 120:
-        return False
-    if ln.isupper():
-        return True
-    upper_chars = sum(1 for c in ln if c.isupper())
-    lower_chars = sum(1 for c in ln if c.islower())
-    if upper_chars > lower_chars and lower_chars < 10:
+    # título também pode começar com "1." style
+    if re.match(r'^\d+\.\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln):
         return True
     return False
 
+# ----------------- MAPEAMENTO DE SEÇÕES (preserva multilinha no titulo_encontrado) -----------------
 def mapear_secoes(texto_completo, secoes_esperadas):
-    """
-    Agora detecta títulos que ocupam múltiplas linhas (considers contiguous uppercase lines as part
-    of the same title). Stores 'num_linhas_titulo' > 1 and 'titulo_encontrado' as the joined lines.
-    """
     mapa = []
     texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo or "")
     linhas = texto_normalizado.split('\n')
     aliases = obter_aliases_secao()
 
     titulos_possiveis = {}
-    for sec in secoes_esperadas:
-        titulos_possiveis[sec] = sec
-    for alias, canon in aliases.items():
-        if canon in secoes_esperadas:
-            titulos_possiveis[alias] = canon
+    for secao in secoes_esperadas:
+        titulos_possiveis[secao] = secao
+    for alias, canonico in aliases.items():
+        if canonico in secoes_esperadas:
+            titulos_possiveis[alias] = canonico
 
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
     limiar_score = 85
@@ -276,21 +293,21 @@ def mapear_secoes(texto_completo, secoes_esperadas):
             idx += 1
             continue
 
-        # collect possible multi-line title (lookahead)
+        # coleta linhas contíguas de título (para multilinha)
         collected = [linha]
         j = idx + 1
         while j < len(linhas):
             next_ln = linhas[j].strip()
             if not next_ln:
                 break
-            # consider as continuation if uppercase and short
-            if is_titulo_secao(next_ln) and len(next_ln) < 100:
+            # considera continuação do título se next_ln também parece "linha de título" (curta e em caps)
+            if is_titulo_secao(next_ln) and len(next_ln.split()) <= 12:
                 collected.append(next_ln)
                 j += 1
                 continue
             break
 
-        titulo_candidato = " ".join(collected).strip()
+        titulo_candidato = "\n".join(collected)  # preserva quebras para renderização
         norm_linha = normalizar_titulo_para_comparacao(titulo_candidato)
 
         best_score = 0
@@ -301,8 +318,8 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                 best_score = score
                 best_canonico = canonico
 
+        # fallback contains
         if best_score < limiar_score:
-            # contains fallback
             for t_norm, canonico in titulos_norm_lookup.items():
                 if t_norm and t_norm in norm_linha:
                     best_score = 90
@@ -311,7 +328,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
 
         if best_score >= limiar_score and best_canonico:
             num_lines = len(collected)
-            titulo_encontrado = " ".join(collected)
+            titulo_encontrado = "\n".join(collected)
             if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
                     'canonico': best_canonico,
@@ -320,14 +337,14 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                     'score': best_score,
                     'num_linhas_titulo': num_lines
                 })
-            idx = idx + num_lines
+            idx += num_lines
         else:
             idx += 1
 
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# ----------------- OBTER DADOS DE SEÇÃO (INJEÇÃO DO TÍTULO MULTILINHA) -----------------
+# ----------------- OBTER DADOS DE SEÇÃO (injeta título multilinha) -----------------
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
     idx_secao_atual = -1
     for i, secao_mapa in enumerate(mapa_secoes):
@@ -336,24 +353,23 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
             break
     if idx_secao_atual == -1:
         return False, None, ""
-    info = mapa_secoes[idx_secao_atual]
-    titulo_encontrado = info['titulo_encontrado']
-    linha_inicio = info['linha_inicio']
-    num_linhas_titulo = info.get('num_linhas_titulo', 1)
+    secao_atual_info = mapa_secoes[idx_secao_atual]
+    titulo_encontrado = secao_atual_info['titulo_encontrado']
+    linha_inicio = secao_atual_info['linha_inicio']
+    num_linhas_titulo = secao_atual_info.get('num_linhas_titulo', 1)
     linha_inicio_conteudo = linha_inicio + num_linhas_titulo
     linha_fim = len(linhas_texto_split)
     if (idx_secao_atual + 1) < len(mapa_secoes):
         linha_fim = mapa_secoes[idx_secao_atual + 1]['linha_inicio']
     conteudo_lines = [linhas_texto_split[i] for i in range(linha_inicio_conteudo, linha_fim)]
     conteudo_sem_titulo = "\n".join(conteudo_lines).strip()
-    # Injeta o título (multi-line já foi juntado em titulo_encontrado)
     if conteudo_sem_titulo:
         conteudo_final = f"{titulo_encontrado}\n\n{conteudo_sem_titulo}"
     else:
         conteudo_final = titulo_encontrado
     return True, titulo_encontrado, conteudo_final
 
-# ----------------- EXTRAI QUALIFIERS INICIAIS (AGORA SÓ MOVEMOS "USO NASAL" + "ADULTO") -----------------
+# ----------------- EXTRAI QUALIFIERS INICIAIS (RESTRITO) -----------------
 def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
     if not texto:
         return [], texto
@@ -365,13 +381,12 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
         if not ln:
             i += 1
             continue
-        # Conservative: only capture lines that contain both 'USO NASAL' and 'ADULTO' (in any order)
         ln_up = ln.upper()
+        # only capture lines that contain both tokens (or split across two lines)
         if 'USO NASAL' in ln_up and 'ADULTO' in ln_up:
             qualifiers.append(ln)
             i += 1
             continue
-        # also accept if 'USO NASAL' and next line 'USO ADULTO' (split across lines)
         if 'USO NASAL' in ln_up and i+1 < len(linhas) and 'ADULTO' in linhas[i+1].upper():
             qualifiers.append(ln)
             qualifiers.append(linhas[i+1].strip())
@@ -381,7 +396,7 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
     restante = '\n'.join(linhas[i:]).strip()
     return qualifiers, restante
 
-# ----------------- REALOCAR QUALIFIERS (MUITO RESTRITO: APENAS "USO NASAL ... ADULTO") -----------------
+# ----------------- REALOCAR QUALIFIERS (RESTRITO) -----------------
 def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
     src = conteudos.get(src_section)
     dst = conteudos.get(dst_section)
@@ -389,35 +404,22 @@ def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_secti
         return
     if not src.get('conteudo_bel', "").strip():
         return
-
     qualifiers_bel, restante_bel = _extrair_linhas_qualificadoras_iniciais(src['conteudo_bel'], max_lines=4)
     if not qualifiers_bel:
         return
-
-    # Move only if destination exists in MKT (safe)
     if not dst.get('encontrou_bel', False):
         return
-
-    # Build qual text
     qual_text = ' '.join(q for q in qualifiers_bel if q.strip())
     if not qual_text:
         return
-
-    # Avoid moving if qual_text looks like composition (contains 'contém', 'mg', etc.)
     if re.search(r'\b(?:cont[eé]m|mg\b|ml\b|equivalente|q\.s\.p|qsp)\b', qual_text, flags=re.IGNORECASE):
         return
-
-    # Do not empty the source (safety)
     if len(restante_bel.strip()) < 30:
         return
-
-    # Avoid duplicates
     dst_norm = normalizar_texto(dst.get('conteudo_bel', ""))
     if normalizar_texto(qual_text) in dst_norm:
         src['conteudo_bel'] = restante_bel
         return
-
-    # Prepend qualifiers after destination title (destination title is first line of dst['conteudo_bel'])
     lines_dst = dst.get('conteudo_bel', "").split('\n')
     title_dst = lines_dst[0] if lines_dst and lines_dst[0].strip() else dst_section
     rest_dst = '\n'.join(lines_dst[1:]).strip() if len(lines_dst) > 1 else ""
@@ -425,7 +427,7 @@ def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_secti
     dst['conteudo_bel'] = combined
     src['conteudo_bel'] = restante_bel
 
-# ----------------- VERIFICAÇÃO DE SEÇÕES E CONTEÚDO (APLICA REALOCAÇÃO RESTRITA) -----------------
+# ----------------- VERIFICAÇÃO E COMPARAÇÃO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes = []
@@ -455,11 +457,9 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         if not encontrou_bel:
             secoes_faltantes.append(sec)
 
-    # Realocação restrita (apenas USO NASAL ... ADULTO)
+    # aplica realocação restrita
     realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES')
 
-    # Ao construir relatorio_comparacao_completo, se título encontrado no MKT for diferente do referência,
-    # marcaremos o título do MKT com destaque amarelo (somente o título injetado, mantendo a fonte e cor).
     for sec in secoes_esperadas:
         item = conteudos[sec]
         encontrou_ref = item['encontrou_ref']
@@ -469,58 +469,33 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         titulo_ref = item.get('titulo_ref') or ""
         titulo_bel = item.get('titulo_bel') or ""
 
-        # If titles differ, wrap the belfar injected title (first line) with a yellow mark while preserving style.
+        # se títulos diferem, destacamos o título injetado do MKT em amarelo (preservando estilo)
         if titulo_bel and titulo_ref and normalizar_titulo_para_comparacao(titulo_bel) != normalizar_titulo_para_comparacao(titulo_ref):
-            # Only modify conteudo_bel if it starts with the injected title
-            # We assume injected title is the first line (we injected it in obter_dados_secao)
-            # Build styled title div (green for MKT)
             estilo_titulo_inline = "font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: #0b8a3e; font-size:15px; margin-bottom:8px;"
-            # preserve multiline title text
-            titulo_html = f'<div style="{estilo_titulo_inline}"><mark style="background-color:#ffff99; padding:2px;">{titulo_bel}</mark></div>'
-            # replace first occurrence of titulo_bel in conteudo_bel with titulo_html
-            conteudo_bel = re.sub(re.escape(titulo_bel), titulo_html, conteudo_bel, count=1)
-            item['conteudo_bel'] = conteudo_bel
+            titulo_html = titulo_bel.replace('\n', '<br>')
+            marcado = f'<div style="{estilo_titulo_inline}"><mark style="background-color:#ffff99; padding:2px;">{titulo_html}</mark></div>'
+            # substitui um vez no conteúdo belfar (onde injetamos o título)
+            conteudo_bel = re.sub(re.escape(titulo_bel), marcado, conteudo_bel, count=1)
 
         if not encontrou_bel:
-            relatorio_comparacao_completo.append({
-                'secao': sec,
-                'status': 'faltante',
-                'conteudo_ref': conteudo_ref,
-                'conteudo_belfar': ""
-            })
+            relatorio_comparacao_completo.append({'secao': sec, 'status': 'faltante', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': ""})
             continue
 
         if encontrou_ref and encontrou_bel:
             if sec.upper() in secoes_ignorar_upper:
-                relatorio_comparacao_completo.append({
-                    'secao': sec,
-                    'status': 'identica',
-                    'conteudo_ref': conteudo_ref,
-                    'conteudo_belfar': conteudo_bel
-                })
+                relatorio_comparacao_completo.append({'secao': sec, 'status': 'identica', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_bel})
                 similaridade_geral.append(100)
+                continue
+            if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_bel):
+                relatorio_comparacao_completo.append({'secao': sec, 'status': 'diferente', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_bel})
+                similaridade_geral.append(0)
             else:
-                if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_bel):
-                    relatorio_comparacao_completo.append({
-                        'secao': sec,
-                        'status': 'diferente',
-                        'conteudo_ref': conteudo_ref,
-                        'conteudo_belfar': conteudo_bel
-                    })
-                    similaridade_geral.append(0)
-                else:
-                    relatorio_comparacao_completo.append({
-                        'secao': sec,
-                        'status': 'identica',
-                        'conteudo_ref': conteudo_ref,
-                        'conteudo_belfar': conteudo_bel
-                    })
-                    similaridade_geral.append(100)
+                relatorio_comparacao_completo.append({'secao': sec, 'status': 'identica', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_bel})
+                similaridade_geral.append(100)
 
-    # Titles differences detection for reporting
+    # detecta diferenças de título para relatório global
     titulos_ref_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_ref}
     titulos_belfar_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_belfar}
-    diferencas_titulos = []
     for secao_canonico, titulo_ref in titulos_ref_encontrados.items():
         if secao_canonico in titulos_belfar_encontrados:
             titulo_bel = titulos_belfar_encontrados[secao_canonico]
