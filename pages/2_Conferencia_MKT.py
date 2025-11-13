@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-# Aplicativo Streamlit: Auditoria de Bulas (v21.7)
+# Aplicativo Streamlit: Auditoria de Bulas (v21.6)
 # Ajustes nesta versão:
-# - (Req. Usuário) Regra especial: Move "USO NASAL ADULTO" da COMPOSIÇÃO (MKT) para APRESENTAÇÕES (MKT) se encontrado.
-# - (Req. Usuário) Títulos MKT: Sempre exibe o nome canônico (igual ANVISA).
-# - (Req. Usuário) Títulos MKT: Destaca o título em amarelo (diff) se o nome encontrado no arquivo for diferente do canônico.
-# - Layout de texto/fonte preservado (font-family: Georgia / serif).
+# - Removido o "Resumo das Seções".
+# - Restaurada a seção "🎨 Visualização Lado a Lado com Destaques" (exibição completa lado a lado),
+#   mantendo os expanders por seção acima.
+# - Mantida a regra DIZERES LEGAIS até o fim; COMPOSIÇÃO somente seu conteúdo;
+#   APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS marcadas como ignoradas para comparação.
+# - Layout de texto/fonte preservado (font-family: Georgia / serif) para ficar igual ao visual anterior.
+# - Ajuste adicional (v21.6.1): alinhar título do arquivo MKT na seção APRESENTAÇÕES com o título do arquivo ANVISA,
+#   mover o texto "USO NASAL ... USO ADULTO" da COMPOSIÇÃO (quando estiver lá no arquivo MKT) para APRESENTAÇÕES,
+#   e destacar em amarelo (mark.diff) o título caso seja diferente do canônico/referência.
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -406,53 +411,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             'faltante': False
         })
 
-    # --- INÍCIO DA REGRA ESPECIAL (USO NASAL ADULTO) ---
-    # 1. Encontrar os índices das seções "APRESENTAÇÕES" e "COMPOSIÇÃO"
-    idx_apr = -1
-    idx_comp = -1
-    for i, item in enumerate(secoes_analisadas):
-        if item['secao'].upper() == "APRESENTAÇÕES":
-            idx_apr = i
-        elif item['secao'].upper() == "COMPOSIÇÃO":
-            idx_comp = i
-    
-    # 2. Se ambas existirem e tiverem conteúdo belfar...
-    if idx_apr != -1 and idx_comp != -1:
-        conteudo_comp_belfar = secoes_analisadas[idx_comp].get('conteudo_belfar')
-        
-        if conteudo_comp_belfar:
-            # 3. Procurar pela string "USO NASAL ADULTO" em COMPOSIÇÃO
-            padrao_uso = re.compile(r"USO\s+NASAL\s+ADULTO", re.IGNORECASE)
-            match = padrao_uso.search(conteudo_comp_belfar)
-            
-            if match:
-                # 4. Extrair a string encontrada
-                string_encontrada = match.group(0)
-                
-                # 5. Remover a string de COMPOSIÇÃO (e quebras de linha adjacentes)
-                novo_conteudo_comp = padrao_uso.sub("", conteudo_comp_belfar)
-                novo_conteudo_comp = re.sub(r'\n{2,}', '\n', novo_conteudo_comp).strip() # Limpa quebras de linha extras
-                secoes_analisadas[idx_comp]['conteudo_belfar'] = novo_conteudo_comp
-                
-                # 6. Adicionar a string ao final de APRESENTAÇÕES
-                conteudo_apr_belfar = secoes_analisadas[idx_apr].get('conteudo_belfar', "") or ""
-                novo_conteudo_apr = (conteudo_apr_belfar.strip() + "\n" + string_encontrada).strip()
-                secoes_analisadas[idx_apr]['conteudo_belfar'] = novo_conteudo_apr
-                
-                # 7. IMPORTANTE: Recalcular a flag 'tem_diferenca' para ambas
-                # Seção APRESENTAÇÕES
-                ref_apr_norm = normalizar_texto(secoes_analisadas[idx_apr].get('conteudo_ref') or "")
-                bel_apr_norm = normalizar_texto(secoes_analisadas[idx_apr].get('conteudo_belfar') or "")
-                if not secoes_analisadas[idx_apr].get('ignorada', False):
-                     secoes_analisadas[idx_apr]['tem_diferenca'] = (ref_apr_norm != bel_apr_norm)
-
-                # Seção COMPOSIÇÃO
-                ref_comp_norm = normalizar_texto(secoes_analisadas[idx_comp].get('conteudo_ref') or "")
-                bel_comp_norm = normalizar_texto(secoes_analisadas[idx_comp].get('conteudo_belfar') or "")
-                if not secoes_analisadas[idx_comp].get('ignorada', False):
-                    secoes_analisadas[idx_comp]['tem_diferenca'] = (ref_comp_norm != bel_comp_norm)
-    # --- FIM DA REGRA ESPECIAL ---
-
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos, secoes_analisadas
 
 # ----------------- ORTOGRAFIA -----------------
@@ -577,7 +535,7 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
     }
     prefixos_profissional = {
         "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
-        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
+        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕS": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
         "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
     }
@@ -600,31 +558,21 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
             title_html = f"<div class='section-title ref-title'>{titulo_display}</div>"
             conteudo = diff['conteudo_ref'] or ""
         else:
-            # --- INÍCIO DA MODIFICAÇÃO (Req 1 e 3) ---
-            
-            # Pegar os títulos
-            titulo_encontrado_belfar = diff.get('titulo_encontrado_belfar')
-            
-            # Req 1: Sempre usar o título canônico para exibição
-            titulo_display = f"{prefixo} {secao_canonico}".strip() 
-            
-            # Req 3: Verificar se o título *encontrado* é diferente do canônico
-            is_different = False
-            if titulo_encontrado_belfar:
-                # Usar a mesma normalização da lógica de detecção
-                norm_canon = normalizar_titulo_para_comparacao(secao_canonico)
-                norm_found = normalizar_titulo_para_comparacao(titulo_encontrado_belfar)
-                if norm_canon != norm_found:
-                    is_different = True
-            
-            # Aplicar o destaque amarelo se for diferente
-            if is_different:
-                title_html = f"<div class='section-title bel-title'><mark class='diff'>{titulo_display}</mark></div>"
-            else:
-                title_html = f"<div class='section-title bel-title'>{titulo_display}</div>"
-            
+            # Suporte ao override criado no pós-processamento: titulo_encontrado_belfar_override
+            titulo_encontrado_original = diff.get('titulo_encontrado_belfar')
+            titulo_override = diff.get('titulo_encontrado_belfar_override')
+            titulo_encontrado = titulo_override or titulo_encontrado_original or diff.get('titulo_encontrado_ref') or secao_canonico
+
+            # Aplicar prefixo quando necessário (mesma lógica anterior)
+            titulo_display = f"{prefixo} {titulo_encontrado}".strip() if prefixo and not titulo_encontrado.strip().startswith(prefixo) else titulo_encontrado
+
+            # Se o título foi detectado diferente e foi marcado para destaque, envolvemos em mark.diff
+            if diff.get('titulo_diferente'):
+                # Envolver apenas o texto do título (sem prefixo duplicado) no destaque amarelo
+                titulo_display = f"<mark class='diff'>{titulo_display}</mark>"
+
+            title_html = f"<div class='section-title bel-title'>{titulo_display}</div>"
             conteudo = diff['conteudo_belfar'] or ""
-            # --- FIM DA MODIFICAÇÃO ---
 
         if diff.get('ignorada', False):
             conteudo_html = (conteudo or "").replace('\n', '<br>')
@@ -657,21 +605,45 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_bel = match_bel.group(2).strip() if match_bel else "Não encontrada"
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos, secoes_analisadas = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
+
+    # ----- Pós-processamento específico solicitado:
+    # 1) Para APRESENTAÇÕES: alinhar título do Belfar com o título da Referência (ANVISA) para exibição
+    #    (quando possível) e, se o título estiver diferente, marcar esse título com destaque amarelo.
+    # 2) Se o texto "USO NASAL ... USO ADULTO" estiver presente na COMPOSIÇÃO do Belfar, movê-lo para APRESENTAÇÕES.
+    try:
+        # localizar entradas
+        apr_entry = next((s for s in secoes_analisadas if s['secao'].upper() == "APRESENTAÇÕES"), None)
+        comp_entry = next((s for s in secoes_analisadas if s['secao'].upper() == "COMPOSIÇÃO"), None)
+
+        if apr_entry:
+            titulo_ref = apr_entry.get('titulo_encontrado_ref') or "APRESENTAÇÕES"
+            titulo_bel = apr_entry.get('titulo_encontrado_belfar') or ""
+
+            # Se os títulos forem diferentes (normalizados), sobrescreve para apresentar igual à referência
+            if titulo_bel and normalizar_titulo_para_comparacao(titulo_bel) != normalizar_titulo_para_comparacao(titulo_ref):
+                # cria override de exibição e marca para destaque
+                apr_entry['titulo_encontrado_belfar_override'] = titulo_ref
+                apr_entry['titulo_diferente'] = True
+
+        # mover "uso nasal ... uso adulto" da COMPOSIÇÃO para APRESENTAÇÕES quando identificado
+        if comp_entry and comp_entry.get('conteudo_belfar') and apr_entry is not None:
+            # procura padrões comuns onde "USO NASAL" e "USO ADULTO" aparecem juntos
+            m = re.search(r'(uso nasal(?:[^.\n\r]{0,80}uso adult(?:o|a))?)', comp_entry['conteudo_belfar'], re.IGNORECASE)
+            if m:
+                phrase = m.group(1).strip()
+                # remover a frase encontrada da composição (apenas primeira ocorrência)
+                comp_entry['conteudo_belfar'] = re.sub(re.escape(m.group(1)), '', comp_entry['conteudo_belfar'], flags=re.IGNORECASE).strip()
+                # anexar a frase em APRESENTAÇÕES (mantendo quebra de linha)
+                existing = apr_entry.get('conteudo_belfar') or ""
+                # evitar duplicação: só adicionar se não existir em APRESENTAÇÕES
+                if not re.search(re.escape(phrase), existing, re.IGNORECASE):
+                    apr_entry['conteudo_belfar'] = (existing + ("\n" + phrase if existing else phrase)).strip()
+    except Exception:
+        # Se algo falhar no pós-processamento, não interromper o restante do relatório
+        pass
+
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
-    
-    # Recalcula similaridades APÓS a regra de "USO NASAL ADULTO"
-    similaridades_recalc = []
-    ignore_comparison = [s.upper() for s in obter_secoes_ignorar_comparacao()]
-    for sec_data in secoes_analisadas:
-        if sec_data['secao'].upper() in ignore_comparison or sec_data.get('faltante', False):
-            continue
-        
-        if sec_data.get('tem_diferenca', False):
-            similaridades_recalc.append(0)
-        else:
-            similaridades_recalc.append(100)
-            
-    score_sim = sum(similaridades_recalc) / len(similaridades_recalc) if similaridades_recalc else 100.0
+    score_sim = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
     st.subheader("Dashboard de Veredito")
     c1, c2, c3, c4 = st.columns(4)
@@ -734,7 +706,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.info(f"📝 Erros ortográficos (sugeridos): {', '.join(erros_ortograficos)}")
 
 # ----------------- INTERFACE PRINCIPAL -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v21.7)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v21.6)")
 st.markdown("Layout restaurado: expanders por seção + visualização completa lado a lado. Regras: DIZERES LEGAIS até o fim; não comparar APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS; COMPOSIÇÃO extrai somente sua seção.")
 
 st.divider()
@@ -766,4 +738,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21.7 | Regra 'USO NASAL ADULTO' + Destaque de título divergente.")
+st.caption("Sistema de Auditoria de Bulas v21.6 | Expander por seção + Visualização completa lado a lado. Resposta: Resumo das Seções removido; visual completo restaurado.")
