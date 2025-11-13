@@ -272,16 +272,22 @@ def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4:
         return False
-    if len(ln.split()) > 20:
+    if len(ln.split()) > 20: # Um título não deve ser tão longo
         return False
+
+    # Regra 1: Começa com número (Ex: "1. INDICAÇÕES")
+    if re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln):
+        return True
+    
+    # Regra 2: É TUDO MAIÚSCULO
     if ln.isupper():
-        return True
-    if re.match(r'^\d+\.\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln):
-        return True
-    upper_chars = sum(1 for c in ln if c.isupper())
-    lower_chars = sum(1 for c in ln if c.islower())
-    if upper_chars > lower_chars and lower_chars < 10:
-        return True
+        # Exceção: Se for maiúsculo mas contiver palavras de "conteúdo",
+        # é provável que seja um aviso (como "TODO MEDICAMENTO...").
+        if re.search(r'\b(medicamento|paciente|crianças|deve ser mantido|antes de usar)\b', ln, re.IGNORECASE):
+            if len(ln.split()) > 10: # Se for longo, definitivamente não é título
+                return False 
+        return True # É maiúsculo e passou na verificação
+        
     return False
 
 def mapear_secoes(texto_completo, secoes_esperadas):
@@ -306,21 +312,37 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if not linha:
             idx += 1
             continue
+        
+        # Se a linha não parece o início de um título, pule
         if not is_titulo_secao(linha):
             idx += 1
             continue
 
+        # Lógica de Coleta (Multi-linha)
         collected = [linha]
         j = idx + 1
         while j < len(linhas):
             next_ln = linhas[j].strip()
             if not next_ln:
                 break
-            if is_titulo_secao(next_ln) and len(next_ln.split()) <= 12:
-                collected.append(next_ln)
-                j += 1
-                continue
+            
+            # --- NOVA LÓGICA v28 ---
+            # Só coleta a próxima linha se ela for MAIÚSCULA,
+            # a linha atual TAMBÉM for MAIÚSCULA,
+            # e a próxima linha for "curta".
+            if next_ln.isupper() and linha.isupper() and len(next_ln.split()) <= 12:
+                 # Verifica se a próxima linha parece um TÍTULO NOVO (e não uma continuação)
+                 norm_next = normalizar_titulo_para_comparacao(next_ln)
+                 if any(fuzz.ratio(norm_next, t) > 95 for t in titulos_norm_lookup.keys()):
+                     break # É um título novo, pare de coletar
+                 
+                 collected.append(next_ln)
+                 j += 1
+                 continue
+            
+            # Se não for uma continuação óbvia, pare de coletar.
             break
+            # --- FIM DA NOVA LÓGICA ---
 
         titulo_candidato = "\n".join(collected)
         norm_linha = normalizar_titulo_para_comparacao(titulo_candidato)
@@ -351,9 +373,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                     'score': best_score,
                     'num_linhas_titulo': num_lines
                 })
-            idx += num_lines
+            idx += num_lines # Pula as linhas que acabamos de coletar
         else:
-            idx += 1
+            idx += 1 # Não foi um match, vá para a próxima linha
 
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
@@ -871,10 +893,10 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
 
             if not erro_ref:
-                texto_ref = corrigir_quebras_em_titulos(texto_ref)
+                # texto_ref = corrigir_quebras_em_titulos(texto_ref)
                 texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
-                texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
+                # texto_belfar = corrigir_quebras_em_titulos(texto_belfar)
                 texto_belfar = truncar_apos_anvisa(texto_belfar)
 
             if erro_ref or erro_belfar:
