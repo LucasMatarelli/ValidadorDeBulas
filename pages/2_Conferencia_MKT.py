@@ -1,15 +1,9 @@
 # -*- coding: utf-8 -*-
-# Aplicativo Streamlit: Auditoria de Bulas (v21.6)
-# Ajustes nesta versão:
-# - Removido o "Resumo das Seções".
-# - Restaurada a seção "🎨 Visualização Lado a Lado com Destaques" (exibição completa lado a lado),
-#   mantendo os expanders por seção acima.
-# - Mantida a regra DIZERES LEGAIS até o fim; COMPOSIÇÃO somente seu conteúdo;
-#   APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS marcadas como ignoradas para comparação.
-# - Layout de texto/fonte preservado (font-family: Georgia / serif) para ficar igual ao visual anterior.
-# - Ajuste adicional (v21.6.1): alinhar título do arquivo MKT na seção APRESENTAÇÕES com o título do arquivo ANVISA,
-#   mover o texto "USO NASAL ... USO ADULTO" da COMPOSIÇÃO (quando estiver lá no arquivo MKT) para APRESENTAÇÕES,
-#   e destacar em amarelo (mark.diff) o título caso seja diferente do canônico/referência.
+# Aplicativo Streamlit: Auditoria de Bulas (v21.6 -> v21.6.2)
+# Objetivo desta versão: melhorar detecção de títulos/seções (fuzzy + variações sing/plural),
+# mapear headings pela ordem detectada (evita puxar o documento inteiro como uma seção),
+# marcar em amarelo títulos que forem diferentes da referência (para TODAS as seções),
+# e reforçar que nomes parecidos (ex: "APRESENTAÇÃO" vs "APRESENTAÇÕES") sejam detectados.
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -187,11 +181,22 @@ def normalizar_texto(texto):
     texto = ' '.join(texto.split())
     return texto.lower()
 
+def _simplify_title_for_compare(t):
+    # normaliza, remove artigos e pontuação, e tentativa simples de singularização (tira 's' final quando plausível)
+    t = '' if t is None else t
+    tt = normalizar_texto(t)
+    # remover palavras comuns tipo 'a', 'o', 'de', 'do' para favorecer matching por conteúdo
+    tt = re.sub(r'\b(a|o|as|os|de|do|da|dos|das|para|com)\b', ' ', tt)
+    tt = ' '.join(tt.split())
+    # tentativa simples de singularizar: se terminar em 's' e >4 caracteres (evita cortar 'ris' curtos)
+    if tt.endswith('s') and len(tt) > 4:
+        tt_alt = tt[:-1]
+        return tt_alt.strip()
+    return tt.strip()
+
 def normalizar_titulo_para_comparacao(texto):
-    texto = '' if texto is None else texto
-    t = normalizar_texto(texto)
-    t = re.sub(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*', '', t).strip()
-    return t
+    # mantém compatibilidade com chamadas existentes
+    return _simplify_title_for_compare(texto)
 
 def _create_anchor_id(secao_nome, prefix):
     norm = normalizar_texto(secao_nome)
@@ -199,22 +204,29 @@ def _create_anchor_id(secao_nome, prefix):
     return f"anchor-{prefix}-{norm_safe}"
 
 # ----------------- DETECÇÃO E MAPEAMENTO -----------------
-HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
+HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "scores_by_canon", "best_match", "best_score", "is_heading"])
 
 def construir_heading_candidates(linhas, secoes_esperadas, aliases):
-    titulos_possiveis = {}
+    # Construir lista de títulos possíveis incluindo aliases
+    titulos_possiveis = []
+    canon_map = {}
     for s in secoes_esperadas:
-        titulos_possiveis[s] = s
+        canon_map[s] = s
+        titulos_possiveis.append(s)
     for a, c in aliases.items():
         if c in secoes_esperadas:
-            titulos_possiveis[a] = c
-    titulos_norm = {k: normalizar_titulo_para_comparacao(k) for k in titulos_possiveis.keys()}
+            titulos_possiveis.append(a)
+            canon_map[a] = c
+
+    titulos_norm = {t: normalizar_titulo_para_comparacao(t) for t in titulos_possiveis}
+
     candidates = []
     for i, linha in enumerate(linhas):
         raw = (linha or "").strip()
         if not raw:
             continue
-        norm = normalizar_titulo_para_comparacao(raw)
+        norm_line = normalizar_titulo_para_comparacao(raw)
+        # features heurísticas
         letters = re.findall(r'[A-Za-zÀ-ÖØ-öø-ÿ]', raw)
         is_upper = len(letters) and sum(1 for ch in letters if ch.isupper()) / len(letters) >= 0.6
         starts_with_cap = raw and (raw[0].isupper() or raw[0].isdigit())
@@ -225,76 +237,87 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
                 numeric = int(mnum.group(1))
             except Exception:
                 numeric = None
+
+        # calcular scores contra cada título canônico
+        scores_by_canon = {}
+        best_match = None
         best_score = 0
-        best_canon = None
-        for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-            t_norm = titulos_norm.get(titulo_possivel, normalizar_titulo_para_comparacao(titulo_possivel))
-            if not t_norm:
-                continue
-            score = fuzz.token_set_ratio(t_norm, norm)
-            if t_norm in norm:
-                score = max(score, 95)
+        for t in titulos_possiveis:
+            score = fuzz.token_set_ratio(titulos_norm.get(t, ""), norm_line)
+            # também comparar a forma sem 's' (singularizado) para aproximar "APRESENTAÇÃO" <-> "APRESENTAÇÕES"
+            t_alt = titulos_norm.get(t, "")
+            if t_alt and t_alt.endswith('s'):
+                score = max(score, fuzz.token_set_ratio(t_alt[:-1], norm_line))
+            scores_by_canon[canon_map.get(t, t)] = max(scores_by_canon.get(canon_map.get(t, t), 0), score)
             if score > best_score:
                 best_score = score
-                best_canon = titulo_canonico
-        is_candidate = False
+                best_match = canon_map.get(t, t)
+
+        # decidir se é candidato a heading
+        is_heading = False
+        # relaxar thresholds: permitir matches menores (>=75) como candidatos quando houver boa similaridade
         if numeric is not None:
-            is_candidate = True
-        elif best_score >= 88:
-            is_candidate = True
+            is_heading = True
+        elif best_score >= 75:
+            is_heading = True
         elif is_upper and len(raw.split()) <= 10:
-            is_candidate = True
+            is_heading = True
         elif starts_with_cap and len(raw.split()) <= 6 and re.search(r'[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', raw):
-            is_candidate = True
-        if is_candidate:
-            candidates.append(HeadingCandidate(index=i, raw=raw, norm=norm, numeric=numeric, matched_canon=best_canon if best_score >= 80 else None, score=best_score))
+            is_heading = True
+
+        if is_heading:
+            candidates.append(HeadingCandidate(index=i, raw=raw, norm=norm_line, numeric=numeric, scores_by_canon=scores_by_canon, best_match=best_match, best_score=best_score, is_heading=True))
+
+    # garantir ordem e unicidade por índice
     unique = {c.index: c for c in candidates}
     return sorted(unique.values(), key=lambda x: x.index)
 
 def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
+    """
+    Novo mapeamento:
+    - detecta candidates com construir_heading_candidates
+    - associa cada candidate ao melhor canonical disponível (por score) respeitando a ordem
+    - isso evita capturar o documento todo como uma única seção quando vários headings existem
+    """
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
     candidates = construir_heading_candidates(linhas, secoes_esperadas, aliases)
+
+    # lista de canonicos disponíveis (mantém ordem original)
+    canonicos = list(secoes_esperadas)
+    used_canon = set()
     mapa = []
-    last_idx = -1
-    for sec_idx, sec in enumerate(secoes_esperadas):
+
+    for c in candidates:
+        # escolher melhor canonico para este candidate entre os não usados, pelo score crescente
+        best = None
+        best_score = -1
+        for canon in canonicos:
+            score = c.scores_by_canon.get(canon, 0)
+            # preferir match melhor (mesmo que canon já usado, mas preferir não sobrescrever)
+            if score > best_score and (canon not in used_canon or score >= 95):
+                best = canon
+                best_score = score
+        if best is None:
+            # fallback: usar próprio best_match se existir
+            best = c.best_match or None
+            best_score = c.best_score or 0
+
+        if best:
+            mapa.append({'canonico': best, 'titulo_encontrado': c.raw, 'linha_inicio': c.index, 'score': best_score})
+            used_canon.add(best)
+
+    # Algumas vezes não houve candidate para certos canonicos; tentar localizar scans diretas nas linhas (substring)
+    for sec in secoes_esperadas:
+        if sec in used_canon:
+            continue
         sec_norm = normalizar_titulo_para_comparacao(sec)
-        found = None
-        for c in candidates:
-            if c.index <= last_idx:
-                continue
-            if c.matched_canon == sec:
-                found = c
+        for i, ln in enumerate(linhas):
+            if sec_norm and sec_norm in normalizar_titulo_para_comparacao(ln):
+                mapa.append({'canonico': sec, 'titulo_encontrado': ln.strip(), 'linha_inicio': i, 'score': 90})
+                used_canon.add(sec)
                 break
-        if not found:
-            for c in candidates:
-                if c.index <= last_idx:
-                    continue
-                if c.numeric == (sec_idx + 1):
-                    found = c
-                    break
-        if not found:
-            for c in candidates:
-                if c.index <= last_idx:
-                    continue
-                if sec_norm and sec_norm in c.norm:
-                    found = c
-                    break
-        if not found:
-            for c in candidates:
-                if c.index <= last_idx:
-                    continue
-                if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
-                    found = c
-                    break
-        if not found:
-            for i in range(last_idx + 1, len(linhas)):
-                if sec_norm and sec_norm in normalizar_titulo_para_comparacao(linhas[i]):
-                    found = HeadingCandidate(index=i, raw=linhas[i].strip(), norm=normalizar_titulo_para_comparacao(linhas[i]), numeric=None, matched_canon=sec, score=100)
-                    break
-        if found:
-            mapa.append({'canonico': sec, 'titulo_encontrado': found.raw, 'linha_inicio': found.index, 'score': found.score})
-            last_idx = found.index
+
     mapa = sorted(mapa, key=lambda x: x['linha_inicio'])
     return mapa, candidates, linhas
 
@@ -314,6 +337,7 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     if secao_canonico.strip().upper() == "DIZERES LEGAIS":
         linha_fim = len(linhas_texto)
     else:
+        # usar mapa_secoes (ordenado) para definir limite pela próxima heading detectada (mais robusto)
         sorted_map = sorted(mapa_secoes, key=lambda x: x['linha_inicio'])
         prox_idx = None
         for m in sorted_map:
@@ -324,6 +348,8 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
 
     conteudo_lines = []
     for i in range(linha_inicio + 1, linha_fim):
+        # não interromper ao encontrar outro título que não foi detectado como heading:
+        # somente interrompe se a linha correspond a um título canônico detectado
         line_norm = normalizar_titulo_para_comparacao(linhas_texto[i])
         if line_norm in {normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo(tipo_bula)}:
             break
@@ -355,7 +381,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 'titulo_encontrado_belfar': None,
                 'tem_diferenca': True,
                 'ignorada': False,
-                'faltante': True
+                'faltante': True,
+                'titulo_diferente': False
             })
             continue
 
@@ -369,11 +396,19 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 'titulo_encontrado_belfar': None,
                 'tem_diferenca': True,
                 'ignorada': False,
-                'faltante': True
+                'faltante': True,
+                'titulo_diferente': False
             })
             continue
 
+        # marcar ignoradas (APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS)
         if sec.upper() in ignore_comparison:
+            # mesmo sendo ignorada, vamos marcar se o título está diferente (útil visualmente)
+            titulo_diff_flag = False
+            if titulo_ref and titulo_belfar:
+                if normalizar_titulo_para_comparacao(titulo_ref) != normalizar_titulo_para_comparacao(titulo_belfar):
+                    titulo_diff_flag = True
+
             secoes_analisadas.append({
                 'secao': sec,
                 'conteudo_ref': conteudo_ref or "",
@@ -382,7 +417,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 'titulo_encontrado_belfar': titulo_belfar,
                 'tem_diferenca': False,
                 'ignorada': True,
-                'faltante': False
+                'faltante': False,
+                'titulo_diferente': titulo_diff_flag
             })
             continue
 
@@ -400,6 +436,12 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         else:
             similaridades_secoes.append(100)
 
+        # detectar se título encontrado difere do canônico (para destacar em amarelo)
+        titulo_diff_flag = False
+        if titulo_ref and titulo_belfar:
+            if normalizar_titulo_para_comparacao(titulo_ref) != normalizar_titulo_para_comparacao(titulo_belfar):
+                titulo_diff_flag = True
+
         secoes_analisadas.append({
             'secao': sec,
             'conteudo_ref': conteudo_ref,
@@ -408,7 +450,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             'titulo_encontrado_belfar': titulo_belfar,
             'tem_diferenca': tem_diferenca,
             'ignorada': False,
-            'faltante': False
+            'faltante': False,
+            'titulo_diferente': titulo_diff_flag
         })
 
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos, secoes_analisadas
@@ -535,7 +578,7 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
     }
     prefixos_profissional = {
         "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
-        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕS": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
+        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUCAÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
         "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
     }
@@ -558,20 +601,16 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
             title_html = f"<div class='section-title ref-title'>{titulo_display}</div>"
             conteudo = diff['conteudo_ref'] or ""
         else:
-            # Suporte ao override criado no pós-processamento: titulo_encontrado_belfar_override
-            titulo_encontrado_original = diff.get('titulo_encontrado_belfar')
-            titulo_override = diff.get('titulo_encontrado_belfar_override')
-            titulo_encontrado = titulo_override or titulo_encontrado_original or diff.get('titulo_encontrado_ref') or secao_canonico
-
-            # Aplicar prefixo quando necessário (mesma lógica anterior)
+            titulo_encontrado = diff.get('titulo_encontrado_belfar') or diff.get('titulo_encontrado_ref') or secao_canonico
             titulo_display = f"{prefixo} {titulo_encontrado}".strip() if prefixo and not titulo_encontrado.strip().startswith(prefixo) else titulo_encontrado
 
-            # Se o título foi detectado diferente e foi marcado para destaque, envolvemos em mark.diff
+            # destacar em amarelo o título quando houver diferença entre referência e Belfar
             if diff.get('titulo_diferente'):
-                # Envolver apenas o texto do título (sem prefixo duplicado) no destaque amarelo
-                titulo_display = f"<mark class='diff'>{titulo_display}</mark>"
+                titulo_display_html = f"<mark class='diff'>{titulo_display}</mark>"
+            else:
+                titulo_display_html = titulo_display
 
-            title_html = f"<div class='section-title bel-title'>{titulo_display}</div>"
+            title_html = f"<div class='section-title bel-title'>{titulo_display_html}</div>"
             conteudo = diff['conteudo_belfar'] or ""
 
         if diff.get('ignorada', False):
@@ -606,40 +645,21 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos, secoes_analisadas = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
 
-    # ----- Pós-processamento específico solicitado:
-    # 1) Para APRESENTAÇÕES: alinhar título do Belfar com o título da Referência (ANVISA) para exibição
-    #    (quando possível) e, se o título estiver diferente, marcar esse título com destaque amarelo.
-    # 2) Se o texto "USO NASAL ... USO ADULTO" estiver presente na COMPOSIÇÃO do Belfar, movê-lo para APRESENTAÇÕES.
+    # Pós-processamento específico (mover frases como "USO NASAL ... USO ADULTO" se estiver erradamente em COMPOSIÇÃO)
     try:
-        # localizar entradas
         apr_entry = next((s for s in secoes_analisadas if s['secao'].upper() == "APRESENTAÇÕES"), None)
         comp_entry = next((s for s in secoes_analisadas if s['secao'].upper() == "COMPOSIÇÃO"), None)
 
-        if apr_entry:
-            titulo_ref = apr_entry.get('titulo_encontrado_ref') or "APRESENTAÇÕES"
-            titulo_bel = apr_entry.get('titulo_encontrado_belfar') or ""
-
-            # Se os títulos forem diferentes (normalizados), sobrescreve para apresentar igual à referência
-            if titulo_bel and normalizar_titulo_para_comparacao(titulo_bel) != normalizar_titulo_para_comparacao(titulo_ref):
-                # cria override de exibição e marca para destaque
-                apr_entry['titulo_encontrado_belfar_override'] = titulo_ref
-                apr_entry['titulo_diferente'] = True
-
-        # mover "uso nasal ... uso adulto" da COMPOSIÇÃO para APRESENTAÇÕES quando identificado
         if comp_entry and comp_entry.get('conteudo_belfar') and apr_entry is not None:
-            # procura padrões comuns onde "USO NASAL" e "USO ADULTO" aparecem juntos
-            m = re.search(r'(uso nasal(?:[^.\n\r]{0,80}uso adult(?:o|a))?)', comp_entry['conteudo_belfar'], re.IGNORECASE)
+            # procurar padrões onde "USO NASAL" e "USO ADULTO" aparecem (mais permissivo)
+            m = re.search(r'(uso nasal(?:[^.\n\r]{0,120}uso adult[oa])?)', comp_entry['conteudo_belfar'], re.IGNORECASE)
             if m:
                 phrase = m.group(1).strip()
-                # remover a frase encontrada da composição (apenas primeira ocorrência)
                 comp_entry['conteudo_belfar'] = re.sub(re.escape(m.group(1)), '', comp_entry['conteudo_belfar'], flags=re.IGNORECASE).strip()
-                # anexar a frase em APRESENTAÇÕES (mantendo quebra de linha)
                 existing = apr_entry.get('conteudo_belfar') or ""
-                # evitar duplicação: só adicionar se não existir em APRESENTAÇÕES
                 if not re.search(re.escape(phrase), existing, re.IGNORECASE):
                     apr_entry['conteudo_belfar'] = (existing + ("\n" + phrase if existing else phrase)).strip()
     except Exception:
-        # Se algo falhar no pós-processamento, não interromper o restante do relatório
         pass
 
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
@@ -659,7 +679,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_map = construir_html_secoes(secoes_analisadas, [], tipo_bula, eh_referencia=True)
     html_bel_map = construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_referencia=False)
 
-    # Expander por seção com caixas lado a lado (cada expander mostra apenas o conteúdo daquela seção)
+    # Expander por seção com caixas lado a lado (cada expander mostra somente o conteúdo daquela seção)
     for diff in secoes_analisadas:
         sec = diff['secao']
         status = "✅ Conteúdo Idêntico"
@@ -684,12 +704,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
             st.markdown("<div class='small-muted'>Clique no título da seção para abrir/fechar. As caixas exibem somente o conteúdo daquela seção.</div>", unsafe_allow_html=True)
 
-    # --- NOVA: Visualização completa lado a lado (igual ao visual anterior) ---
+    # --- Visualização completa lado a lado ---
     st.divider()
     st.subheader("🎨 Visualização Lado a Lado com Destaques")
-    st.markdown("<div class='legend'><strong>Legenda:</strong> <mark class='diff'>Amarelo</mark> = Divergências | <mark class='ort'>Rosa</mark> = Erros ortográficos | <mark class='anvisa'>Azul</mark> = Data ANVISA</div>", unsafe_allow_html=True)
+    st.markdown("<div class='legend'><strong>Legenda:</strong> <mark class='diff'>Amarelo</mark> = Título diferente / Divergências | <mark class='ort'>Rosa</mark> = Erros ortográficos | <mark class='anvisa'>Azul</mark> = Data ANVISA</div>", unsafe_allow_html=True)
 
-    # Monta o HTML completo concatenando as seções na ordem original detectada
     full_order = [s['secao'] for s in secoes_analisadas]
     html_ref_full = "".join([html_ref_map.get(sec, "") for sec in full_order])
     html_bel_full = "".join([html_bel_map.get(sec, "") for sec in full_order])
@@ -738,4 +757,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21.6 | Expander por seção + Visualização completa lado a lado. Resposta: Resumo das Seções removido; visual completo restaurado.")
+st.caption("Sistema de Auditoria de Bulas v21.6.2 | Melhorias: detecção fuzzy de títulos (sing/plural), mapeamento por ordem de headings, destaque amarelo para títulos diferentes em todas as seções.")
