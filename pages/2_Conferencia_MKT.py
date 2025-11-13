@@ -1,15 +1,13 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v33 - Correção Definitiva (Base v32 + Mapeamento v29)
-# - RESTAURADA a função 'mapear_secoes' (v29) que faz a coleta
-#   robusta de títulos multi-linha (Corrige "6 engolindo 7").
-# - CORRIGIDA a função 'normalizar_texto' para tratar '\n',
-#   permitindo que o 'mapear_secoes' v29 funcione.
-# - RESTAURADA a função 'obter_dados_secao' original (v26) que
-#   funciona com a 'num_linhas_titulo' do mapeador v29.
-# - DESATIVADA a 'corrigir_quebras_em_titulos' na UI, pois a
-#   lógica agora está 100% dentro de 'mapear_secoes'.
-# - MANTÉM o foco 100% em Paciente e o layout "achatado" do MKT.
+# Versão v34 - Correção Definitiva do Mapeamento
+# - CORRIGIDA a função 'is_titulo_secao' (v32). A exceção
+#   "inteligente" que filtrava a palavra "medicamento" foi
+#   removida, pois estava filtrando Títulos reais (4, 5, 7, 8).
+# - A nova exceção é: "Se for maiúsculo E terminar com ponto (.),
+#   não é um título." (Isso filtra "TODO MEDICAMENTO..." sem
+#   quebrar os títulos reais).
+# - Mantém todas as outras correções (v33).
 
 import re
 import difflib
@@ -222,7 +220,7 @@ def obter_secoes_ignorar_comparacao():
 def obter_secoes_ignorar_ortografia():
     return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- DETECÇÃO DE TÍTULOS (v31) -----------------
+# ----------------- DETECÇÃO DE TÍTULOS (v32 - Corrigida) -----------------
 def is_titulo_secao(linha):
     if not linha:
         return False
@@ -237,18 +235,18 @@ def is_titulo_secao(linha):
     if len(ln_primeira_linha.split()) > 20: # Um título não deve ser tão longo
         return False
 
-    # Regra 1: Começa com número (Ex: "1. INDICAÇÕES")
+    # Regra 1: Começa com número (Ex: "1. ... INDICADO?")
     if re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln_primeira_linha):
         return True
     
-    # Regra 2: É TUDO MAIÚSCULO
+    # Regra 2: É TUDO MAIÚSCULO (Ex: "APRESENTAÇÕES")
     if ln_primeira_linha.isupper():
-        # Exceção: Se for maiúsculo mas contiver palavras de "conteúdo",
-        # é provável que seja um aviso (como "TODO MEDICAMENTO...").
-        if re.search(r'\b(medicamento|paciente|crianças|deve ser mantido|antes de usar)\b', ln_primeira_linha, re.IGNORECASE):
-            if len(ln_primeira_linha.split()) > 10: # Se for longo, definitivamente não é título
-                return False 
-        return True # É maiúsculo e passou na verificação
+        # [CORREÇÃO V34] - A exceção agora é se terminar com PONTO.
+        # Isso filtra "TODO MEDICAMENTO..." mas permite títulos
+        # que contenham a palavra "medicamento".
+        if ln_primeira_linha.endswith('.'):
+             return False
+        return True # É maiúsculo e não termina com ponto.
         
     return False
 
@@ -915,4 +913,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v33 | Mapeamento V29 Restaurado e Corrigido.")
+st.caption("Sistema de Auditoria de Bulas v34 | Correção 'is_titulo_secao'.")
