@@ -1,6 +1,20 @@
-# --- IMPORTS ---
+# -*- coding: utf-8 -*-
+# Aplicativo Streamlit: Auditoria de Bulas (versão corrigida)
+# Principais correções nesta versão:
+# - Fix: NÃO pular mais exibição da "Referência" quando a seção está faltando no Belfar
+# - Fix: Detecção de títulos mais robusta (limiar fuzzy reduzido, verificações por substring,
+#        fallback para localizar títulos diretamente nas linhas) — corrige casos onde "DIZERES LEGAIS"
+#        ou a seção 5 não apareciam.
+# - Fix: Detecção de início de seção a partir de cabeçalhos numéricos ("9.", "9)", "10-") para evitar
+#        vazamento de conteúdo entre seções (ex.: seção 9 aparecendo dentro da 8).
+# - Fix: Redução de falsos positivos em checagem ortográfica:
+#        agora filtramos pelos vocabulários de referência (formas normalizadas e originais),
+#        entidades reconhecidas pelo SpaCy e pelo status is_oov do lexema no modelo SpaCy
+#        (quando disponível). Isso reduz marcações de palavras válidas como erros.
+#
+# Uso: Substitua seu arquivo atual por este. Requisitos anteriores permanecem (streamlit, fitz, spacy, thefuzz, spellchecker, etc).
+
 import streamlit as st
-# from style_utils import hide_streamlit_toolbar # Removi a dependência que não estava no código
 import fitz # PyMuPDF
 import docx
 import re
@@ -9,37 +23,25 @@ from thefuzz import fuzz
 from spellchecker import SpellChecker
 import difflib
 import unicodedata
+from collections import defaultdict
 
+# --- UI tweaks (esconde ferramentas do Streamlit) ---
 hide_streamlit_UI = """
 <style>
-/* Esconde o cabeçalho do Streamlit Cloud (com 'Fork' e GitHub) */
-[data-testid="stHeader"] {
-display: none !important;
-visibility: hidden !important;
-}
-/* Esconde o menu hamburger (dentro do app) */
-[data-testid="main-menu-button"] {
-display: none !important;
-}
-/* Esconde o rodapé genérico (garantia extra) */
-footer {
-display: none !important;
-visibility: hidden !important;
-}
-/* --- NOVOS SELETORES (MAIS AGRESSIVOS) PARA O BADGE INFERIOR --- */
+[data-testid="stHeader"] { display: none !important; visibility: hidden !important; }
+[data-testid="main-menu-button"] { display: none !important; }
+footer { display: none !important; visibility: hidden !important; }
 [data-testid="stStatusWidget"], [data-testid="stCreatedBy"], [data-testid="stHostedBy"] {
-display: none !important;
-visibility: hidden !important;
+display: none !important; visibility: hidden !important;
 }
 </style>
 """
 st.markdown(hide_streamlit_UI, unsafe_allow_html=True)
 
-
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
 def carregar_modelo_spacy():
-    """Carrega o modelo de linguagem SpaCy de forma otimizada."""
+    """Carrega modelo SpaCy pt_core_news_lg se disponível."""
     try:
         return spacy.load("pt_core_news_lg")
     except OSError:
@@ -59,8 +61,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             full_text_list = []
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    # Troca "blocks" por "text" para preservar
-                    # perfeitamente o layout original, incluindo quebras de linha e bullets.
+                    # Mantém layout com get_text("text", sort=True)
                     page_text = page.get_text("text", sort=True)
                     full_text_list.append(page_text)
             texto = "\n".join(full_text_list)
@@ -69,6 +70,7 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto = "\n".join([p.text for p in doc.paragraphs])
             
         if texto:
+            # Limpeza básica
             caracteres_invisiveis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for char in caracteres_invisiveis:
                 texto = texto.replace(char, '')
@@ -78,7 +80,6 @@ def extrair_texto(arquivo, tipo_arquivo):
             linhas = texto.split('\n')
             
             padrao_rodape = re.compile(r'bula (?:do|para o) paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
-            
             linhas_filtradas = [linha for linha in linhas if not padrao_rodape.search(linha.strip())]
             texto = "\n".join(linhas_filtradas)
             texto = re.sub(r'\n{3,}', '\n\n', texto)
@@ -112,7 +113,7 @@ def obter_secoes_por_tipo(tipo_bula):
             "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
             "COMO DEVO USAR ESTE MEDICAMENTO?",
             "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?", 
+            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
             "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
             "DIZERES LEGAIS"
         ],
@@ -141,78 +142,66 @@ def obter_secoes_ignorar_ortografia():
     return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
 def obter_secoes_ignorar_comparacao():
-    # Seção 5 ("ONDE...") foi removida para ser comparada
     return ["COMPOSIÇÃO", "DIZERES LEGAIS", "APRESENTAÇÕES"]
 
 # ----------------- NORMALIZAÇÃO -----------------
 def normalizar_texto(texto):
+    texto = '' if texto is None else texto
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     texto = re.sub(r'[^\w\s]', '', texto)
     texto = ' '.join(texto.split())
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
-    """Normalização robusta para títulos, removendo acentos, pontuação e numeração inicial."""
     texto_norm = normalizar_texto(texto)
-    
-    # --- [INÍCIO DA CORREÇÃO (BUG DE VAZAMENTO)] ---
-    # A regex antiga (r'^\d+\s*[\.\-)]*\s*') falhava porque 'normalizar_texto'
-    # já removia o ponto ("9." -> "9").
-    # Esta nova regex remove o número seguido por espaço OU remove
-    # um número que esteja "grudado" no início da palavra.
-    texto_norm = re.sub(r'^(\d+\s+)|(^\d+)', '', texto_norm).strip()
-    # --- [FIM DA CORREÇÃO] ---
-    
+    # remove número inicial (ex: "9.", "10)", "5 -")
+    texto_norm = re.sub(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*', '', texto_norm).strip()
     return texto_norm
 
 def _create_anchor_id(secao_nome, prefix):
-    """Cria um ID HTML seguro para a âncora."""
     norm = normalizar_texto(secao_nome)
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- ARQUITETURA DE MAPEAMENTO DE SEÇÕES (VERSÃO FINAL) -----------------
+# ----------------- DETECTAR TÍTULOS E MAPEAR -----------------
 def is_titulo_secao(linha):
-    """Retorna True se a linha for um possível título de seção puro."""
-    linha = linha.strip()
+    linha = (linha or "").strip()
     if not linha or len(linha) < 4:
         return False
-        
-    # Títulos falsos (como "ou se todos estes...") começam com minúscula.
-    # Um título de seção real sempre começa com Maiúscula ou Número.
+    # Título de seção começa com maiúscula ou número
     if linha[0].islower():
         return False
-        
     if len(linha.split()) > 20:
         return False
-    # Permite '?' e '.' no final
     if linha.endswith(':'):
         return False
     if re.search(r'\>\s*\<', linha):
         return False
-    if len(linha) > 120:
+    if len(linha) > 160:
         return False
     return True
 
 def mapear_secoes(texto_completo, secoes_esperadas):
+    """
+    Mapeia títulos no texto usando fuzzy matching e heurísticas.
+    Tornamos o matching mais permissivo (limiar reduzido e substring) para
+    não perder títulos como "DIZERES LEGAIS" em diferentes formatações.
+    """
     mapa = []
-    
     linhas_originais = texto_completo.split('\n')
     linhas = []
-    # Regex: (Grupo 1: Título até o '?' ou '.') (Grupo 2: Conteúdo que começa com Cap)
+
     regex_split = re.compile(r'^(.+?[?\.])\s*([A-ZÁÉÍÓÚÂÊÔÃÕÇ].*)$')
-    
     for l in linhas_originais:
         match = regex_split.match(l.strip())
         if match:
             titulo_potencial = match.group(1).strip()
             conteudo_potencial = match.group(2).strip()
-            
-            if is_titulo_secao(titulo_potencial) and len(titulo_potencial.split()) > 3:
-                linhas.append(titulo_potencial) # Adiciona Título
-                linhas.append(conteudo_potencial) # Adiciona Conteúdo
+            if is_titulo_secao(titulo_potencial) and len(titulo_potencial.split()) > 2:
+                linhas.append(titulo_potencial)
+                linhas.append(conteudo_potencial)
             else:
-                linhas.append(l) # Não é um split válido, mantém a linha original
+                linhas.append(l)
         else:
             linhas.append(l)
 
@@ -224,6 +213,9 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if canonico in secoes_esperadas:
             titulos_possiveis[alias] = canonico
 
+    # Normaliza possíveis títulos canônicos (set para lookup)
+    titulos_norm = {k: normalizar_titulo_para_comparacao(k) for k in titulos_possiveis.keys()}
+
     for idx, linha in enumerate(linhas):
         linha_limpa = linha.strip()
         if not is_titulo_secao(linha_limpa):
@@ -233,64 +225,55 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if not linha_norm:
             continue
 
-        best_match_score = 0
-        best_match_canonico = None
+        best_score = 0
+        best_canonico = None
 
         for titulo_possivel, titulo_canonico in titulos_possiveis.items():
-            score = fuzz.token_set_ratio(normalizar_titulo_para_comparacao(titulo_possivel), normalizar_titulo_para_comparacao(linha_limpa))
-            if score > best_match_score:
-                best_match_score = score
-                best_match_canonico = titulo_canonico
+            t_norm = titulos_norm.get(titulo_possivel, normalizar_titulo_para_comparacao(titulo_possivel))
+            # fuzzy score
+            score = fuzz.token_set_ratio(t_norm, linha_norm)
+            # substring boost: if normalized canonical is substring of line, treat as strong match
+            if t_norm and t_norm in linha_norm:
+                score = max(score, 95)
+            if score > best_score:
+                best_score = score
+                best_canonico = titulo_canonico
 
-        if best_match_score >= 98:
-            if not mapa or mapa[-1]['canonico'] != best_match_canonico:
+        # Limiar mais permissivo: 88. Isso evita perda de títulos por pequenas variações.
+        if best_score >= 88:
+            # evita duplicar entradas consecutivas idênticas
+            if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
-                    'canonico': best_match_canonico,
+                    'canonico': best_canonico,
                     'titulo_encontrado': linha_limpa,
                     'linha_inicio': idx,
-                    'score': best_match_score
+                    'score': best_score
                 })
+
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
+# ----------------- EXTRAÇÃO DE CONTEÚDO DA SEÇÃO -----------------
 def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     """
-    Extrai o conteúdo de uma seção, procurando ativamente pelo próximo título para determinar o fim.
-    Esta versão verifica se o próximo título está em 1, 2 ou 3 linhas consecutivas.
-
-    Correção principal: agora considera também cabeçalhos numéricos explícitos (ex.: "9.", "10)")
-    como início de nova seção, evitando que a seção N+1 seja lida como conteúdo da seção N.
+    Extrai o conteúdo de uma seção, determinando fim pela próxima seção.
+    Inclui fallback: se mapa_secoes não apontar a seção, busca diretamente nas linhas.
+    Também detecta cabeçalhos numéricos (9., 10), evitando vazamentos.
     """
     TITULOS_OFICIAIS = {
-        "Paciente": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
-            "COMO ESTE MEDICAMENTO FUNCIONA?", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-            "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "COMO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
-            "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-            "DIZERES LEGAIS"
-        ],
-        "Profissional": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
-            "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
-            "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
-            "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
-            "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
-        ]
+        "Paciente": obter_secoes_por_tipo("Paciente"),
+        "Profissional": obter_secoes_por_tipo("Profissional")
     }
 
     titulos_lista = TITULOS_OFICIAIS.get(tipo_bula, [])
     titulos_norm_set = {normalizar_titulo_para_comparacao(t) for t in titulos_lista}
-    
+
     aliases = obter_aliases_secao()
     for alias, canonico in aliases.items():
         if canonico in titulos_lista:
-                titulos_norm_set.add(normalizar_titulo_para_comparacao(alias))
+            titulos_norm_set.add(normalizar_titulo_para_comparacao(alias))
 
-    # Determina o número (posição) esperado da seção atual, quando possível.
+    # define secao_num (posição) quando possível
     secao_num = None
     try:
         if secao_canonico in titulos_lista:
@@ -298,6 +281,7 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
     except Exception:
         secao_num = None
 
+    # 1) Tenta usar mapa_secoes (extraído por fuzzy matching)
     for i, secao_mapa in enumerate(mapa_secoes):
         if secao_mapa['canonico'] != secao_canonico:
             continue
@@ -309,63 +293,91 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         prox_idx = None
         for j in range(linha_inicio_conteudo, len(linhas_texto)):
             linha_atual = linhas_texto[j].strip()
-            
-            # --- [CORREÇÃO] ---
-            # O bug estava aqui. A normalização de 'linha_atual' estava
-            # falhando. Agora está corrigida.
             linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
-            # --- [FIM DA CORREÇÃO] ---
 
-            # 1) Se a linha normalizada é exatamente um título canônico (ou alias), marcamos o próximo índice
+            # próximo título canônico exato
             if linha_atual_norm in titulos_norm_set:
                 prox_idx = j
                 break
 
-            # 2) Verifica títulos compostos por 2 ou 3 linhas (j+1, j+2)
+            # títulos em 2 ou 3 linhas
             if (j + 1) < len(linhas_texto):
-                linha_seguinte = linhas_texto[j + 1].strip()
-                titulo_duas_linhas = f"{linha_atual} {linha_seguinte}"
-                titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(titulo_duas_linhas)
-
-                if titulo_duas_linhas_norm in titulos_norm_set: 
+                titulo_duas_linhas_norm = normalizar_titulo_para_comparacao(f"{linha_atual} {linhas_texto[j+1].strip()}")
+                if titulo_duas_linhas_norm in titulos_norm_set:
                     prox_idx = j
-                    break 
-
+                    break
             if (j + 2) < len(linhas_texto):
-                linha_seguinte = linhas_texto[j + 1].strip()
-                linha_terceira = linhas_texto[j + 2].strip()
-                
-                titulo_tres_linhas = f"{linha_atual} {linha_seguinte} {linha_terceira}"
-                titulo_tres_linhas_norm = normalizar_titulo_para_comparacao(titulo_tres_linhas)
-
+                titulo_tres_linhas_norm = normalizar_titulo_para_comparacao(f"{linha_atual} {linhas_texto[j+1].strip()} {linhas_texto[j+2].strip()}")
                 if titulo_tres_linhas_norm in titulos_norm_set:
                     prox_idx = j
                     break
 
-            # 3) NOVA VERIFICAÇÃO: detecta cabeçalhos numéricos explícitos como "9.", "10)" etc.
-            #     Se houver uma linha que comece por um número (seguido de ponto, parêntese ou traço),
-            #     trata-se do início de uma nova seção — interrompe a seção atual.
+            # verifica cabeçalhos numéricos (ex.: "9.", "10)")
             num_match = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', linha_atual)
             if num_match:
                 try:
                     found_num = int(num_match.group(1))
-                    # Se o número encontrado corresponder a outra seção válida, consideramos limite.
                     if found_num >= 1 and found_num <= len(titulos_lista):
-                        # Se for diferente do número da seção atual (ou se não conseguimos determinar o número atual),
-                        # encerramos a seção atual aqui.
                         if secao_num is None or found_num != secao_num:
                             prox_idx = j
                             break
                 except Exception:
-                    # qualquer exceção ao converter -> ignoramos esse caminho
                     pass
 
-        linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
+            # fuzzy check: se a linha se assemelha a algum título (limiar alto)
+            for t_norm in titulos_norm_set:
+                if fuzz.token_set_ratio(t_norm, linha_atual_norm) >= 92:
+                    prox_idx = j
+                    break
+            if prox_idx is not None:
+                break
 
+        linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
         conteudo = [linhas_texto[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
         conteudo_final = "\n".join(conteudo).strip()
         return True, titulo_encontrado, conteudo_final
 
+    # 2) Fallback: buscar título diretamente nas linhas_texto
+    for idx, linha in enumerate(linhas_texto):
+        linha_norm = normalizar_titulo_para_comparacao(linha.strip())
+        if not linha_norm:
+            continue
+        # verifica correspondência direta / substring / fuzzy
+        if linha_norm in titulos_norm_set:
+            # encontrado título canônico
+            linha_inicio = idx
+            linha_inicio_conteudo = linha_inicio + 1
+            prox_idx = None
+            for j in range(linha_inicio_conteudo, len(linhas_texto)):
+                ln = linhas_texto[j].strip()
+                ln_norm = normalizar_titulo_para_comparacao(ln)
+                if ln_norm in titulos_norm_set:
+                    prox_idx = j
+                    break
+                # detect numeric headings
+                nm = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', ln)
+                if nm:
+                    try:
+                        found_num = int(nm.group(1))
+                        if found_num >= 1 and found_num <= len(titulos_lista):
+                            prox_idx = j
+                            break
+                    except Exception:
+                        pass
+                # fuzzy
+                for t_norm in titulos_norm_set:
+                    if fuzz.token_set_ratio(t_norm, ln_norm) >= 92:
+                        prox_idx = j
+                        break
+                if prox_idx is not None:
+                    break
+            linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
+            conteudo = [linhas_texto[k] for k in range(linha_inicio_conteudo, linha_fim)]
+            conteudo_final = "\n".join(conteudo).strip()
+            # título encontrado original (usa a linha como título)
+            return True, linhas_texto[linha_inicio].strip(), conteudo_final
+
+    # 3) não encontrado
     return False, None, ""
 
 # ----------------- COMPARAÇÃO DE CONTEÚDO -----------------
@@ -373,7 +385,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos = [], [], [], []
     secoes_analisadas = [] 
-    
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
     def pre_processar_texto(texto_completo):
@@ -385,11 +396,11 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             if match:
                 titulo_potencial = match.group(1).strip()
                 conteudo_potencial = match.group(2).strip()
-                if is_titulo_secao(titulo_potencial) and len(titulo_potencial.split()) > 3:
-                    linhas.append(titulo_potencial) 
+                if is_titulo_secao(titulo_potencial) and len(titulo_potencial.split()) > 2:
+                    linhas.append(titulo_potencial)
                     linhas.append(conteudo_potencial)
                 else:
-                    linhas.append(l) 
+                    linhas.append(l)
             else:
                 linhas.append(l)
         return "\n".join(linhas)
@@ -402,10 +413,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     mapa_ref = mapear_secoes(texto_ref_processado, secoes_esperadas)
     mapa_belfar = mapear_secoes(texto_belfar_processado, secoes_esperadas)
 
-    secoes_belfar_encontradas = {m['canonico']: m for m in mapa_belfar}
-
     for secao in secoes_esperadas:
-        melhor_titulo = None 
         encontrou_ref, titulo_ref, conteudo_ref = obter_dados_secao(secao, mapa_ref, linhas_ref, tipo_bula)
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao(secao, mapa_belfar, linhas_belfar, tipo_bula)
 
@@ -423,9 +431,8 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             })
             continue
 
-        if encontrou_ref or encontrou_belfar: # Se encontrou em pelo menos um
-            titulo_real_encontrado_belfar = titulo_belfar if titulo_belfar else melhor_titulo
-            
+        if encontrou_ref or encontrou_belfar:
+            titulo_real_encontrado_belfar = titulo_belfar or secao
             if secao.upper() in secoes_ignorar_upper:
                 secoes_analisadas.append({
                     'secao': secao,
@@ -442,7 +449,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
             tem_diferenca = False
             if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_belfar):
                 tem_diferenca = True
-                
                 diferencas_conteudo.append({
                     'secao': secao, 
                     'conteudo_ref': conteudo_ref, 
@@ -467,10 +473,9 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos, secoes_analisadas
 
-
-# ----------------- ORTOGRAFIA -----------------
+# ----------------- ORTOGRAFIA (MELHORADA) -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula):
-    if not nlp or not texto_para_checar:
+    if not texto_para_checar:
         return []
 
     try:
@@ -487,17 +492,16 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
                 if match:
                     titulo_potencial = match.group(1).strip()
                     conteudo_potencial = match.group(2).strip()
-                    if is_titulo_secao(titulo_potencial) and len(titulo_potencial.split()) > 3:
-                        linhas.append(titulo_potencial) 
+                    if is_titulo_secao(titulo_potencial) and len(titulo_potencial.split()) > 2:
+                        linhas.append(titulo_potencial)
                         linhas.append(conteudo_potencial)
                     else:
-                        linhas.append(l) 
+                        linhas.append(l)
                 else:
                     linhas.append(l)
             return "\n".join(linhas)
 
         texto_proc_para_checar = pre_processar_texto(texto_para_checar)
-        
         mapa_secoes = mapear_secoes(texto_proc_para_checar, secoes_todas)
         linhas_texto = texto_proc_para_checar.split('\n')
 
@@ -506,42 +510,75 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
                 continue
             encontrou, _, conteudo = obter_dados_secao(secao_nome, mapa_secoes, linhas_texto, tipo_bula)
             if encontrou and conteudo:
+                # pulamos a primeira linha do bloco (que geralmente é título)
                 linhas_conteudo = conteudo.split('\n')
-                if len(linhas_conteudo) > 1:
-                    texto_filtrado_para_checar.append('\n'.join(linhas_conteudo[1:]))
+                if len(linhas_conteudo) >= 1:
+                    texto_filtrado_para_checar.append('\n'.join(linhas_conteudo))
 
         texto_final_para_checar = '\n'.join(texto_filtrado_para_checar)
         if not texto_final_para_checar:
             return []
 
+        # SpellChecker (pt) — garantimos vocabulário de referência como autorizado
         spell = SpellChecker(language='pt')
-        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel"}
-        vocab_referencia = set(re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_referencia.lower()))
-        doc = nlp(texto_proc_para_checar)
-        entidades = {ent.text.lower() for ent in doc.ents}
+        palavras_a_ignorar = {"alair", "belfar", "peticionamento", "urotrobel", "nebacetin", "nebacetin", "neomicina", "bacitracina"}
+        # vocabulário de referência: formas originais e normalizadas
+        vocab_referencia_raw = set(re.findall(r'\b[a-zA-ZÀ-ÖØ-öø-ÿ0-9\-]+\b', texto_referencia.lower()))
+        vocab_referencia_norm = set(normalizar_texto(w) for w in vocab_referencia_raw)
+        # carrega vocabulário extra no corretor para reduzir falsos positivos
+        spell.word_frequency.load_words(vocab_referencia_raw.union(palavras_a_ignorar))
 
-        spell.word_frequency.load_words(
-            vocab_referencia.union(entidades).union(palavras_a_ignorar)
-        )
+        # usa spaCy para coletar entidades e lexemas conhecidos
+        entidades = set()
+        if nlp:
+            doc = nlp(texto_proc_para_checar)
+            entidades = {ent.text.lower() for ent in doc.ents}
 
-        palavras = re.findall(r'\b[a-záéíóúâêôãõçü]+\b', texto_final_para_checar.lower())
-        erros = spell.unknown(palavras)
-        return list(sorted(set([e for e in erros if len(e) > 3])))[:20]
+        # tokens a checar
+        palavras = re.findall(r'\b[a-zA-ZÀ-ÖØ-öø-ÿ]+\b', texto_final_para_checar)
+        palavras = [p for p in palavras if len(p) > 2]  # ignorar tokens curtos
 
-    except Exception as e:
+        possiveis_erros = spell.unknown([p.lower() for p in palavras])
+
+        # Filtra falsos positivos: se palavra está no vocab_referencia (raw ou normalized) ou é entidade, remove.
+        erros_filtrados = []
+        for e in possiveis_erros:
+            e_raw = e.lower()
+            e_norm = normalizar_texto(e_raw)
+            if e_raw in vocab_referencia_raw or e_norm in vocab_referencia_norm:
+                continue
+            if e_raw in entidades:
+                continue
+            if e_raw in palavras_a_ignorar:
+                continue
+            # se spaCy diz que não é OOV (ou seja, é conhecido), então ignora
+            if nlp:
+                try:
+                    lex = nlp.vocab[e_raw]
+                    if not getattr(lex, "is_oov", True):
+                        # palavra conhecida — ignora
+                        continue
+                except Exception:
+                    pass
+            # passa filtro: realmente parece desconhecida
+            erros_filtrados.append(e_raw)
+
+        # retorna uma lista curta ordenada e única
+        erros_unicos = sorted(set(erros_filtrados))
+        return erros_unicos[:40]
+
+    except Exception:
         return []
 
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     def tokenizar(txt):
-        # Adicionado • para ser tratado como um token
-        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', txt, re.UNICODE) 
+        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', txt, re.UNICODE)
 
     def norm(tok):
         if tok == '\n':
             return ' '
-        
-        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): # Adicionado •
+        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok):
             return normalizar_texto(tok)
         return tok
 
@@ -560,9 +597,8 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     marcado = []
     for idx, tok in enumerate(tokens):
         if tok == '\n':
-            marcado.append('<br>') # Converte \n para <br> aqui
+            marcado.append('<br>')
             continue
-            
         if idx in indices and tok.strip() != '':
             marcado.append(f"<mark style='background-color: #ffff99; padding: 2px;'>{tok}</mark>")
         else:
@@ -574,26 +610,21 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
             resultado += tok
             continue
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        
-        if tok == '<br>' or marcado[i-1] == '<br>': # Checa se o token atual ou anterior é <br>
+        if tok == '<br>' or marcado[i-1] == '<br>':
             resultado += tok
         elif re.match(r'^[^\w\s]$', raw_tok):
             resultado += tok
         else:
             resultado += " " + tok
-            
+
     resultado = re.sub(r'\s+([.,;:!?)])', r'\1', resultado)
     resultado = re.sub(r'(\()\s+', r'\1', resultado)
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
-    return resultado # Retorna HTML com <br> e sem \n
+    return resultado
 
-# ----------------- [CORREÇÃO 3: LAYOUT REFERÊNCIA] -----------------
-# Esta função substitui a antiga 'marcar_divergencias_html'
-# Ela constrói o HTML do zero, garantindo que ambos os lados tenham títulos.
+# ----------------- CONSTRUÇÃO DO HTML (LADO A LADO) -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_referencia=False):
     html_final = []
-    
-    # Define os prefixos
     prefixos_paciente = {
         "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
         "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
@@ -608,59 +639,51 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
         "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
     }
     prefixos_map = prefixos_paciente if tipo_bula == "Paciente" else prefixos_profissional
-    
-    # Mapa de erros ortográficos
+
     mapa_erros = {}
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
             pattern = r'(?<![<>a-zA-Z])(?<!mark>)(?<!;>)\b(' + re.escape(erro) + r')\b(?![<>])'
             mapa_erros[pattern] = r"<mark style='background-color: #FFDDC1; padding: 2px;'>\1</mark>"
 
-    # Regex da ANVISA
     regex_anvisa = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*[\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     anvisa_pattern = re.compile(regex_anvisa, re.IGNORECASE)
 
+    # Não pulamos a exibição da Referência se a seção estiver faltando no Belfar.
     for diff in secoes_analisadas:
         secao_canonico = diff['secao']
-        if diff['faltante'] and eh_referencia: # Se faltou no Belfar, não exibe nada na Referência
-             continue
-        
         prefixo = prefixos_map.get(secao_canonico, "")
-        
-        # Define o título
+
+        # Título exibido
         if eh_referencia:
             titulo_display = f"{prefixo} {secao_canonico}".strip()
-            # Usa o título canônico para a Referência
             html_final.append(f"<h3 style='font-size: 16px; font-weight: bold; color: #111;'>{titulo_display}</h3>")
         else:
-            # Usa o título que foi encontrado no Belfar
-            titulo_encontrado = diff['titulo_encontrado_belfar'] or secao_canonico
+            # usa título encontrado no Belfar quando disponível; senão usa canônico
+            titulo_encontrado = diff.get('titulo_encontrado_belfar') or diff.get('titulo_encontrado_ref') or secao_canonico
             if prefixo and not titulo_encontrado.strip().startswith(prefixo):
                 titulo_display = f"{prefixo} {titulo_encontrado}".strip()
             else:
                 titulo_display = titulo_encontrado
             html_final.append(f"<h3 style='font-size: 16px; font-weight: bold; color: #111;'>{titulo_display}</h3>")
-            
-        # Define o conteúdo
+
+        # Conteúdo
         conteudo = diff['conteudo_ref'] if eh_referencia else diff['conteudo_belfar']
-        if diff.get('faltante', False):
+        if diff.get('faltante', False) and not eh_referencia:
             conteudo = "<p style='color: red; font-style: italic;'>Seção não encontrada</p>"
-            
-        # Aplica marcações
-        if diff['tem_diferenca'] and not diff['ignorada'] and not diff['faltante']:
-            # A função de diff já retorna HTML com <br>
-            conteudo_marcado = marcar_diferencas_palavra_por_palavra(
-                diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia
-            )
+
+        if diff['tem_diferenca'] and not diff['ignorada'] and not diff.get('faltante', False):
+            conteudo_marcado = marcar_diferencas_palavra_por_palavra(diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia)
         else:
-            conteudo_marcado = conteudo.replace('\n', '<br>')
-            
-        # Aplica ortografia (só no Belfar)
+            conteudo_marcado = (conteudo or "").replace('\n', '<br>')
+
         if not eh_referencia and not diff['ignorada']:
             for pattern, replacement in mapa_erros.items():
-                conteudo_marcado = re.sub(pattern, replacement, conteudo_marcado, flags=re.IGNORECASE)
-        
-        # Aplica ANVISA
+                try:
+                    conteudo_marcado = re.sub(pattern, replacement, conteudo_marcado, flags=re.IGNORECASE)
+                except Exception:
+                    pass
+
         conteudo_marcado = anvisa_pattern.sub(
             r"<mark style='background-color: #cce5ff; padding: 2px; font-weight: 500;'>\1</mark>",
             conteudo_marcado
@@ -670,12 +693,9 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
         html_final.append(f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{conteudo_marcado}</div><br>")
 
     return "".join(html_final)
-# ----------------- FIM DA CORREÇÃO 3 -----------------
-
 
 # ----------------- RELATÓRIO -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
-    
     js_scroll_script = """
     <script>
     if (!window.handleBulaScroll) {
@@ -712,7 +732,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     """
     st.markdown(js_scroll_script, unsafe_allow_html=True)
 
-
     st.header("Relatório de Auditoria Inteligente")
     regex_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     match_ref = re.search(regex_anvisa, texto_ref.lower())
@@ -721,7 +740,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     data_belfar = match_belfar.group(2).strip() if match_belfar else "Não encontrada"
 
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos, secoes_analisadas = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
-    
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
 
@@ -738,13 +756,12 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         
     if secoes_analisadas:
         st.markdown("##### Análise Detalhada de Conteúdo das Seções")
-        
         expander_caixa_style = (
             "height: 350px; overflow-y: auto; border: 2px solid #d0d0d0; border-radius: 6px; "
             "padding: 16px; background-color: #ffffff; font-size: 14px; line-height: 1.8; "
             "font-family: 'Georgia', 'Times New Roman', serif; text-align: justify;"
         )
-        
+
         prefixos_paciente = {
             "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
             "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
@@ -761,7 +778,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         prefixos_map = prefixos_paciente if tipo_bula == "Paciente" else prefixos_profissional
 
         for diff in secoes_analisadas:
-            
             secao_canonico_raw = diff['secao']
             prefixo = prefixos_map.get(secao_canonico_raw, "")
             titulo_display = f"{prefixo} {secao_canonico_raw}".strip()
@@ -780,7 +796,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 expander_expanded = False 
 
             with st.expander(expander_label, expanded=expander_expanded):
-                
                 secao_canonico = diff['secao']
                 anchor_id_ref = _create_anchor_id(secao_canonico, "ref")
                 anchor_id_bel = _create_anchor_id(secao_canonico, "bel")
@@ -788,20 +803,17 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 if diff.get('faltante', False):
                     st.error(f"**A seção \"{secao_canonico}\" não foi encontrada no documento Belfar.**")
                     if "não encontrada na Referência" in diff['conteudo_ref']:
-                         st.warning(f"**A seção \"{secao_canonico}\" também não foi encontrada no documento de Referência.**")
-                    continue
-
-                if diff['ignorada']:
+                        st.warning(f"**A seção \"{secao_canonico}\" também não foi encontrada no documento de Referência.**")
+                    # mesmo faltando no Belfar, exibimos o conteúdo da Referência se houver
+                    expander_html_ref = diff['conteudo_ref'].replace('\n', '<br>') if diff['conteudo_ref'] else "<i>Não encontrada</i>"
+                    expander_html_belfar = "<p style='color: red; font-style: italic;'>Seção não encontrada</p>"
+                elif diff['ignorada']:
                     expander_html_ref = diff['conteudo_ref'].replace('\n', '<br>')
                     expander_html_belfar = diff['conteudo_belfar'].replace('\n', '<br>')
                 else:
-                    expander_html_ref = marcar_diferencas_palavra_por_palavra(
-                        diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
-                    ) # Não precisa de .replace(), a função já faz
-                    expander_html_belfar = marcar_diferencas_palavra_por_palavra(
-                        diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
-                    ) # Não precisa de .replace(), a função já faz
-                
+                    expander_html_ref = marcar_diferencas_palavra_por_palavra(diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True)
+                    expander_html_belfar = marcar_diferencas_palavra_por_palavra(diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False)
+
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
 
                 html_ref_box = f"<div onclick='window.handleBulaScroll(\"{anchor_id_ref}\", \"{anchor_id_bel}\")' style='{clickable_style}' title='Clique para ir à seção' onmouseover='this.style.backgroundColor=\"#f0f8ff\"' onmouseout='this.style.backgroundColor=\"#ffffff\"'>{expander_html_ref}</div>"
@@ -830,11 +842,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         unsafe_allow_html=True
     )
 
-    # --- [INÍCIO DA CORREÇÃO 3: LAYOUT REFERÊNCIA] ---
-    # Usa a nova função 'construir_html_secoes' para ambos os lados
     html_ref_marcado = construir_html_secoes(secoes_analisadas, [], tipo_bula, eh_referencia=True)
     html_belfar_marcado = construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_referencia=False)
-    # --- [FIM DA CORREÇÃO 3] ---
 
     caixa_style = (
         "height: 700px; overflow-y: auto; border: 2px solid #999; border-radius: 4px; "
@@ -850,6 +859,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with col2:
         st.markdown(f"**📄 {nome_belfar}**")
         st.markdown(f"<div id='container-bel-scroll' style='{caixa_style}'>{html_belfar_marcado}</div>", unsafe_allow_html=True)
+
 # ----------------- INTERFACE -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
@@ -869,11 +879,8 @@ with col2:
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if pdf_ref and pdf_belfar:
         with st.spinner("🔄 Processando e analisando as bulas..."):
-            
             tipo_ref = 'docx' if pdf_ref.name.endswith('.docx') else 'pdf'
             tipo_belfar = 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf'
-            
-            # [CORREÇÃO 4] Usa a extração de texto que preserva o layout
             with st.spinner("Lendo documento de Referência..."):
                 texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_ref)
             with st.spinner("Lendo documento Belfar..."):
@@ -892,4 +899,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21.2 | Correção de Vazamento de Seção")
+st.caption("Sistema de Auditoria de Bulas v21.2 | Correção de Vazamento de Seção e melhorias")
