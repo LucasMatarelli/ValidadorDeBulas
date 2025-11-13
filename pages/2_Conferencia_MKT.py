@@ -6,6 +6,10 @@
 # - Mantive as outras correções anteriores (preservação de títulos multilinha,
 #   realocação restrita de "USO NASAL ADULTO", destaque de títulos diferentes).
 # - Substitua seu arquivo atual por este e reinicie o Streamlit.
+#
+# + CORREÇÃO ADICIONAL (v26.59):
+# - Adicionada a função 'marcar_divergencias_html' que estava ausente e
+#   causava o NameError subsequente.
 
 import re
 import difflib
@@ -613,6 +617,93 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content = re.sub(r'\s{2,}', ' ', html_content)
     return html_content
 
+# ----------------- MARCAÇÃO HTML (FUNÇÃO AUSENTE) -----------------
+def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia):
+    """
+    Recria o texto HTML completo, marcando seções divergentes e erros ortográficos.
+    Usa a função 'marcar_diferencas_palavra_por_palavra' para as seções com 'status' == 'diferente'.
+    """
+    if not texto_original:
+        return ""
+
+    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
+    secoes_ignorar_comp = [s.upper() for s in obter_secoes_ignorar_comparacao()]
+    
+    # Mapear o texto que estamos processando (Ref ou Belfar)
+    linhas_texto = re.sub(r'\n{2,}', '\n', texto_original).split('\n')
+    mapa_secoes_texto = mapear_secoes(texto_original, secoes_esperadas)
+
+    # Criar um lookup rápido para os problemas
+    problemas_lookup = {item['secao']: item for item in secoes_problema_lista_dicionarios}
+
+    texto_html_final_secoes = {}
+    
+    # 1. Processar todas as seções encontradas no texto original
+    for i, secao_info in enumerate(mapa_secoes_texto):
+        secao_canonico = secao_info['canonico']
+        
+        # Obter o conteúdo completo desta seção (com título)
+        encontrou, titulo, conteudo_secao_atual = obter_dados_secao(secao_canonico, mapa_secoes_texto, linhas_texto)
+        
+        if not encontrou:
+            continue
+
+        item_problema = problemas_lookup.get(secao_canonico)
+
+        # Se a seção é problemática (diferente) E NÃO é ignorada
+        if item_problema and item_problema['status'] == 'diferente' and secao_canonico.upper() not in secoes_ignorar_comp:
+            texto_ref_problema = item_problema.get('conteudo_ref', '')
+            texto_bel_problema = item_problema.get('conteudo_belfar', '')
+            
+            # Usamos a função já existente para marcar as palavras
+            html_marcado = marcar_diferencas_palavra_por_palavra(
+                texto_ref_problema, 
+                texto_bel_problema, 
+                eh_referencia=eh_referencia
+            )
+            texto_html_final_secoes[secao_canonico] = html_marcado
+        
+        # Se não é problemática, ou é ignorada, apenas adiciona o conteúdo original
+        # (O conteúdo 'belfar' já pode conter o título destacado, se for diferente)
+        else:
+            if eh_referencia:
+                 texto_html_final_secoes[secao_canonico] = item_problema.get('conteudo_ref', conteudo_secao_atual) if item_problema else conteudo_secao_atual
+            else:
+                 texto_html_final_secoes[secao_canonico] = item_problema.get('conteudo_belfar', conteudo_secao_atual) if item_problema else conteudo_secao_atual
+
+
+    # 2. Reconstruir o texto na ordem que foi encontrado no arquivo
+    html_bruto = "\n\n".join(texto_html_final_secoes.get(m['canonico'], '') for m in mapa_secoes_texto if m['canonico'] in texto_html_final_secoes)
+
+    # 3. Aplicar marcação de erros ortográficos (apenas no texto Belfar)
+    if not eh_referencia and erros_ortograficos:
+        import html
+        # Regex para encontrar as palavras de erro, mas evitando estar dentro de tags HTML
+        try:
+            palavras_regex = r'\b(' + '|'.join(re.escape(e) for e in erros_ortograficos) + r')\b'
+            
+            partes = re.split(r'(<[^>]+>)', html_bruto) # Divide por tags HTML
+            resultado_final = []
+            for parte in partes:
+                if parte.startswith('<'):
+                    resultado_final.append(parte) # É uma tag, mantém
+                else:
+                    # Não é uma tag, aplicar regex de ortografia
+                    parte_escapada = html.unescape(parte)
+                    parte_marcada = re.sub(
+                        palavras_regex, 
+                        lambda m: f"<mark style='background-color: #ffcccb; padding: 2px; border: 1px dashed red;'>{m.group(1)}</mark>", 
+                        parte_escapada, 
+                        flags=re.IGNORECASE
+                    )
+                    resultado_final.append(parte_marcada)
+            html_bruto = "".join(resultado_final)
+        except re.error:
+            # Evita que um regex mal formado (ex: palavra com caractere especial) quebre a app
+            pass 
+
+    return html_bruto
+
 # ----------------- GERAÇÃO DE RELATÓRIO E UI (mantido layout original) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
@@ -748,4 +839,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v26.58 | Correções aplicadas: truncar_apos_anvisa presente, preservação de títulos multilinha.")
+st.caption("Sistema de Auditoria de Bulas v26.59 | Correções aplicadas: truncar_apos_anvisa e marcar_divergencias_html presentes.")
