@@ -154,7 +154,15 @@ def normalizar_texto(texto):
 def normalizar_titulo_para_comparacao(texto):
     """Normalização robusta para títulos, removendo acentos, pontuação e numeração inicial."""
     texto_norm = normalizar_texto(texto)
-    texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
+    
+    # --- [INÍCIO DA CORREÇÃO (BUG DE VAZAMENTO)] ---
+    # A regex antiga (r'^\d+\s*[\.\-)]*\s*') falhava porque 'normalizar_texto'
+    # já removia o ponto ("9." -> "9").
+    # Esta nova regex remove o número seguido por espaço OU remove
+    # um número que esteja "grudado" no início da palavra.
+    texto_norm = re.sub(r'^(\d+\s+)|(^\d+)', '', texto_norm).strip()
+    # --- [FIM DA CORREÇÃO] ---
+    
     return texto_norm
 
 def _create_anchor_id(secao_nome, prefix):
@@ -221,7 +229,7 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         if not is_titulo_secao(linha_limpa):
             continue
 
-        linha_norm = normalizar_texto(linha_limpa)
+        linha_norm = normalizar_titulo_para_comparacao(linha_limpa)
         if not linha_norm:
             continue
 
@@ -291,9 +299,13 @@ def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto, tipo_bula):
         prox_idx = None
         for j in range(linha_inicio_conteudo, len(linhas_texto)):
             linha_atual = linhas_texto[j].strip()
-            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
-
             
+            # --- [CORREÇÃO] ---
+            # O bug estava aqui. A normalização de 'linha_atual' estava
+            # falhando. Agora está corrigida.
+            linha_atual_norm = normalizar_titulo_para_comparacao(linha_atual)
+            # --- [FIM DA CORREÇÃO] ---
+
             if linha_atual_norm in titulos_norm_set: 
                 prox_idx = j
                 break 
@@ -492,7 +504,8 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula
 # ----------------- DIFERENÇAS PALAVRA A PALAVRA -----------------
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
     def tokenizar(txt):
-        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', txt, re.UNICODE) # Adicionado •
+        # Adicionado • para ser tratado como um token
+        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', txt, re.UNICODE) 
 
     def norm(tok):
         if tok == '\n':
@@ -558,7 +571,6 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
         "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
-    # --- [INÍCIO DA CORREÇÃO 2: ENUMERAÇÃO PROFISSIONAL] ---
     prefixos_profissional = {
         "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
         "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
@@ -566,7 +578,6 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
         "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
     }
     prefixos_map = prefixos_paciente if tipo_bula == "Paciente" else prefixos_profissional
-    # --- [FIM DA CORREÇÃO 2] ---
     
     # Mapa de erros ortográficos
     mapa_erros = {}
@@ -607,14 +618,10 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
             
         # Aplica marcações
         if diff['tem_diferenca'] and not diff['ignorada'] and not diff['faltante']:
-            # --- [INÍCIO DA CORREÇÃO (BUG "TUDO JUNTO")] ---
-            # Adiciona o .replace('\n', '<br>') que estava faltando,
-            # para garantir que qualquer \n que a função de diff deixou passar
-            # seja convertido para <br>.
+            # A função de diff já retorna HTML com <br>
             conteudo_marcado = marcar_diferencas_palavra_por_palavra(
                 diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia
-            ).replace('\n', '<br>')
-            # --- [FIM DA CORREÇÃO] ---
+            )
         else:
             conteudo_marcado = conteudo.replace('\n', '<br>')
             
@@ -760,10 +767,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 else:
                     expander_html_ref = marcar_diferencas_palavra_por_palavra(
                         diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=True
-                    ).replace('\n', '<br>') # O replace aqui é a "chave"
+                    ) # Não precisa de .replace(), a função já faz
                     expander_html_belfar = marcar_diferencas_palavra_por_palavra(
                         diff['conteudo_ref'], diff['conteudo_belfar'], eh_referencia=False
-                    ).replace('\n', '<br>') # O replace aqui é a "chave"
+                    ) # Não precisa de .replace(), a função já faz
                 
                 clickable_style = expander_caixa_style + " cursor: pointer; transition: background-color 0.3s ease;"
                 
@@ -855,4 +862,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Por favor, envie ambos os arquivos PDF ou DOCX para iniciar a auditoria.")
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21.1 | Layout Lado-a-Lado Corrigido")
+st.caption("Sistema de Auditoria de Bulas v21.2 | Correção de Vazamento de Seção")
