@@ -230,12 +230,20 @@ def truncar_apos_anvisa(texto):
         cut_off_position += pos_match.end()
     return texto[:cut_off_position]
 
+# Substitua/cole estas funções no seu pages/2_Conferencia_MKT.py
+# (apenas as funções presentes aqui precisam ser aplicadas; o resto do arquivo fica igual)
+
 def obter_secoes_por_tipo(tipo_bula):
     secoes = {
         "Paciente": [
             "APRESENTAÇÕES",
+            "APRESENTACOES",
+            "APRESENTAÇÃO",
+            "APRESENTACAO",
             "COMPOSIÇÃO",
+            "COMPOSICAO",
             "INFORMAÇÕES AO PACIENTE",
+            "INFORMACOES AO PACIENTE",
             "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
             "2.COMO ESTE MEDICAMENTO FUNCIONA?",
             "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
@@ -249,8 +257,13 @@ def obter_secoes_por_tipo(tipo_bula):
         ],
         "Profissional": [
             "APRESENTAÇÕES",
+            "APRESENTACOES",
+            "APRESENTAÇÃO",
+            "APRESENTACAO",
             "COMPOSIÇÃO",
+            "COMPOSICAO",
             "INFORMAÇÕES AO PACIENTE",
+            "INFORMACOES AO PACIENTE",
             "1. INDICAÇÕES",
             "2. RESULTADOS DE EFICÁCIA",
             "3. CARACTERÍSTICAS FARMACOLÓGICAS",
@@ -281,7 +294,7 @@ def obter_aliases_secao():
         "RESULTADOS DE EFICÁCIA": "2. RESULTADOS DE EFICÁCIA",
         "CARACTERÍSTICAS FARMACOLÓGICAS": "3. CARACTERÍSTICAS FARMACOLÓGICAS",
         "CONTRAINDICAÇÕES": "4. CONTRAINDICAÇÕES",
-        "ADVERTÊNCIAS E PRECAUCAÇÕES": "5. ADVERTÊNCIAS E PRECAUCAÇÕES",
+        "ADVERTÊNCIAS E PRECAUÇÕES": "5. ADVERTÊNCIAS E PRECAUÇÕES",
         "INTERAÇÕES MEDICAMENTOSAS": "6. INTERAÇÕES MEDICAMENTOSAS",
         "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7. CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO",
         "POSOLOGIA E MODO DE USAR": "8. POSOLOGIA E MODO DE USAR",
@@ -289,104 +302,64 @@ def obter_aliases_secao():
         "SUPERDOSE": "10. SUPERDOSE"
     }
 
-def obter_secoes_ignorar_comparacao():
-    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
-
-def obter_secoes_ignorar_ortografia():
-    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
-
-def normalizar_texto(texto):
-    if not isinstance(texto, str):
-        return ""
-    texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-    texto = re.sub(r'[^\w\s]', '', texto)
-    texto = ' '.join(texto.split())
-    return texto.lower()
-
-def normalizar_titulo_para_comparacao(texto):
-    texto_norm = normalizar_texto(texto)
-    texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
-    return texto_norm
-
-# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (mantida) -----------------
-def corrigir_quebras_em_titulos(texto):
-    linhas = texto.split("\n")
-    linhas_corrigidas = []
-    buffer = ""
-    for linha in linhas:
-        linha_strip = linha.strip()
-        if not linha_strip:
-            if buffer:
-                linhas_corrigidas.append(buffer)
-                buffer = ""
-            linhas_corrigidas.append("")
-            continue
-        is_potential_title = (linha_strip.isupper() and len(linha_strip) < 70) or re.match(r'^\d+\.', linha_strip)
-        if is_potential_title:
-            if buffer:
-                buffer += " " + linha_strip
-            else:
-                buffer = linha_strip
-        else:
-            if buffer:
-                linhas_corrigidas.append(buffer)
-                buffer = ""
-            linhas_corrigidas.append(linha_strip)
-    if buffer:
-        linhas_corrigidas.append(buffer)
-    return "\n".join(linhas_corrigidas)
-
-# ----------------- DETECÇÃO E MAPEAMENTO (mantido) -----------------
-def is_titulo_secao(linha):
-    linha = linha.strip()
-    if len(linha) < 4:
-        return False
-    if re.match(r'^\d+\.\s+[A-Z]', linha):
-        return True
-    if len(linha.split()) > 20:
-        return False
-    if linha.endswith('.') or linha.endswith(':'):
-        return False
-    if re.search(r'>\s*<', linha):
-        return False
-    if len(linha) > 100:
-        return False
-    if linha.isupper():
-        return True
-    upper_chars = sum(1 for c in linha if c.isupper())
-    lower_chars = sum(1 for c in linha if c.islower())
-    if upper_chars > lower_chars and lower_chars < 10:
-         return True
-    return False
-
 def mapear_secoes(texto_completo, secoes_esperadas):
+    """
+    Versão ajustada: tenta captar variantes (singular/plural/sem acento) e, se não
+    encontra um título por fuzzy, faz uma verificação local (próximas linhas) para
+    detectar títulos que possam ter sido quebrados pela extração.
+    """
     mapa = []
     texto_normalizado = re.sub(r'\n{2,}', '\n', texto_completo)
     linhas = texto_normalizado.split('\n')
     aliases = obter_aliases_secao()
+
     titulos_possiveis = {}
     for secao in secoes_esperadas:
         titulos_possiveis[secao] = secao
     for alias, canonico in aliases.items():
         if canonico in secoes_esperadas:
             titulos_possiveis[alias] = canonico
+
     titulos_norm_lookup = {normalizar_titulo_para_comparacao(t): c for t, c in titulos_possiveis.items()}
-    limiar_score = 85
-    for idx, linha_limpa in enumerate(linhas):
-        linha_limpa = linha_limpa.strip()
+    limiar_score = 82  # ligeiramente mais permissivo
+
+    for idx, linha_raw in enumerate(linhas):
+        linha_limpa = linha_raw.strip()
         if not linha_limpa:
             continue
         if not is_titulo_secao(linha_limpa):
             continue
-        norm_linha_1 = normalizar_titulo_para_comparacao(linha_limpa)
+        norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
         best_score = 0
         best_canonico = None
         for titulo_norm, canonico in titulos_norm_lookup.items():
-            score = fuzz.token_set_ratio(titulo_norm, norm_linha_1)
+            score = fuzz.token_set_ratio(titulo_norm, norm_linha)
             if score > best_score:
                 best_score = score
                 best_canonico = canonico
-        if best_score >= limiar_score:
+        # se não bateu o limiar, checa variantes simples (contains)
+        if best_score < limiar_score:
+            for titulo_norm, canonico in titulos_norm_lookup.items():
+                if titulo_norm and titulo_norm in norm_linha:
+                    best_score = 90
+                    best_canonico = canonico
+                    break
+        # fallback local: se a linha seguinte (ou a própria) tem palavra-chave 'APRESENT' e não foi mapeada
+        if best_score < limiar_score:
+            # lookahead até 2 linhas por causa de quebras
+            look_text = (linha_limpa + " " + (linhas[idx+1].strip() if idx+1 < len(linhas) else "")).upper()
+            for k in ["APRESENTA", "COMPOSI", "DIZERES", "INFORMAÇ", "INFORMAC"]:
+                if k in look_text:
+                    # mapear para o canonico mais próximo por contains
+                    for titulo_norm, canonico in titulos_norm_lookup.items():
+                        if k.lower() in titulo_norm:
+                            best_canonico = canonico
+                            best_score = 85
+                            break
+                    if best_canonico:
+                        break
+
+        if best_score >= limiar_score and best_canonico:
             if not mapa or mapa[-1]['canonico'] != best_canonico:
                 mapa.append({
                     'canonico': best_canonico,
@@ -395,42 +368,23 @@ def mapear_secoes(texto_completo, secoes_esperadas):
                     'score': best_score,
                     'num_linhas_titulo': 1
                 })
+
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
-# ----------------- EXTRAÇÃO DE DADOS POR SEÇÃO (injeta título) -----------------
-def obter_dados_secao(secao_canonico, mapa_secoes, linhas_texto_split):
-    idx_secao_atual = -1
-    for i, secao_mapa in enumerate(mapa_secoes):
-        if secao_mapa['canonico'] == secao_canonico:
-            idx_secao_atual = i
-            break
-    if idx_secao_atual == -1:
-        return False, None, ""
-    secao_atual_info = mapa_secoes[idx_secao_atual]
-    titulo_encontrado = secao_atual_info['titulo_encontrado']
-    linha_inicio = secao_atual_info['linha_inicio']
-    num_linhas_titulo = secao_atual_info.get('num_linhas_titulo', 1)
-    linha_inicio_conteudo = linha_inicio + num_linhas_titulo
-    linha_fim = len(linhas_texto_split)
-    if (idx_secao_atual + 1) < len(mapa_secoes):
-        secao_seguinte_info = mapa_secoes[idx_secao_atual + 1]
-        linha_fim = secao_seguinte_info['linha_inicio']
-    conteudo = [linhas_texto_split[idx] for idx in range(linha_inicio_conteudo, linha_fim)]
-    conteudo_final_sem_titulo = "\n".join(conteudo).strip()
-    if conteudo_final_sem_titulo:
-        conteudo_final = f"{titulo_encontrado}\n\n{conteudo_final_sem_titulo}"
-    else:
-        conteudo_final = f"{titulo_encontrado}"
-    return True, titulo_encontrado, conteudo_final
-
-# ----------------- EXTRAI QUALIFIERS (refinado/conservador) -----------------
 def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
+    """
+    Versão conservadora: extrai QUALIFIERS apenas se:
+      - linha curta (<=12 palavras)
+      - contém chaves de apresentação (USO, NASAL, FRASCOS, EMBALAGENS, GOTAS, ML) OR
+      - é MAIÚSCULA curta
+    Evita mover linhas que claramente são fórmulas (contém 'contém', 'mg', 'ml', 'q.s.p').
+    """
     if not texto:
         return [], texto
     linhas = texto.split('\n')
     qualifiers = []
-    keys = {'USO', 'NASAL', 'ADULTO', 'EMBALAGENS', 'EMBALAGEM', 'FRASCOS', 'APRESENTAÇÃO', 'APRESENTACAO', 'APRESENTACOES', 'GOTAS', 'ML', 'MG'}
+    keys = {'USO', 'NASAL', 'ADULTO', 'EMBALAGENS', 'EMBALAGEM', 'FRASCOS', 'APRESENTA', 'APRESENTACAO', 'GOTAS', 'ML', 'MG'}
     i = 0
     while i < min(len(linhas), max_lines):
         ln = linhas[i].strip()
@@ -438,7 +392,8 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
             i += 1
             continue
         ln_upper = ln.upper()
-        if ln_upper in {'APRESENTAÇÃO', 'APRESENTAÇÕES', 'APRESENTACOES', 'COMPOSIÇÃO', 'COMPOSICAO', 'DIZERES LEGAIS', 'INFORMAÇÕES AO PACIENTE', 'INFORMACOES AO PACIENTE'}:
+        # não capture títulos exatos
+        if ln_upper in {'APRESENTAÇÃO','APRESENTACAO','APRESENTAÇÕES','APRESENTACOES','COMPOSIÇÃO','COMPOSICAO','DIZERES LEGAIS','INFORMAÇÕES AO PACIENTE','INFORMACOES AO PACIENTE'}:
             break
         words = ln.split()
         word_count = len(words)
@@ -448,7 +403,7 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
         contains_key = any(k in ln_upper for k in keys)
         is_short = word_count <= 12 and len(ln) < 140
         is_upper = uppercase_ratio > 0.6 and is_short
-        looks_like_composition_line = bool(re.search(r'\b(?:cont[eé]m|equivalente|mg\b|ml\b|g\b|ve[ií]culo|veiculo|q\.s\.p|qsp|%|\d+ mg|\d+ ml)\b', ln_upper))
+        looks_like_composition_line = bool(re.search(r'\b(?:cont[eé]m|equivalente|mg\b|ml\b|ve[ií]culo|veiculo|q\.s\.p|qsp|\d+mg|\d+ ml)\b', ln_upper))
         if (contains_key and is_short) or is_upper:
             if looks_like_composition_line and not contains_key:
                 break
@@ -459,39 +414,47 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
     restante = '\n'.join(linhas[i:]).strip()
     return qualifiers, restante
 
-# ----------------- VERIFICAÇÃO DE SEÇÕES E CONTEÚDO (com realocação segura) -----------------
-def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
-    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
-    secoes_faltantes = []
-    diferencas_titulos = []
-    relatorio = []
-    similaridade_geral = []
-    secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
-    linhas_ref = re.sub(r'\n{2,}', '\n', texto_ref).split('\n')
-    linhas_belfar = re.sub(r'\n{2,}', '\n', texto_belfar).split('\n')
-    mapa_ref = mapear_secoes(texto_ref, secoes_esperadas)
-    mapa_belfar = mapear_secoes(texto_belfar, secoes_esperadas)
-    conteudos = {}
-    for sec in secoes_esperadas:
-        encontrou_ref, _, conteudo_ref = obter_dados_secao(sec, mapa_ref, linhas_ref)
-        encontrou_bel, _, conteudo_bel = obter_dados_secao(sec, mapa_belfar, linhas_belfar)
-        conteudos[sec] = {
-            'encontrou_ref': encontrou_ref,
-            'conteudo_ref': conteudo_ref or "",
-            'encontrou_bel': encontrou_bel,
-            'conteudo_bel': conteudo_bel or ""
-        }
-        if not encontrou_bel:
-            secoes_faltantes.append(sec)
+# Realocação: versão estrita — NÃO cria APRESENTAÇÕES novo e só move se destino detectado no MKT.
+def realocar_qualifiers_inplace(map_conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
+    src = map_conteudos.get(src_section)
+    dst = map_conteudos.get(dst_section)
+    if not src or not dst:
+        return
+    if not src['conteudo_bel'].strip():
+        return
+    qualifiers_bel, restante_bel = _extrair_linhas_qualificadoras_iniciais(src['conteudo_bel'], max_lines=4)
+    if not qualifiers_bel:
+        return
+    # se o destino NÃO foi detectado no MKT, NÃO mover — evita criar vazamento
+    if not dst.get('encontrou_bel', False):
+        return
+    # evitar mover se qualifiers parecem ser composição
+    looks_like_comp = any(re.search(r'\b(?:cont[eé]m|equivalente|mg\b|ml\b|ve[ií]culo|q\.s\.p|qsp)\b', q.upper()) for q in qualifiers_bel)
+    if looks_like_comp:
+        return
+    # não mover se remover qualifiers deixar src vazio ou muito curto (proteção)
+    if len(restante_bel.strip()) < 40:
+        # se restante fica muito curto provavelmente qualifiers faziam parte da composição -> aborta
+        return
+    # evita duplicação
     def _contains_similar(dst_text, qualifiers):
         dst_norm = normalizar_texto(dst_text or "")
         for q in qualifiers:
             if normalizar_texto(q) in dst_norm:
                 return True
         return False
-    def realocar_qualifiers_inplace(map_conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
-        src = map_conteudos.get(src_section)
-        dst = map_conteudos.get(dst_section)
+    if _contains_similar(dst['conteudo_bel'], qualifiers_bel):
+        # já presente no destino
+        src['conteudo_bel'] = restante_bel
+        return
+    # safe prepend qualifiers after dst title (titulo is first line)
+    qual_text = '\n'.join(q for q in qualifiers_bel if q.strip())
+    lines_dst = dst['conteudo_bel'].split('\n')
+    title_dst = lines_dst[0] if lines_dst else dst_section
+    rest_dst = '\n'.join(lines_dst[1:]).strip() if len(lines_dst) > 1 else ""
+    combined = f"{title_dst}\n\n{qual_text}\n\n{rest_dst}".strip()
+    dst['conteudo_bel'] = combined
+    src['conteudo_bel'] = restante_bel
         if not src:
             return
         if not src['conteudo_bel'].strip():
