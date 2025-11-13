@@ -583,21 +583,23 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- FORMATAÇÃO PARA LEITURA (mantida) -----------------
-# ----------------- FORMATAÇÃO PARA LEITURA (v5 - Layout Original + Correção de Quebra) -----------------
+# ----------------- FORMATAÇÃO PARA LEITURA (v6 - Correção Final Layout/Títulos) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
     
-    # --- LÓGICA DE TÍTULO RESTRITA (Conforme pedido) ---
+    # --- LÓGICA DE TÍTULO RESTRITA (Carrega todos os títulos possíveis) ---
     try:
         secoes_paciente = obter_secoes_por_tipo("Paciente")
         secoes_prof = obter_secoes_por_tipo("Profissional")
         aliases = obter_aliases_secao()
         
-        todos_titulos = set(secoes_paciente) | set(secoes_prof)
-        titulos_validos_norm = set(normalizar_titulo_para_comparacao(s) for s in todos_titulos)
-        titulos_validos_norm.update(normalizar_titulo_para_comparacao(a) for a in aliases.keys())
+        todos_titulos_canonicos = set(secoes_paciente) | set(secoes_prof)
+        todos_aliases = set(aliases.keys())
+        
+        # Normaliza todos os títulos e aliases para checagem
+        titulos_validos_norm = set(normalizar_titulo_para_comparacao(s) for s in todos_titulos_canonicos)
+        titulos_validos_norm.update(normalizar_titulo_para_comparacao(a) for a in todos_aliases)
     except NameError:
         titulos_validos_norm = set()
     # --- FIM DA LÓGICA DE TÍTULO ---
@@ -605,7 +607,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
     estilo_titulo_inline = f"font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: {cor_titulo}; font-size:15px; margin-bottom:8px;"
 
-    # 1. Divide o texto por CADA quebra de linha
+    # 1. Divide o texto por CADA quebra de linha (preserva o layout)
     linhas = html_content.split('\n')
     
     linhas_formatadas = []
@@ -625,6 +627,8 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         is_title = False
         if linha_strip_sem_tags: # Se não estiver vazia após tirar tags
             linha_norm_sem_tags = normalizar_titulo_para_comparacao(linha_strip_sem_tags)
+            
+            # A checagem: a linha normalizada TEM QUE ESTAR na lista de títulos.
             if linha_norm_sem_tags in titulos_validos_norm:
                 is_title = True
 
@@ -647,17 +651,18 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
             linhas_formatadas.append(linha_strip)
     
     # 5. Junta todas as linhas com <br>
-    #    - "titulo<br>conteudo" (se era \n)
-    #    - "titulo<br><br>conteudo" (se era \n\n, pois a linha vazia vira um <br>)
+    #    - "</div><br>""<br>O cloridrato..." -> "</div><br><br>O cloridrato..."
     html_content_final = "<br>".join(linhas_formatadas)
 
     # 6. Limpeza final
-    html_content_final = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content_final)
-    html_content_final = re.sub(r'\s{2,}', ' ', html_content_final)
-    html_content_final = re.sub(r'^\s*(<br\s*/?>\s*)+', '', html_content_final) # Remove <br> iniciais
+    # Limpa espaços extras DENTRO das tags que o regex pode ter bagunçado
+    html_content_final = re.sub(r'\s{2,}', ' ', html_content_final) 
+    # Consolida quebras de linha (3 ou mais <br> viram <br><br>)
+    html_content_final = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content_final) 
+    # Remove <br> iniciais
+    html_content_final = re.sub(r'^\s*(<br\s*/?>\s*)+', '', html_content_final) 
     
     return html_content_final
-
 # ----------------- MARCAÇÃO HTML (FUNÇÃO AUSENTE) -----------------
 def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia):
     """
