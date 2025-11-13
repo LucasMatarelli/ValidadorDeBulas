@@ -200,7 +200,7 @@ def is_titulo_secao(linha):
         
     return False
 
-# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (v40 - Corrigida) -----------------
+# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS (v41 - Corrigida) -----------------
 # Esta função é ESSENCIAL para juntar os títulos do MKT
 def corrigir_quebras_em_titulos(texto):
     if not texto:
@@ -208,23 +208,31 @@ def corrigir_quebras_em_titulos(texto):
     linhas = texto.split("\n")
     linhas_corrigidas = []
     buffer = ""
+    linhas_vazias_consecutivas = 0
+    
     for linha in linhas:
         linha_strip = linha.strip()
         
         if not linha_strip: # É uma linha vazia
-            # Se temos um buffer, não fazemos NADA.
-            # Apenas ignoramos a linha vazia e esperamos
-            # para ver se a próxima linha é uma continuação.
+            linhas_vazias_consecutivas += 1
+            # Se temos mais de 1 linha vazia, força o flush do buffer
+            if linhas_vazias_consecutivas > 1 and buffer:
+                linhas_corrigidas.append(buffer)
+                buffer = ""
+            # Se não há buffer, adiciona a linha vazia
             if not buffer:
-                # Se não há buffer, é uma linha vazia normal.
                 linhas_corrigidas.append("")
-            continue # Ignora a linha vazia se houver buffer
+            continue
+        
+        # Reset do contador de linhas vazias
+        linhas_vazias_consecutivas = 0
         
         is_potential_title = is_titulo_secao(linha_strip)
         
         if is_potential_title and len(linha_strip.split()) < 20: # Se for um título potencial
             if buffer:
-                buffer += "\n" + linha_strip # Junta com a linha anterior
+                # Junta com a linha anterior usando espaço ao invés de \n
+                buffer += " " + linha_strip
             else:
                 buffer = linha_strip # Começa um novo título
         else: # É uma linha de conteúdo
@@ -236,9 +244,9 @@ def corrigir_quebras_em_titulos(texto):
     if buffer: # Salva o último título
         linhas_corrigidas.append(buffer)
     
-    # Limpa quebras de linha duplas
+    # Limpa quebras de linha duplas mas mantém uma quebra entre seções
     resultado = "\n".join(linhas_corrigidas)
-    return re.sub(r'\n{2,}', '\n', resultado)
+    return re.sub(r'\n{3,}', '\n\n', resultado)
 
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES (v30 - Paciente Apenas) -----------------
