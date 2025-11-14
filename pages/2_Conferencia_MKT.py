@@ -65,7 +65,6 @@ def truncar_apos_anvisa(texto):
         cut_off_position += pos_match.end()
     return texto[:cut_off_position]
 
-# ----------------- EXTRAÇÃO (PDF/DOCX) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -101,6 +100,21 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             texto = texto.replace('\u00A0', ' ')
 
+            # [v45] Remove "INFORMAÇÕES AO PACIENTE" - LINHA COMPLETA
+            linhas_temp = texto.split('\n')
+            linhas_filtradas_info = []
+            
+            for linha in linhas_temp:
+                linha_upper = linha.upper().strip()
+                # Checa se a linha contém apenas essas expressões
+                if re.match(r'^\s*INFORMA[ÇC][OÕ]ES\s+(AO|PARA(\s+O)?)\s+PACIENTE\s*[:\-\.]?\s*$', linha_upper):
+                    continue  # Pula essa linha
+                if re.match(r'^\s*BULA\s+PARA\s+(O\s+)?PACIENTE\s*[:\-\.]?\s*$', linha_upper):
+                    continue  # Pula essa linha
+                linhas_filtradas_info.append(linha)
+            
+            texto = '\n'.join(linhas_filtradas_info)
+
             # padrões de ruído (mantidos da v26.58)
             padrao_ruido_linha_regex = (
                 r'bula do paciente|página \d+\s*de\s*\d+'
@@ -117,6 +131,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|Normal e Negrito\. Co\s*$'
                 r'|cloridrato de ambroxol Belfar Ltda\. Xarope \d+ mg/mL'
                 r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*'
+                r'|^\s*INFORMA[ÇC][OÕ]ES\s+(AO|PARA)\s+(O\s+)?PACIENTE.*'
+                r'|^\s*BULA\s+PARA\s+(O\s+)?PACIENTE.*'
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
