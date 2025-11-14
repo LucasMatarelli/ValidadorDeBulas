@@ -293,7 +293,7 @@ def obter_aliases_secao():
         "COMO ESTE MEDICAMENTO FUNCIONA?": "2.COMO ESTE MEDICAMENTO FUNCIONA?",
         "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
         "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICamento?": "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
         "COMO DEVO USAR ESTE MEDICAMENTO?": "6.COMO DEVO USAR ESTE MEDICAMENTO?",
         "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
         "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
@@ -640,7 +640,7 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         titulos_validos_norm = set()
     # --- FIM DA LÓGICA DE TÍTULO ---
 
-    cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
+    cor_titulo_padrao = "#0b5686" if aplicar_numeracao else "#0b8a3e"
     # [v42] Melhorado: título com mais destaque visual e espaçamento
     # REMOVIDO: cor_titulo da definição base, será definido dinamicamente
     estilo_titulo_base = (
@@ -673,11 +673,19 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         # Lógica de detecção de título modificada para usar fuzzy matching
         is_title = False
         if linha_strip_sem_tags:
+            # Isso permite que "APRESENTAÇÃO" (MKT) seja formatado como um 
+            # título, mesmo sendo ligeiramente diferente de "APRESENTAÇÕES" (Ref).
             linha_norm_sem_tags = normalizar_titulo_para_comparacao(linha_strip_sem_tags)
             
+            # Checagem 1: Match exato (rápido)
             if linha_norm_sem_tags in titulos_validos_norm:
                 is_title = True
             else:
+                # Checagem 2: Match por fuzzy (para "APRESENTAÇÃO" vs "APRESENTAÇÕES")
+                # E checagem se a linha se parece com um título (isupper, etc)
+                # para evitar que um parágrafo aleatório seja formatado como título.
+                
+                # Usamos a linha 'sem tags' para verificar o formato
                 if is_titulo_secao(linha_strip_sem_tags):
                     best_score = 0
                     for valid_norm in titulos_validos_norm:
@@ -692,10 +700,11 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         if is_title:
             # --- [INÍCIO DA MODIFICAÇÃO] ---
             # Checa se o título TEM o marca-texto amarelo
-            is_divergent = '#ffff99' in linha_strip
+            # Usamos o re.search para garantir que estamos pegando a cor certa
+            match_highlight = re.search(r"background-color:\s*(#ffff99)", linha_strip, re.IGNORECASE)
             
-            # Define a cor do texto: Se for divergente, usa PRETO. Senão, usa a cor padrão.
-            cor_atual = "#000000" if is_divergent else cor_titulo
+            # Define a cor do texto: Se for divergente (amarelo), usa PRETO. Senão, usa a cor padrão.
+            cor_atual = "#000000" if match_highlight else cor_titulo_padrao
             
             # Monta o estilo final com a cor correta
             estilo_titulo_inline_atualizado = f"{estilo_titulo_base} color: {cor_atual};"
@@ -827,7 +836,38 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
 
     return html_bruto
 
-# ----------------- GERAÇÃO DE RELATÓRIO E UI (mantido layout original) -----------------
+# --- [NOVA FUNÇÃO AUXILIAR] ---
+def _aplicar_highlight_ortografia(html_bruto, erros_ortograficos):
+    """
+    Aplica o highlight vermelho de ortografia em um HTML, 
+    evitando quebrar tags existentes.
+    """
+    if not erros_ortograficos or not html_bruto:
+        return html_bruto
+    import html
+    try:
+        palavras_regex = r'\b(' + '|'.join(re.escape(e) for e in erros_ortograficos) + r')\b'
+        partes = re.split(r'(<[^>]+>)', html_bruto) # Divide por tags HTML
+        resultado_final = []
+        for parte in partes:
+            if parte.startswith('<'):
+                resultado_final.append(parte) # É uma tag, mantém
+            else:
+                # Não é uma tag, aplicar regex de ortografia
+                parte_escapada = html.unescape(parte)
+                parte_marcada = re.sub(
+                    palavras_regex, 
+                    lambda m: f"<mark style='background-color: #ffcccb; padding: 2px; border: 1px dashed red;'>{m.group(1)}</mark>", 
+                    parte_escapada, 
+                    flags=re.IGNORECASE
+                )
+                resultado_final.append(parte_marcada)
+        return "".join(resultado_final)
+    except re.error:
+        # Evita que um regex mal formado quebre a app
+        return html_bruto
+
+# ----------------- GERAÇÃO DE RELATÓRIO E UI (MODIFICADO) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     # A 'diferencas_titulos' agora é usada pela 'verificar_secoes_e_conteudo' para definir o status
@@ -865,43 +905,83 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         st.success("✅ Todas as seções obrigatórias estão presentes")
 
     st.markdown("---")
+    
+    # --- [INÍCIO DA MODIFICAÇÃO] ---
+    # Definir estilos de highlight ANTES do loop
+    rx_anvisa_highlight = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
+    blue_highlight_style = "background-color: #DDEEFF; padding: 1px 3px; border: 1px solid #0000FF; border-radius: 3px;"
+    
+    mapa_secoes_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
+    mapa_secoes_belfar = mapear_secoes(texto_belfar, obter_secoes_por_tipo(tipo_bula))
+    
+    # Dicionários para guardar o HTML final
+    html_final_ref = {}
+    html_final_belfar = {}
 
+    # Processar o HTML para CADA seção
     for item in relatorio_comparacao_completo:
         secao_nome = item['secao']
         status = item['status']
         conteudo_ref_str = item.get('conteudo_ref') or ""
         conteudo_belfar_str = item.get('conteudo_belfar') or ""
+
+        html_ref_marcado = ""
+        html_bel_marcado = ""
+
+        if status == 'diferente':
+            # 1. Aplicar highlight amarelo (diff)
+            html_ref_marcado = marcar_diferencas_palavra_por_palavra(conteudo_ref_str, conteudo_belfar_str, eh_referencia=True)
+            html_bel_marcado = marcar_diferencas_palavra_por_palavra(conteudo_ref_str, conteudo_belfar_str, eh_referencia=False)
+            
+            # 2. Aplicar highlight vermelho (ortografia) no Belfar
+            html_bel_marcado = _aplicar_highlight_ortografia(html_bel_marcado, erros_ortograficos)
+        
+        else: # status == 'identica' ou 'faltante'
+            html_ref_marcado = conteudo_ref_str
+            html_bel_marcado = conteudo_belfar_str
+
+        # 3. Aplicar highlight azul (ANVISA) em AMBOS
+        html_ref_marcado = re.sub(rx_anvisa_highlight, f"<mark style='{blue_highlight_style}'>\\1</mark>", html_ref_marcado, flags=re.IGNORECASE)
+        html_bel_marcado = re.sub(rx_anvisa_highlight, f"<mark style='{blue_highlight_style}'>\\1</mark>", html_bel_marcado, flags=re.IGNORECASE)
+        
+        # 4. Formatar o HTML final (aplicar estilo de título, etc)
+        html_final_ref[secao_nome] = formatar_html_para_leitura(html_ref_marcado, aplicar_numeracao=True)
+        html_final_belfar[secao_nome] = formatar_html_para_leitura(html_bel_marcado, aplicar_numeracao=False)
+
+    # Loop dos Expanders (agora apenas exibe o HTML pré-processado)
+    for item in relatorio_comparacao_completo:
+        secao_nome = item['secao']
+        status = item['status']
         is_ignored_section = secao_nome.upper() in [s.upper() for s in obter_secoes_ignorar_comparacao()]
+        
+        # Pegar o HTML final processado dos dicionários
+        html_ref_formatado = html_final_ref.get(secao_nome, "")
+        html_bel_formatado = html_final_belfar.get(secao_nome, "")
 
         if status == 'diferente':
             with st.expander(f"📄 {secao_nome} - ❌ CONTEÚDO DIVERGENTE"):
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Arquivo ANVISA:**")
-                    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
-                    html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
-                    st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='{expander_caixa_style}'>{html_ref_formatado}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**Arquivo MKT:**")
-                    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
-                    html_bel = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
-                    st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='{expander_caixa_style}'>{html_bel_formatado}</div>", unsafe_allow_html=True)
         else:
             expander_title = f"📄 {secao_nome} - ✅ CONTEÚDO IDÊNTICO"
             if is_ignored_section:
                 expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
+            
             with st.expander(expander_title):
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Arquivo ANVISA:**")
-                    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
-                    html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
-                    st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='{expander_caixa_style}'>{html_ref_formatado}</div>", unsafe_allow_html=True)
                 with c2:
                     st.markdown("**Arquivo MKT:**")
-                    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
-                    html_bel = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
-                    st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='{expander_caixa_style}'>{html_bel_formatado}</div>", unsafe_allow_html=True)
+    # --- [FIM DA MODIFICAÇÃO] ---
+
 
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
@@ -909,36 +989,28 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("🎨 Visualização Lado a Lado com Destaques")
 
-    # --- [INÍCIO DA LÓGICA DE DESTAQUE AZUL DA ANVISA] ---
+    # --- [INÍCIO DA MODIFICAÇÃO] ---
+    # Agora esta seção usa o MESMO HTML dos expanders,
+    # apenas juntando-os na ordem correta.
     
-    # 1. Definir o regex para encontrar a data da ANVISA (Grupo 1 captura tudo)
-    rx_anvisa_highlight = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
+    # Juntar o HTML final na ordem encontrada nos arquivos
+    html_ref_bruto_joined = "\n\n".join(
+        # Remove a formatação de <div style..> para remontar
+        re.sub(r'^<div.*?>|</div>$', '', html_final_ref.get(m['canonico'], '')) 
+        for m in mapa_secoes_ref if m['canonico'] in html_final_ref
+    )
     
-    # 2. Aplicar placeholders ÚNICOS no texto original (case-insensitive)
-    #    'texto_ref' e 'texto_belfar' são os argumentos da função (o texto processado v40)
-    texto_ref_com_placeholder = re.sub(rx_anvisa_highlight, r"__ANVISA_START__\1__ANVISA_END__", texto_ref or "", flags=re.IGNORECASE)
-    texto_belfar_com_placeholder = re.sub(rx_anvisa_highlight, r"__ANVISA_START__\1__ANVISA_END__", texto_belfar or "", flags=re.IGNORECASE)
+    html_belfar_bruto_joined = "\n\n".join(
+        # Remove a formatação de <div style..> para remontar
+        re.sub(r'^<div.*?>|</div>$', '', html_final_belfar.get(m['canonico'], '')) 
+        for m in mapa_secoes_belfar if m['canonico'] in html_final_belfar
+    )
 
-    # 3. Passar os textos com placeholders para a função de marcação de diff/ortografia
-    html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_com_placeholder, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
-    html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_com_placeholder, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
+    # Re-formatar o texto completo (isso é necessário para limpar <br> extras)
+    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto_joined, aplicar_numeracao=True)
+    html_belfar_marcado = formatar_html_para_leitura(html_belfar_bruto_joined, aplicar_numeracao=False)
+    # --- [FIM DA MODIFICAÇÃO] ---
 
-    # 4. Definir o estilo do highlight azul e substituir os placeholders pelo HTML final
-    blue_highlight_style = "background-color: #DDEEFF; padding: 1px 3px; border: 1px solid #0000FF; border-radius: 3px;"
-    
-    html_ref_bruto = html_ref_bruto.replace("__ANVISA_START__", f"<mark style='{blue_highlight_style}'>")
-    html_ref_bruto = html_ref_bruto.replace("__ANVISA_END__", "</mark>")
-    
-    html_belfar_marcado_bruto = html_belfar_marcado_bruto.replace("__ANVISA_START__", f"<mark style='{blue_highlight_style}'>")
-    html_belfar_marcado_bruto = html_belfar_marcado_bruto.replace("__ANVISA_END__", "</mark>")
-    
-    # --- [FIM DA LÓGICA DE DESTAQUE AZUL DA ANVISA] ---
-
-
-    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
-    # Agora formatamos o HTML que já contém os destaques (amarelo, vermelho E azul)
-    html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
-    html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
 
     caixa_style = (
         "max-height: 700px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px 24px; "
