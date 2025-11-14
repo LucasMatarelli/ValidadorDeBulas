@@ -747,7 +747,94 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     
     return html_content_final
 # ----------------- MARCAÇÃO HTML (FUNÇÃO AUSENTE) -----------------
-# [REMOVIDA] A função marcar_divergencias_html foi integrada em gerar_relatorio_final
+def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia):
+    """
+    Recria o texto HTML completo, marcando seções divergentes e erros ortográficos.
+    Usa a função 'marcar_diferencas_palavra_por_palavra' para as seções com 'status' == 'diferente'.
+    """
+    if not texto_original:
+        return ""
+
+    secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
+    secoes_ignorar_comp = [s.upper() for s in obter_secoes_ignorar_comparacao()]
+    
+    # Mapear o texto que estamos processando (Ref ou Belfar)
+    # v40 - Usando o texto PRÉ-PROCESSADO por 'corrigir_quebras_em_titulos'
+    linhas_texto = re.sub(r'\n{2,}', '\n', texto_original).split('\n')
+    mapa_secoes_texto = mapear_secoes(texto_original, secoes_esperadas)
+
+    # Criar um lookup rápido para os problemas
+    problemas_lookup = {item['secao']: item for item in secoes_problema_lista_dicionarios}
+
+    texto_html_final_secoes = {}
+    
+    # 1. Processar todas as seções encontradas no texto original
+    for i, secao_info in enumerate(mapa_secoes_texto):
+        secao_canonico = secao_info['canonico']
+        
+        # Obter o conteúdo completo desta seção (com título)
+        # v40 - Usando o 'obter_dados_secao' corrigido
+        encontrou, titulo, conteudo_secao_atual = obter_dados_secao(secao_canonico, mapa_secoes_texto, linhas_texto)
+        
+        if not encontrou:
+            continue
+
+        item_problema = problemas_lookup.get(secao_canonico)
+
+        # Se a seção é problemática (diferente) E NÃO é ignorada
+        # (Graças à modificação, 'status' == 'diferente' agora também se o título for diferente)
+        if item_problema and item_problema['status'] == 'diferente' and secao_canonico.upper() not in secoes_ignorar_comp:
+            texto_ref_problema = item_problema.get('conteudo_ref', '')
+            texto_bel_problema = item_problema.get('conteudo_belfar', '')
+            
+            # Usamos a função já existente para marcar as palavras
+            html_marcado = marcar_diferencas_palavra_por_palavra(
+                texto_ref_problema, 
+                texto_bel_problema, 
+                eh_referencia=eh_referencia
+            )
+            texto_html_final_secoes[secao_canonico] = html_marcado
+        
+        # Se não é problemática, ou é ignorada, apenas adiciona o conteúdo original
+        # (O conteúdo 'belfar' já pode conter o título destacado, se for diferente)
+        else:
+            if eh_referencia:
+                 texto_html_final_secoes[secao_canonico] = item_problema.get('conteudo_ref', conteudo_secao_atual) if item_problema else conteudo_secao_atual
+            else:
+                 texto_html_final_secoes[secao_canonico] = item_problema.get('conteudo_belfar', conteudo_secao_atual) if item_problema else conteudo_secao_atual
+
+
+    # 2. Reconstruir o texto na ordem que foi encontrado no arquivo
+    html_bruto = "\n\n".join(texto_html_final_secoes.get(m['canonico'], '') for m in mapa_secoes_texto if m['canonico'] in texto_html_final_secoes)
+
+    # 3. Aplicar marcação de erros ortográficos (apenas no texto Belfar)
+    if not eh_referencia and erros_ortograficos:
+        import html
+        # Regex para encontrar as palavras de erro, mas evitando estar dentro de tags HTML
+        try:
+            palavras_regex = r'\b(' + '|'.join(re.escape(e) for e in erros_ortograficos) + r')\b'
+            
+            partes = re.split(r'(<[^>]+>)', html_bruto) # Divide por tags HTML
+            resultado_final = []
+            for parte in partes:
+                if parte.startswith('<'):
+                    resultado_final.append(parte) # É uma tag, mantém
+                else:
+                    # Não é uma tag, aplicar regex de ortografia
+                    parte_escapada = html.unescape(parte)
+                    parte_marcada = re.sub(
+                        palavras_regex, 
+                        lambda m: f"<mark style='background-color: #ffcccb; padding: 2px; border: 1px dashed red;'>{m.group(1)}</mark>", 
+                        parte_escapada, 
+                        flags=re.IGNORECASE
+                    )
+                    resultado_final.append(parte_marcada)
+            html_bruto = "".join(resultado_final)
+        except re.error:
+            # Evita que um regex mal formado (ex: palavra com caractere especial) quebre a app
+            pass 
+
+    return html_bruto
 
 # --- [NOVA FUNÇÃO AUXILIAR] ---
 def _aplicar_highlight_ortografia(html_bruto, erros_ortograficos):
@@ -759,10 +846,7 @@ def _aplicar_highlight_ortografia(html_bruto, erros_ortograficos):
         return html_bruto
     import html
     try:
-        # Criar um regex seguro que evite caracteres especiais de regex
-        palavras_escapadas = [re.escape(e) for e in erros_ortograficos]
-        palavras_regex = r'\b(' + '|'.join(palavras_escapadas) + r')\b'
-        
+        palavras_regex = r'\b(' + '|'.join(re.escape(e) for e in erros_ortograficos) + r')\b'
         partes = re.split(r'(<[^>]+>)', html_bruto) # Divide por tags HTML
         resultado_final = []
         for parte in partes:
@@ -824,7 +908,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     
     # --- [INÍCIO DA MODIFICAÇÃO] ---
     # Definir estilos de highlight ANTES do loop
-    rx_anvisa_highlight = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
+    rx_anvisa_highlight = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
     blue_highlight_style = "background-color: #DDEEFF; padding: 1px 3px; border: 1px solid #0000FF; border-radius: 3px;"
     
     mapa_secoes_ref = mapear_secoes(texto_ref, obter_secoes_por_tipo(tipo_bula))
@@ -840,14 +924,11 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         status = item['status']
         conteudo_ref_str = item.get('conteudo_ref') or ""
         conteudo_belfar_str = item.get('conteudo_belfar') or ""
-        
-        # Ignorar seções que não devem ser comparadas (mas ainda serão exibidas)
-        is_ignored_section = secao_nome.upper() in [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
         html_ref_marcado = ""
         html_bel_marcado = ""
 
-        if status == 'diferente' and not is_ignored_section:
+        if status == 'diferente':
             # 1. Aplicar highlight amarelo (diff)
             html_ref_marcado = marcar_diferencas_palavra_por_palavra(conteudo_ref_str, conteudo_belfar_str, eh_referencia=True)
             html_bel_marcado = marcar_diferencas_palavra_por_palavra(conteudo_ref_str, conteudo_belfar_str, eh_referencia=False)
@@ -855,7 +936,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
             # 2. Aplicar highlight vermelho (ortografia) no Belfar
             html_bel_marcado = _aplicar_highlight_ortografia(html_bel_marcado, erros_ortograficos)
         
-        else: # status == 'identica' ou 'faltante' ou 'is_ignored'
+        else: # status == 'identica' ou 'faltante'
             html_ref_marcado = conteudo_ref_str
             html_bel_marcado = conteudo_belfar_str
 
@@ -877,7 +958,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         html_ref_formatado = html_final_ref.get(secao_nome, "")
         html_bel_formatado = html_final_belfar.get(secao_nome, "")
 
-        if status == 'diferente' and not is_ignored_section:
+        if status == 'diferente':
             with st.expander(f"📄 {secao_nome} - ❌ CONTEÚDO DIVERGENTE"):
                 c1, c2 = st.columns(2)
                 with c1:
