@@ -293,7 +293,7 @@ def obter_aliases_secao():
         "COMO ESTE MEDICAMENTO FUNCIONA?": "2.COMO ESTE MEDICAMENTO FUNCIONA?",
         "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
         "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICamento?": "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
         "COMO DEVO USAR ESTE MEDICAMENTO?": "6.COMO DEVO USAR ESTE MEDICAMENTO?",
         "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
         "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
@@ -642,10 +642,10 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
 
     cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
     # [v42] Melhorado: título com mais destaque visual e espaçamento
-    estilo_titulo_inline = (
+    # REMOVIDO: cor_titulo da definição base, será definido dinamicamente
+    estilo_titulo_base = (
         f"font-family: 'Georgia', 'Times New Roman', serif; "
         f"font-weight: 700; "
-        f"color: {cor_titulo}; "
         f"font-size: 16px; "
         f"margin-top: 16px; "
         f"margin-bottom: 12px; "
@@ -673,19 +673,11 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         # Lógica de detecção de título modificada para usar fuzzy matching
         is_title = False
         if linha_strip_sem_tags:
-            # Isso permite que "APRESENTAÇÃO" (MKT) seja formatado como um 
-            # título, mesmo sendo ligeiramente diferente de "APRESENTAÇÕES" (Ref).
             linha_norm_sem_tags = normalizar_titulo_para_comparacao(linha_strip_sem_tags)
             
-            # Checagem 1: Match exato (rápido)
             if linha_norm_sem_tags in titulos_validos_norm:
                 is_title = True
             else:
-                # Checagem 2: Match por fuzzy (para "APRESENTAÇÃO" vs "APRESENTAÇÕES")
-                # E checagem se a linha se parece com um título (isupper, etc)
-                # para evitar que um parágrafo aleatório seja formatado como título.
-                
-                # Usamos a linha 'sem tags' para verificar o formato
                 if is_titulo_secao(linha_strip_sem_tags):
                     best_score = 0
                     for valid_norm in titulos_validos_norm:
@@ -698,6 +690,17 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
         # --- [FIM DA MODIFICAÇÃO] ---
 
         if is_title:
+            # --- [INÍCIO DA MODIFICAÇÃO] ---
+            # Checa se o título TEM o marca-texto amarelo
+            is_divergent = '#ffff99' in linha_strip
+            
+            # Define a cor do texto: Se for divergente, usa PRETO. Senão, usa a cor padrão.
+            cor_atual = "#000000" if is_divergent else cor_titulo
+            
+            # Monta o estilo final com a cor correta
+            estilo_titulo_inline_atualizado = f"{estilo_titulo_base} color: {cor_atual};"
+            # --- [FIM DA MODIFICAÇÃO] ---
+
             titulo_formatado = linha_strip
             
             # [v42] Melhorado: remove TODAS as quebras de linha internas e normaliza espaços
@@ -715,7 +718,8 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
             if linhas_formatadas and linhas_formatadas[-1]:
                 linhas_formatadas.append("")  # Espaço antes do título
             
-            linhas_formatadas.append(f'<div style="{estilo_titulo_inline}">{titulo_formatado.strip()}</div>')
+            # Usa o estilo ATUALIZADO
+            linhas_formatadas.append(f'<div style="{estilo_titulo_inline_atualizado}">{titulo_formatado.strip()}</div>')
             linha_anterior_foi_titulo = True
         
         else:
