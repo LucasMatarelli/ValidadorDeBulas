@@ -679,7 +679,6 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content_final = re.sub(r'(<br\s*/?>\s*)+$', '', html_content_final)
     
     return html_content_final
-
 # ----------------- MARCAÇÃO HTML (FUNÇÃO AUSENTE) -----------------
 def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia):
     """
