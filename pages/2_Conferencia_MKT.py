@@ -463,11 +463,11 @@ def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_secti
     dst['conteudo_bel'] = combined
     src['conteudo_bel'] = restante_bel
 
-# ----------------- VERIFICAÇÃO E COMPARAÇÃO -----------------
+# ----------------- VERIFICAÇÃO E COMPARAÇÃO (MODIFICADO) -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
     secoes_esperadas = obter_secoes_por_tipo(tipo_bula)
     secoes_faltantes = []
-    diferencas_titulos = []
+    diferencas_titulos = [] # <-- MODIFICADO: Esta lista será populada primeiro
     relatorio_comparacao_completo = []
     similaridade_geral = []
     secoes_ignorar_upper = [s.upper() for s in obter_secoes_ignorar_comparacao()]
@@ -496,6 +496,22 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
     realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES')
 
+    # --- [INÍCIO DA MODIFICAÇÃO] ---
+    # 1. Encontrar títulos diferentes ANTES de construir o relatório
+    titulos_ref_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_ref}
+    titulos_belfar_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_belfar}
+    secoes_com_titulos_diferentes = set()
+    
+    # 'diferencas_titulos' (a lista) é populada aqui agora
+    for secao_canonico, titulo_ref in titulos_ref_encontrados.items():
+        if secao_canonico in titulos_belfar_encontrados:
+            titulo_bel = titulos_belfar_encontrados[secao_canonico]
+            if normalizar_titulo_para_comparacao(titulo_ref) != normalizar_titulo_para_comparacao(titulo_bel):
+                secoes_com_titulos_diferentes.add(secao_canonico) # Adiciona ao set para lookup rápido
+                diferencas_titulos.append({'secao_esperada': secao_canonico, 'titulo_encontrado': titulo_bel})
+    # --- [FIM DA MODIFICAÇÃO] ---
+
+
     for sec in secoes_esperadas:
         item = conteudos[sec]
         encontrou_ref = item['encontrou_ref']
@@ -506,11 +522,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
         titulo_bel = item.get('titulo_bel') or ""
 
         # [CORREÇÃO v28] - Bloco desativado
-        # if titulo_bel and titulo_ref and normalizar_titulo_para_comparacao(titulo_bel) != normalizar_titulo_para_comparacao(titulo_ref):
-        #    estilo_titulo_inline = "font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: #0b8a3e; font-size:15px; margin-bottom:8px;"
-        #    titulo_html = titulo_bel.replace('\n', '<br>')
-        #    marcado = f'<div style="{estilo_titulo_inline}"><mark style="background-color:#ffff99; padding:2px;">{titulo_html}</mark></div>'
-        #    conteudo_bel = re.sub(re.escape(titulo_bel), marcado, conteudo_bel, count=1)
+        # ... (código omitido) ...
 
         if not encontrou_bel:
             relatorio_comparacao_completo.append({'secao': sec, 'status': 'faltante', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': ""})
@@ -521,22 +533,26 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
                 relatorio_comparacao_completo.append({'secao': sec, 'status': 'identica', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_bel})
                 similaridade_geral.append(100)
             else:
-                if normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_bel):
+                # --- [INÍCIO DA MODIFICAÇÃO] ---
+                # 2. Verificar se o TÍTULO é diferente (usando o set) OU se o CONTEÚDO é diferente
+                titulo_difere = sec in secoes_com_titulos_diferentes
+                conteudo_difere = normalizar_texto(conteudo_ref) != normalizar_texto(conteudo_bel)
+
+                if titulo_difere or conteudo_difere:
+                    # Se o título OU o conteúdo diferir, marca como 'diferente'
                     relatorio_comparacao_completo.append({'secao': sec, 'status': 'diferente', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_bel})
-                    similaridade_geral.append(0)
+                    similaridade_geral.append(0) # Se o título ou conteúdo for diferente, conta como 0%
                 else:
+                    # Somente se AMBOS forem idênticos
                     relatorio_comparacao_completo.append({'secao': sec, 'status': 'identica', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_bel})
                     similaridade_geral.append(100)
+                # --- [FIM DA MODIFICAÇÃO] ---
 
-    titulos_ref_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_ref}
-    titulos_belfar_encontrados = {m['canonico']: m['titulo_encontrado'] for m in mapa_belfar}
-    for secao_canonico, titulo_ref in titulos_ref_encontrados.items():
-        if secao_canonico in titulos_belfar_encontrados:
-            titulo_bel = titulos_belfar_encontrados[secao_canonico]
-            if normalizar_titulo_para_comparacao(titulo_ref) != normalizar_titulo_para_comparacao(titulo_bel):
-                diferencas_titulos.append({'secao_esperada': secao_canonico, 'titulo_encontrado': titulo_bel})
-
+    # --- [INÍCIO DA MODIFICAÇÃO] ---
+    # O loop que populava 'diferencas_titulos' foi movido para cima.
+    # A função agora retorna a lista 'diferencas_titulos' que foi populada anteriormente.
     return secoes_faltantes, relatorio_comparacao_completo, similaridade_geral, diferencas_titulos
+    # --- [FIM DA MODIFICAÇÃO] ---
 
 # ----------------- ORTOGRAFIA, MARCAÇÃO, DIFERENÇAS (mantidos) -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia, tipo_bula):
@@ -731,6 +747,7 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
         item_problema = problemas_lookup.get(secao_canonico)
 
         # Se a seção é problemática (diferente) E NÃO é ignorada
+        # (Graças à modificação, 'status' == 'diferente' agora também se o título for diferente)
         if item_problema and item_problema['status'] == 'diferente' and secao_canonico.upper() not in secoes_ignorar_comp:
             texto_ref_problema = item_problema.get('conteudo_ref', '')
             texto_bel_problema = item_problema.get('conteudo_belfar', '')
@@ -787,26 +804,20 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
 # ----------------- GERAÇÃO DE RELATÓRIO E UI (mantido layout original) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
+    # A 'diferencas_titulos' agora é usada pela 'verificar_secoes_e_conteudo' para definir o status
     secoes_faltantes, relatorio_comparacao_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
-
-    # Injeta CSS para tornar o valor da métrica da Data ANVISA (col3) azul
-    st.markdown("""
-    <style>
-    div[data-testid="stHorizontalBlock"] > div:nth-child(3) div[data-testid="stMetricValue"] {
-        color: #0000FF; /* Azul */
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
     st.subheader("Dashboard de Veredito")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Conformidade de Conteúdo", f"{score_similaridade_conteudo:.0f}%")
     col2.metric("Erros Ortográficos", len(erros_ortograficos))
-    rx = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match_ref = re.search(rx, (texto_ref or "").lower())
-    match_bel = re.search(rx, (texto_belfar or "").lower())
+    
+    # Regex para a métrica (apenas para extrair a data)
+    rx_metrica = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    match_ref = re.search(rx_metrica, (texto_ref or "").lower())
+    match_bel = re.search(rx_metrica, (texto_belfar or "").lower())
     data_ref = match_ref.group(2) if match_ref else "Não encontrada"
     data_bel = match_bel.group(2) if match_bel else "Não encontrada"
     col3.metric("Data ANVISA (Ref)", data_ref)
@@ -872,10 +883,34 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("🎨 Visualização Lado a Lado com Destaques")
 
-    html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref or "", secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
-    html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar or "", secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
+    # --- [INÍCIO DA LÓGICA DE DESTAQUE AZUL DA ANVISA] ---
+    
+    # 1. Definir o regex para encontrar a data da ANVISA (Grupo 1 captura tudo)
+    rx_anvisa_highlight = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
+    
+    # 2. Aplicar placeholders ÚNICOS no texto original (case-insensitive)
+    #    'texto_ref' e 'texto_belfar' são os argumentos da função (o texto processado v40)
+    texto_ref_com_placeholder = re.sub(rx_anvisa_highlight, r"__ANVISA_START__\1__ANVISA_END__", texto_ref or "", flags=re.IGNORECASE)
+    texto_belfar_com_placeholder = re.sub(rx_anvisa_highlight, r"__ANVISA_START__\1__ANVISA_END__", texto_belfar or "", flags=re.IGNORECASE)
+
+    # 3. Passar os textos com placeholders para a função de marcação de diff/ortografia
+    html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_com_placeholder, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
+    html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_com_placeholder, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
+
+    # 4. Definir o estilo do highlight azul e substituir os placeholders pelo HTML final
+    blue_highlight_style = "background-color: #DDEEFF; padding: 1px 3px; border: 1px solid #0000FF; border-radius: 3px;"
+    
+    html_ref_bruto = html_ref_bruto.replace("__ANVISA_START__", f"<mark style='{blue_highlight_style}'>")
+    html_ref_bruto = html_ref_bruto.replace("__ANVISA_END__", "</mark>")
+    
+    html_belfar_marcado_bruto = html_belfar_marcado_bruto.replace("__ANVISA_START__", f"<mark style='{blue_highlight_style}'>")
+    html_belfar_marcado_bruto = html_belfar_marcado_bruto.replace("__ANVISA_END__", "</mark>")
+    
+    # --- [FIM DA LÓGICA DE DESTAQUE AZUL DA ANVISA] ---
+
 
     # [CORREÇÃO v31] - Simplificado, sem tipo_bula
+    # Agora formatamos o HTML que já contém os destaques (amarelo, vermelho E azul)
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
 
