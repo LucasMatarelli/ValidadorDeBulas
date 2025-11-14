@@ -346,10 +346,10 @@ def mapear_secoes(texto_completo, secoes_esperadas):
         
         if best_score < limiar_score:
              for titulo_norm, canonico in titulos_norm_lookup.items():
-                if titulo_norm and titulo_norm in norm_linha:
-                    best_score = 90
-                    best_canonico = canonico
-                    break
+                 if titulo_norm and titulo_norm in norm_linha:
+                     best_score = 90
+                     best_canonico = canonico
+                     break
 
         # 3. Avalia o match
         if best_score >= limiar_score and best_canonico:
@@ -507,10 +507,10 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula):
 
         # [CORREÇÃO v28] - Bloco desativado
         # if titulo_bel and titulo_ref and normalizar_titulo_para_comparacao(titulo_bel) != normalizar_titulo_para_comparacao(titulo_ref):
-        #     estilo_titulo_inline = "font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: #0b8a3e; font-size:15px; margin-bottom:8px;"
-        #     titulo_html = titulo_bel.replace('\n', '<br>')
-        #     marcado = f'<div style="{estilo_titulo_inline}"><mark style="background-color:#ffff99; padding:2px;">{titulo_html}</mark></div>'
-        #     conteudo_bel = re.sub(re.escape(titulo_bel), marcado, conteudo_bel, count=1)
+        #    estilo_titulo_inline = "font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: #0b8a3e; font-size:15px; margin-bottom:8px;"
+        #    titulo_html = titulo_bel.replace('\n', '<br>')
+        #    marcado = f'<div style="{estilo_titulo_inline}"><mark style="background-color:#ffff99; padding:2px;">{titulo_html}</mark></div>'
+        #    conteudo_bel = re.sub(re.escape(titulo_bel), marcado, conteudo_bel, count=1)
 
         if not encontrou_bel:
             relatorio_comparacao_completo.append({'secao': sec, 'status': 'faltante', 'conteudo_ref': conteudo_ref, 'conteudo_belfar': ""})
@@ -790,6 +790,15 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     secoes_faltantes, relatorio_comparacao_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
+
+    # Injeta CSS para tornar o valor da métrica da Data ANVISA (col3) azul
+    st.markdown("""
+    <style>
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) div[data-testid="stMetricValue"] {
+        color: #0000FF; /* Azul */
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     st.subheader("Dashboard de Veredito")
     col1, col2, col3, col4 = st.columns(4)
