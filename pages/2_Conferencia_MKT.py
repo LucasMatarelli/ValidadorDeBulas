@@ -592,16 +592,15 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- FORMATAÇÃO PARA LEITURA (v31 - Corrige Layout MKT) -----------------
+# ----------------- FORMATAÇÃO PARA LEITURA (v42 - Layout Melhorado) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
     
     # --- LÓGICA DE TÍTULO RESTRITA (v30 - Paciente Apenas) ---
     try:
-        # Hardcoded para "Paciente"
         secoes_validas = obter_secoes_por_tipo("Paciente") 
-        aliases = obter_aliases_secao() # Já filtrado
+        aliases = obter_aliases_secao()
         
         titulos_validos_norm = set(normalizar_titulo_para_comparacao(s) for s in secoes_validas)
         titulos_validos_norm.update(normalizar_titulo_para_comparacao(a) for a in aliases.keys())
@@ -610,67 +609,74 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     # --- FIM DA LÓGICA DE TÍTULO ---
 
     cor_titulo = "#0b5686" if aplicar_numeracao else "#0b8a3e"
-    estilo_titulo_inline = f"font-family: 'Georgia', 'Times New Roman', serif; font-weight:700; color: {cor_titulo}; font-size:15px; margin-bottom:8px;"
+    # [v42] Melhorado: título com mais destaque visual e espaçamento
+    estilo_titulo_inline = (
+        f"font-family: 'Georgia', 'Times New Roman', serif; "
+        f"font-weight: 700; "
+        f"color: {cor_titulo}; "
+        f"font-size: 16px; "
+        f"margin-top: 16px; "
+        f"margin-bottom: 12px; "
+        f"line-height: 1.4; "
+        f"display: block;"
+    )
 
-    # 1. Divide o texto por CADA quebra de linha (preserva o layout)
     linhas = html_content.split('\n')
-    
     linhas_formatadas = []
     linha_anterior_foi_titulo = False
 
     for linha in linhas:
         linha_strip = linha.strip()
         
-        # 2. Se a linha é VAZIA (será um <br> extra, criando o parágrafo)
         if not linha_strip:
-            # Evita <br><br> logo após um título
+            # [v42] Melhor controle de espaçamento após títulos
             if not linha_anterior_foi_titulo:
                 linhas_formatadas.append("") 
             linha_anterior_foi_titulo = False
             continue
 
-        # 3. Verifica se a linha é um TÍTULO
         linha_strip_sem_tags = re.sub(r'</?(?:mark|strong)[^>]*>', '', linha_strip, flags=re.IGNORECASE).strip()
         
         is_title = False
         if linha_strip_sem_tags:
-            # [Correção v32] A normalização aqui também trata o '\n'
             linha_norm_sem_tags = normalizar_titulo_para_comparacao(linha_strip_sem_tags)
             if linha_norm_sem_tags in titulos_validos_norm:
                 is_title = True
 
         if is_title:
-            titulo_formatado = linha_strip # A linha original, com tags <mark>
+            titulo_formatado = linha_strip
             
-            # --- CORREÇÃO DE LAYOUT MKT (v31) ---
-            # "Achata" o título, removendo quebras de linha de dentro dele
-            # Isso faz com que "O QUE DEVO...\nMEDICAMENTO?" vire "O QUE DEVO... MEDICAMENTO?"
-            titulo_formatado = titulo_formatado.replace("\n", " ").replace("<br>", " ")
-            titulo_formatado = re.sub(r'\s{2,}', ' ', titulo_formatado)
-            # --- FIM DA CORREÇÃO DE LAYOUT ---
+            # [v42] Melhorado: remove TODAS as quebras de linha internas e normaliza espaços
+            titulo_formatado = titulo_formatado.replace("\n", " ")
+            titulo_formatado = titulo_formatado.replace("<br>", " ")
+            titulo_formatado = titulo_formatado.replace("<br/>", " ")
+            titulo_formatado = re.sub(r'\s+', ' ', titulo_formatado)  # Normaliza múltiplos espaços
 
             if not aplicar_numeracao:
-                 # Remove o N. do início, preservando as tags <mark>
-                 titulo_formatado = re.sub(r'^\s*(<mark[^>]*>)\s*\d+\s*[\.\-)]*\s*(</mark>)', r'\1\2', titulo_formatado, count=1, flags=re.IGNORECASE)
-                 titulo_formatado = re.sub(r'^\s*(<mark[^>]*>)\s*\d+\s*[\.\-)]*\s*', r'\1', titulo_formatado, count=1, flags=re.IGNORECASE)
-                 titulo_formatado = re.sub(r'^\s*\d+\s*[\.\-)]*\s*(<mark[^>]*>)', r'\1', titulo_formatado, count=1, flags=re.IGNORECASE)
-                 titulo_formatado = re.sub(r'^\s*\d+\s*[\.\-)]*\s*', '', titulo_formatado, count=1)
+                # Remove numeração preservando tags <mark>
+                titulo_formatado = re.sub(r'^\s*(<mark[^>]*>)?\s*\d+\s*[\.\-)]*\s*(</mark>)?', r'\1\2', titulo_formatado, flags=re.IGNORECASE)
+                titulo_formatado = re.sub(r'^\s*\d+\s*[\.\-)]*\s*', '', titulo_formatado)
             
-            # Adiciona a div de estilo
+            # [v42] Adiciona margem superior para separar do conteúdo anterior
+            if linhas_formatadas and linhas_formatadas[-1]:
+                linhas_formatadas.append("")  # Espaço antes do título
+            
             linhas_formatadas.append(f'<div style="{estilo_titulo_inline}">{titulo_formatado.strip()}</div>')
             linha_anterior_foi_titulo = True
         
-        else: 
-            # 4. NÃO é um título, é um CONTEÚDO.
+        else:
             linhas_formatadas.append(linha_strip)
             linha_anterior_foi_titulo = False
     
-    # 5. Junta todas as linhas com <br>
+    # [v42] Melhorado: junta com <br> e faz limpeza mais eficiente
     html_content_final = "<br>".join(linhas_formatadas)
-
-    # 6. Limpeza final
-    html_content_final = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content_final) 
-    html_content_final = re.sub(r'^\s*(<br\s*/?>\s*)+', '', html_content_final) 
+    
+    # Remove múltiplas quebras consecutivas (mantém no máximo 2)
+    html_content_final = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', html_content_final)
+    # Remove quebras no início
+    html_content_final = re.sub(r'^\s*(<br\s*/?>\s*)+', '', html_content_final)
+    # Remove quebras no final
+    html_content_final = re.sub(r'(<br\s*/?>\s*)+$', '', html_content_final)
     
     return html_content_final
 
