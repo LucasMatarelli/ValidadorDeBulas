@@ -624,7 +624,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
-# ----------------- FORMATAÇÃO PARA LEITURA (v42 - Layout Melhorado) -----------------
+# ----------------- FORMATAÇÃO PARA LEITURA (v42 - Layout Melhorado - MODIFICADO) -----------------
 def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     if html_content is None:
         return ""
@@ -669,11 +669,33 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
 
         linha_strip_sem_tags = re.sub(r'</?(?:mark|strong)[^>]*>', '', linha_strip, flags=re.IGNORECASE).strip()
         
+        # --- [INÍCIO DA MODIFICAÇÃO] ---
+        # Lógica de detecção de título modificada para usar fuzzy matching
         is_title = False
         if linha_strip_sem_tags:
+            # Isso permite que "APRESENTAÇÃO" (MKT) seja formatado como um 
+            # título, mesmo sendo ligeiramente diferente de "APRESENTAÇÕES" (Ref).
             linha_norm_sem_tags = normalizar_titulo_para_comparacao(linha_strip_sem_tags)
+            
+            # Checagem 1: Match exato (rápido)
             if linha_norm_sem_tags in titulos_validos_norm:
                 is_title = True
+            else:
+                # Checagem 2: Match por fuzzy (para "APRESENTAÇÃO" vs "APRESENTAÇÕES")
+                # E checagem se a linha se parece com um título (isupper, etc)
+                # para evitar que um parágrafo aleatório seja formatado como título.
+                
+                # Usamos a linha 'sem tags' para verificar o formato
+                if is_titulo_secao(linha_strip_sem_tags):
+                    best_score = 0
+                    for valid_norm in titulos_validos_norm:
+                        score = fuzz.ratio(linha_norm_sem_tags, valid_norm)
+                        if score > best_score:
+                            best_score = score
+                    
+                    if best_score > 85: # Limiar de 85
+                        is_title = True
+        # --- [FIM DA MODIFICAÇÃO] ---
 
         if is_title:
             titulo_formatado = linha_strip
