@@ -1,19 +1,14 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v42 - Limpeza de Lixo MKT e Highlights Corrigidos
-# - AJUSTADA a função 'extrair_texto' (v42):
-#   - Margens de clipping (corte) Y (topo/rodapé) reduzidas
-#     para não cortar 'APRESENTAÇÕES'.
-#   - Margens X (laterais) mantidas para remover lixo das bordas.
-#   - Adicionadas regras de Regex (inline e linha) para
-#     remover "lixo" específico que escapa (ex: "300, 00", "mido_BUL...").
-# - CRIADA a função helper '_aplicar_marcas_ortografia' (v42):
-#   - Isola a lógica do highlight vermelho de ortografia.
-# - ATUALIZADA a 'gerar_relatorio_final' (v42):
-#   - O loop do 'expander' (Análise Detalhada) agora aplica
-#     CORRETAMENTE os 3 highlights (amarelo, azul e vermelho).
-# - ATUALIZADA a 'marcar_divergencias_html' (v42):
-#   - Agora usa o novo helper '_aplicar_marcas_ortografia'.
+# Versão v43 - Limpeza de Lixo MKT Reforçada (Clipping + Regex)
+# - AJUSTADA a função 'extrair_texto' (v43):
+#   - Margens de clipping (corte) Y (topo/rodapé) ajustadas para 10%
+#     (um balanço entre salvar 'APRESENTAÇÕES' e remover lixo).
+#   - REFORÇADAS as regras de Regex (inline e linha) para
+#     remover "lixo" específico que escapa (ex: "Belmirax_comprimi",
+#     "mido_BUL...", "300, 00", "00300, 00").
+# - Mantém a lógica de highlights (amarelo, azul, vermelho)
+#   nos expanders da v42.
 
 import re
 import difflib
@@ -71,7 +66,7 @@ def truncar_apos_anvisa(texto):
         cut_off_position += pos_match.end()
     return texto[:cut_off_position]
 
-# --- [FUNÇÃO MODIFICADA v42] ---
+# --- [FUNÇÃO MODIFICADA v43] ---
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -86,12 +81,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     for page in doc:
                         rect = page.rect
                         
-                        # --- [INÍCIO DA CORREÇÃO v42] ---
-                        # Margens ajustadas: Y (topo/rodapé) menor para
-                        # não cortar 'APRESENTAÇÕES'.
-                        # X (laterais) maior para cortar lixo da margem (ex: 300,00 mm).
-                        margin_y_top = rect.height * 0.05    # 5% de margem superior
-                        margin_y_bottom = rect.height * 0.05  # 5% de margem inferior
+                        # --- [INÍCIO DA CORREÇÃO v43] ---
+                        # Margens de clipping ajustadas para 10% (balanço)
+                        margin_y_top = rect.height * 0.10    # 10% de margem superior
+                        margin_y_bottom = rect.height * 0.10  # 10% de margem inferior
                         margin_x_left = rect.width * 0.10     # 10% de margem esquerda
                         margin_x_right = rect.width * 0.10    # 10% de margem direita
                         
@@ -113,7 +106,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                             rect.width - margin_x_right, # x1 (fim X)
                             rect.height - margin_y_bottom # y1 (fim Y)
                         )
-                        # --- [FIM DA CORREÇÃO v42] ---
+                        # --- [FIM DA CORREÇÃO v43] ---
 
                         texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
                         texto_direita = page.get_text("text", clip=clip_direita, sort=True)
@@ -168,7 +161,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*'
                 r'|^\s*INFORMA[ÇC][OÕ]ES\s+(AO|PARA)\s+(O\s+)?PACIENTE.*'
                 r'|^\s*BULA\s+PARA\s+(O\s+)?PACIENTE.*'
-                r'|^\s*(?:mido|Belmirax_comprimi(?:do)?)?_?\s*BUL\d+V\d+\s*$' # <--- [v42] Lixo MKT
+                # --- [INÍCIO DA CORREÇÃO v43] ---
+                # Regex mais forte para lixo de cabeçalho (linha inteira)
+                r'|^\s*(?:Belmirax_comprimi\w*|mido)(?:_BUL\d+V\d+)?\s*$'
+                # --- [FIM DA CORREÇÃO v43] ---
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
@@ -184,8 +180,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|(?<=\s)\d{3}(?=\s[a-zA-Z])'
                 r'|(?<=\s)mm(?=\s)'
                 r'|\b\d+([,.]\d+)?\s*mm\b' # Remove "150,00 mm"
-                r'|\b(?:mido|Belmirax_comprimi(?:do)?)?_?\s*BUL\d+V\d+\b' # <--- [v42] Lixo MKT
-                r'|\b(300\s*,\s*00|00300)\b' # <--- [v42] Lixo MKT (números)
+                # --- [INÍCIO DA CORREÇÃO v43] ---
+                # Regex mais forte para lixo de cabeçalho (inline)
+                r'|\b(?:Belmirax_comprimi\w*|mido)(?:_BUL\d+V\d+)?\b'
+                # Regex mais forte para lixo numérico (inline)
+                r'|\b(300\s*,\s*00|00300\s*,\s*00|00300)\b'
+                # --- [FIM DA CORREÇÃO v43] ---
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
 
@@ -1046,7 +1046,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         with st.spinner("🔄 Processando e analisando as bulas..."):
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # [v42] Texto RAW é extraído com o 'extrair_texto' corrigido
+            # [v43] Texto RAW é extraído com o 'extrair_texto' (v43)
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
@@ -1071,4 +1071,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref_processado, texto_belfar_processado, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v42 | Limpeza de Lixo MKT e Highlights Corrigidos.")
+st.caption("Sistema de Auditoria de Bulas v43 | Limpeza de Lixo MKT Reforçada.")
