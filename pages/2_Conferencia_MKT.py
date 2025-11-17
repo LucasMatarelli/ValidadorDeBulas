@@ -1,20 +1,20 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v40 - Correção Definitiva do Mapeamento
-# - CORRIGIDA a função 'corrigir_quebras_em_titulos' (v40).
-#   Ela agora ignora linhas vazias e junta corretamente os
-#   títulos de MKT separados por '\n\n'.
-# - Isso corrige o bug "4 não ta puxando" e o "6 engolindo 7".
-# - Mantém o foco 100% em Paciente e o layout "achatado" do MKT.
-# - Mantém a correção do '\n' em 'normalizar_texto' (v32).
-# - Mantém a correção do 'is_titulo_secao' (v34).
+# Versão v41 - Correção de Extração MKT (Clipping)
+# - CORRIGIDA a função 'extrair_texto' (v41).
+#   Ela agora aplica margens virtuais ao ler o PDF MKT,
+#   ignorando cabeçalhos, rodapés e medidas nas laterais.
+# - Isso corrige o bug dos números ("300, 00300") e
+#   textos cortados ("Belmirax_comprimi") que eram
+#   puxados das margens.
+# - Mantém a correção do highlight nos expanders (v40.1).
 
 import re
 import difflib
 import unicodedata
 import io
 import streamlit as st
-import fitz # PyMuPDF
+import fitz  # PyMuPDF
 import docx
 import spacy
 from thefuzz import fuzz
@@ -65,6 +65,7 @@ def truncar_apos_anvisa(texto):
         cut_off_position += pos_match.end()
     return texto[:cut_off_position]
 
+# --- [FUNÇÃO MODIFICADA v41] ---
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -78,8 +79,36 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 if is_marketing_pdf:
                     for page in doc:
                         rect = page.rect
-                        clip_esquerda = fitz.Rect(0, 0, rect.width / 2, rect.height)
-                        clip_direita = fitz.Rect(rect.width / 2, 0, rect.width, rect.height)
+                        
+                        # --- [INÍCIO DA CORREÇÃO v41] ---
+                        # Aplicar margens para focar apenas no conteúdo (o "quadrado vermelho")
+                        # Isso remove cabeçalhos (ex: Belmirax_comprimi)
+                        # e medidas nas margens (ex: 150,00 mm, 300,00 mm, 300, 00300, 00)
+                        margin_y_top = rect.height * 0.12  # 12% de margem superior
+                        margin_y_bottom = rect.height * 0.10 # 10% de margem inferior
+                        margin_x_left = rect.width * 0.08   # 8% de margem esquerda
+                        margin_x_right = rect.width * 0.08  # 8% de margem direita
+                        
+                        # Ponto de divisão central
+                        mid_x = rect.width / 2
+                        
+                        # Clip da Esquerda (coluna 1)
+                        clip_esquerda = fitz.Rect(
+                            margin_x_left,           # x0 (início X)
+                            margin_y_top,            # y0 (início Y)
+                            mid_x,                   # x1 (fim X)
+                            rect.height - margin_y_bottom # y1 (fim Y)
+                        )
+                        
+                        # Clip da Direita (coluna 2)
+                        clip_direita = fitz.Rect(
+                            mid_x,                   # x0 (início X)
+                            margin_y_top,            # y0 (início Y)
+                            rect.width - margin_x_right, # x1 (fim X)
+                            rect.height - margin_y_bottom # y1 (fim Y)
+                        )
+                        # --- [FIM DA CORREÇÃO v41] ---
+
                         texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
                         texto_direita = page.get_text("text", clip=clip_direita, sort=True)
                         full_text_list.append(texto_esquerda)
@@ -123,7 +152,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|Cor:? Preta|contato:?|artes@belfar\.com\.br'
                 r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
-                r'|^\s*\d+\s*mm\s*$'
+                r'|^\s*\d+\s*mm\s*$' # <--- [v41] Mantido, remove linhas SÓ com 'mm'
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
                 r'|BUL_CLORIDRATO_DE_[A-Z].*'
                 r'|\d{2}\s\d{4}\s\d{4}.*'
@@ -147,6 +176,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|olL: Times New Roman.*?'
                 r'|(?<=\s)\d{3}(?=\s[a-zA-Z])'
                 r'|(?<=\s)mm(?=\s)'
+                r'|\b\d+([,.]\d+)?\s*mm\b' # <--- [v41] Adicionado para remover "150,00 mm" inline
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
 
@@ -878,7 +908,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**Arquivo ANVISA:**")
-                    # --- [INÍCIO DA CORREÇÃO] ---
+                    # --- [INÍCIO DA CORREÇÃO (v40.1)] ---
                     # 1. Aplicar o marca-texto de diferenças
                     html_ref_com_marcas = marcar_diferencas_palavra_por_palavra(
                         conteudo_ref_str, 
@@ -888,10 +918,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     # 2. Formatar o HTML (que agora contém as marcas) para exibição
                     html_ref = formatar_html_para_leitura(html_ref_com_marcas, aplicar_numeracao=True)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
-                    # --- [FIM DA CORREÇÃO] ---
+                    # --- [FIM DA CORREÇÃO (v40.1)] ---
                 with c2:
                     st.markdown("**Arquivo MKT:**")
-                    # --- [INÍCIO DA CORREÇÃO] ---
+                    # --- [INÍCIO DA CORREÇÃO (v40.1)] ---
                     # 1. Aplicar o marca-texto de diferenças
                     html_bel_com_marcas = marcar_diferencas_palavra_por_palavra(
                         conteudo_ref_str, 
@@ -901,7 +931,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
                     # 2. Formatar o HTML (que agora contém as marcas) para exibição
                     html_bel = formatar_html_para_leitura(html_bel_com_marcas, aplicar_numeracao=False)
                     st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
-                    # --- [FIM DA CORREÇÃO] ---
+                    # --- [FIM DA CORREÇÃO (v40.1)] ---
         else:
             expander_title = f"📄 {secao_nome} - ✅ CONTEÚDO IDÊNTICO"
             if is_ignored_section:
@@ -995,7 +1025,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         with st.spinner("🔄 Processando e analisando as bulas..."):
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # [v40] Texto RAW é extraído
+            # [v41] Texto RAW é extraído com o NOVO 'extrair_texto'
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
@@ -1020,4 +1050,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref_processado, texto_belfar_processado, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v40 | Mapeamento Pré-processado (Corrigido).")
+st.caption("Sistema de Auditoria de Bulas v41 | Extração MKT Corrigida (Clipping).")
