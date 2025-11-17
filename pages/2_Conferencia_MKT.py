@@ -1,13 +1,19 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v41 - Correção de Extração MKT (Clipping)
-# - CORRIGIDA a função 'extrair_texto' (v41).
-#   Ela agora aplica margens virtuais ao ler o PDF MKT,
-#   ignorando cabeçalhos, rodapés e medidas nas laterais.
-# - Isso corrige o bug dos números ("300, 00300") e
-#   textos cortados ("Belmirax_comprimi") que eram
-#   puxados das margens.
-# - Mantém a correção do highlight nos expanders (v40.1).
+# Versão v42 - Limpeza de Lixo MKT e Highlights Corrigidos
+# - AJUSTADA a função 'extrair_texto' (v42):
+#   - Margens de clipping (corte) Y (topo/rodapé) reduzidas
+#     para não cortar 'APRESENTAÇÕES'.
+#   - Margens X (laterais) mantidas para remover lixo das bordas.
+#   - Adicionadas regras de Regex (inline e linha) para
+#     remover "lixo" específico que escapa (ex: "300, 00", "mido_BUL...").
+# - CRIADA a função helper '_aplicar_marcas_ortografia' (v42):
+#   - Isola a lógica do highlight vermelho de ortografia.
+# - ATUALIZADA a 'gerar_relatorio_final' (v42):
+#   - O loop do 'expander' (Análise Detalhada) agora aplica
+#     CORRETAMENTE os 3 highlights (amarelo, azul e vermelho).
+# - ATUALIZADA a 'marcar_divergencias_html' (v42):
+#   - Agora usa o novo helper '_aplicar_marcas_ortografia'.
 
 import re
 import difflib
@@ -65,7 +71,7 @@ def truncar_apos_anvisa(texto):
         cut_off_position += pos_match.end()
     return texto[:cut_off_position]
 
-# --- [FUNÇÃO MODIFICADA v41] ---
+# --- [FUNÇÃO MODIFICADA v42] ---
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -80,14 +86,14 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     for page in doc:
                         rect = page.rect
                         
-                        # --- [INÍCIO DA CORREÇÃO v41] ---
-                        # Aplicar margens para focar apenas no conteúdo (o "quadrado vermelho")
-                        # Isso remove cabeçalhos (ex: Belmirax_comprimi)
-                        # e medidas nas margens (ex: 150,00 mm, 300,00 mm, 300, 00300, 00)
-                        margin_y_top = rect.height * 0.12  # 12% de margem superior
-                        margin_y_bottom = rect.height * 0.10 # 10% de margem inferior
-                        margin_x_left = rect.width * 0.08   # 8% de margem esquerda
-                        margin_x_right = rect.width * 0.08  # 8% de margem direita
+                        # --- [INÍCIO DA CORREÇÃO v42] ---
+                        # Margens ajustadas: Y (topo/rodapé) menor para
+                        # não cortar 'APRESENTAÇÕES'.
+                        # X (laterais) maior para cortar lixo da margem (ex: 300,00 mm).
+                        margin_y_top = rect.height * 0.05    # 5% de margem superior
+                        margin_y_bottom = rect.height * 0.05  # 5% de margem inferior
+                        margin_x_left = rect.width * 0.10     # 10% de margem esquerda
+                        margin_x_right = rect.width * 0.10    # 10% de margem direita
                         
                         # Ponto de divisão central
                         mid_x = rect.width / 2
@@ -107,7 +113,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                             rect.width - margin_x_right, # x1 (fim X)
                             rect.height - margin_y_bottom # y1 (fim Y)
                         )
-                        # --- [FIM DA CORREÇÃO v41] ---
+                        # --- [FIM DA CORREÇÃO v42] ---
 
                         texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
                         texto_direita = page.get_text("text", clip=clip_direita, sort=True)
@@ -152,7 +158,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|Cor:? Preta|contato:?|artes@belfar\.com\.br'
                 r'|CLORIDRATO DE NAFAZOLINA: Times New Roman'
                 r'|^\s*FRENTE\s*$|^\s*VERSO\s*$'
-                r'|^\s*\d+\s*mm\s*$' # <--- [v41] Mantido, remove linhas SÓ com 'mm'
+                r'|^\s*\d+\s*mm\s*$'
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*GEM\s*$|^\s*ALTEFAR\s*$|^\s*RECICLAVEL\s*$|^\s*BUL\d+\s*$'
                 r'|BUL_CLORIDRATO_DE_[A-Z].*'
                 r'|\d{2}\s\d{4}\s\d{4}.*'
@@ -162,6 +168,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*'
                 r'|^\s*INFORMA[ÇC][OÕ]ES\s+(AO|PARA)\s+(O\s+)?PACIENTE.*'
                 r'|^\s*BULA\s+PARA\s+(O\s+)?PACIENTE.*'
+                r'|^\s*(?:mido|Belmirax_comprimi(?:do)?)?_?\s*BUL\d+V\d+\s*$' # <--- [v42] Lixo MKT
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
@@ -176,7 +183,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|olL: Times New Roman.*?'
                 r'|(?<=\s)\d{3}(?=\s[a-zA-Z])'
                 r'|(?<=\s)mm(?=\s)'
-                r'|\b\d+([,.]\d+)?\s*mm\b' # <--- [v41] Adicionado para remover "150,00 mm" inline
+                r'|\b\d+([,.]\d+)?\s*mm\b' # Remove "150,00 mm"
+                r'|\b(?:mido|Belmirax_comprimi(?:do)?)?_?\s*BUL\d+V\d+\b' # <--- [v42] Lixo MKT
+                r'|\b(300\s*,\s*00|00300)\b' # <--- [v42] Lixo MKT (números)
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
 
@@ -767,11 +776,49 @@ def formatar_html_para_leitura(html_content, aplicar_numeracao=False):
     html_content_final = re.sub(r'(<br\s*/?>\s*)+$', '', html_content_final)
     
     return html_content_final
-# ----------------- MARCAÇÃO HTML (FUNÇÃO AUSENTE) -----------------
+
+# --- [NOVA FUNÇÃO HELPER v42] ---
+def _aplicar_marcas_ortografia(html_bruto, erros_ortograficos):
+    """
+    Aplica marcação de ortografia (highlight vermelho) em um
+    texto/HTML bruto, ignorando o conteúdo dentro de tags HTML.
+    """
+    if not erros_ortograficos or not html_bruto:
+        return html_bruto
+        
+    import html
+    try:
+        # Cria um regex seguro para todas as palavras de erro
+        palavras_regex = r'\b(' + '|'.join(re.escape(e) for e in erros_ortograficos) + r')\b'
+        
+        partes = re.split(r'(<[^>]+>)', html_bruto) # Divide por tags HTML
+        resultado_final = []
+        
+        for parte in partes:
+            if parte.startswith('<'):
+                resultado_final.append(parte) # É uma tag, mantém
+            else:
+                # Não é uma tag, aplicar regex de ortografia
+                parte_escapada = html.unescape(parte)
+                parte_marcada = re.sub(
+                    palavras_regex, 
+                    lambda m: f"<mark style='background-color: #ffcccb; padding: 2px; border: 1px dashed red;'>{m.group(1)}</mark>", 
+                    parte_escapada, 
+                    flags=re.IGNORECASE
+                )
+                resultado_final.append(parte_marcada)
+        return "".join(resultado_final)
+    except re.error:
+        # Evita que um regex mal formado (ex: palavra com caractere especial) quebre a app
+        return html_bruto
+    except Exception:
+        return html_bruto
+
+# ----------------- MARCAÇÃO HTML (MODIFICADA v42) -----------------
 def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, erros_ortograficos, tipo_bula, eh_referencia):
     """
-    Recria o texto HTML completo, marcando seções divergentes e erros ortográficos.
-    Usa a função 'marcar_diferencas_palavra_por_palavra' para as seções com 'status' == 'diferente'.
+    Recria o texto HTML completo, marcando seções divergentes (amarelo)
+    e erros ortográficos (vermelho).
     """
     if not texto_original:
         return ""
@@ -803,12 +850,11 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
         item_problema = problemas_lookup.get(secao_canonico)
 
         # Se a seção é problemática (diferente) E NÃO é ignorada
-        # (Graças à modificação, 'status' == 'diferente' agora também se o título for diferente)
         if item_problema and item_problema['status'] == 'diferente' and secao_canonico.upper() not in secoes_ignorar_comp:
             texto_ref_problema = item_problema.get('conteudo_ref', '')
             texto_bel_problema = item_problema.get('conteudo_belfar', '')
             
-            # Usamos a função já existente para marcar as palavras
+            # Usamos a função já existente para marcar as palavras (amarelo)
             html_marcado = marcar_diferencas_palavra_por_palavra(
                 texto_ref_problema, 
                 texto_bel_problema, 
@@ -817,7 +863,6 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
             texto_html_final_secoes[secao_canonico] = html_marcado
         
         # Se não é problemática, ou é ignorada, apenas adiciona o conteúdo original
-        # (O conteúdo 'belfar' já pode conter o título destacado, se for diferente)
         else:
             if eh_referencia:
                     texto_html_final_secoes[secao_canonico] = item_problema.get('conteudo_ref', conteudo_secao_atual) if item_problema else conteudo_secao_atual
@@ -829,38 +874,16 @@ def marcar_divergencias_html(texto_original, secoes_problema_lista_dicionarios, 
     html_bruto = "\n\n".join(texto_html_final_secoes.get(m['canonico'], '') for m in mapa_secoes_texto if m['canonico'] in texto_html_final_secoes)
 
     # 3. Aplicar marcação de erros ortográficos (apenas no texto Belfar)
-    if not eh_referencia and erros_ortograficos:
-        import html
-        # Regex para encontrar as palavras de erro, mas evitando estar dentro de tags HTML
-        try:
-            palavras_regex = r'\b(' + '|'.join(re.escape(e) for e in erros_ortograficos) + r')\b'
-            
-            partes = re.split(r'(<[^>]+>)', html_bruto) # Divide por tags HTML
-            resultado_final = []
-            for parte in partes:
-                if parte.startswith('<'):
-                    resultado_final.append(parte) # É uma tag, mantém
-                else:
-                    # Não é uma tag, aplicar regex de ortografia
-                    parte_escapada = html.unescape(parte)
-                    parte_marcada = re.sub(
-                        palavras_regex, 
-                        lambda m: f"<mark style='background-color: #ffcccb; padding: 2px; border: 1px dashed red;'>{m.group(1)}</mark>", 
-                        parte_escapada, 
-                        flags=re.IGNORECASE
-                    )
-                    resultado_final.append(parte_marcada)
-            html_bruto = "".join(resultado_final)
-        except re.error:
-            # Evita que um regex mal formado (ex: palavra com caractere especial) quebre a app
-            pass 
+    #    [v42] Agora usa a função helper
+    if not eh_referencia:
+        html_bruto = _aplicar_marcas_ortografia(html_bruto, erros_ortograficos)
 
     return html_bruto
 
-# ----------------- GERAÇÃO DE RELATÓRIO E UI (mantido layout original) -----------------
+# ----------------- GERAÇÃO DE RELATÓRIO E UI (MODIFICADO v42) -----------------
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
-    # A 'diferencas_titulos' agora é usada pela 'verificar_secoes_e_conteudo' para definir o status
+    
     secoes_faltantes, relatorio_comparacao_completo, similaridades, diferencas_titulos = verificar_secoes_e_conteudo(texto_ref, texto_belfar, tipo_bula)
     erros_ortograficos = checar_ortografia_inteligente(texto_belfar, texto_ref, tipo_bula)
     score_similaridade_conteudo = sum(similaridades) / len(similaridades) if similaridades else 100.0
@@ -896,6 +919,14 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.markdown("---")
 
+    # --- [INÍCIO DA CORREÇÃO v42] ---
+    # Definir highlights ANTES do loop
+    rx_anvisa_highlight = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
+    blue_highlight_style = "background-color: #DDEEFF; padding: 1px 3px; border: 1px solid #0000FF; border-radius: 3px;"
+    anvisa_start_tag = f"<mark style='{blue_highlight_style}'>"
+    anvisa_placeholder_start = "__ANVISA_START__"
+    anvisa_placeholder_end = "__ANVISA_END__"
+
     for item in relatorio_comparacao_completo:
         secao_nome = item['secao']
         status = item['status']
@@ -903,51 +934,51 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         conteudo_belfar_str = item.get('conteudo_belfar') or ""
         is_ignored_section = secao_nome.upper() in [s.upper() for s in obter_secoes_ignorar_comparacao()]
 
+        # 1. Aplicar Highlight Amarelo (Diff)
         if status == 'diferente':
-            with st.expander(f"📄 {secao_nome} - ❌ CONTEÚDO DIVERGENTE"):
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**Arquivo ANVISA:**")
-                    # --- [INÍCIO DA CORREÇÃO (v40.1)] ---
-                    # 1. Aplicar o marca-texto de diferenças
-                    html_ref_com_marcas = marcar_diferencas_palavra_por_palavra(
-                        conteudo_ref_str, 
-                        conteudo_belfar_str, 
-                        eh_referencia=True
-                    )
-                    # 2. Formatar o HTML (que agora contém as marcas) para exibição
-                    html_ref = formatar_html_para_leitura(html_ref_com_marcas, aplicar_numeracao=True)
-                    st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
-                    # --- [FIM DA CORREÇÃO (v40.1)] ---
-                with c2:
-                    st.markdown("**Arquivo MKT:**")
-                    # --- [INÍCIO DA CORREÇÃO (v40.1)] ---
-                    # 1. Aplicar o marca-texto de diferenças
-                    html_bel_com_marcas = marcar_diferencas_palavra_por_palavra(
-                        conteudo_ref_str, 
-                        conteudo_belfar_str, 
-                        eh_referencia=False
-                    )
-                    # 2. Formatar o HTML (que agora contém as marcas) para exibição
-                    html_bel = formatar_html_para_leitura(html_bel_com_marcas, aplicar_numeracao=False)
-                    st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
-                    # --- [FIM DA CORREÇÃO (v40.1)] ---
+            html_ref_marcado = marcar_diferencas_palavra_por_palavra(
+                conteudo_ref_str, conteudo_belfar_str, eh_referencia=True
+            )
+            html_bel_marcado = marcar_diferencas_palavra_por_palavra(
+                conteudo_ref_str, conteudo_belfar_str, eh_referencia=False
+            )
         else:
-            expander_title = f"📄 {secao_nome} - ✅ CONTEÚDO IDÊNTICO"
-            if is_ignored_section:
-                expander_title = f"📄 {secao_nome} - ✔️ NÃO CONFERIDO (Regra de Negócio)"
-            with st.expander(expander_title):
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**Arquivo ANVISA:**")
-                    # (Aqui não precisa de marca-texto, pois o status é 'identica')
-                    html_ref = formatar_html_para_leitura(conteudo_ref_str, aplicar_numeracao=True)
-                    st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown("**Arquivo MKT:**")
-                    # (Aqui não precisa de marca-texto, pois o status é 'identica')
-                    html_bel = formatar_html_para_leitura(conteudo_belfar_str, aplicar_numeracao=False)
-                    st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
+            html_ref_marcado = conteudo_ref_str
+            html_bel_marcado = conteudo_belfar_str
+
+        # 2. Aplicar Highlight Azul (ANVISA)
+        html_ref_marcado = re.sub(rx_anvisa_highlight, f"{anvisa_placeholder_start}\\1{anvisa_placeholder_end}", html_ref_marcado, flags=re.IGNORECASE)
+        html_bel_marcado = re.sub(rx_anvisa_highlight, f"{anvisa_placeholder_start}\\1{anvisa_placeholder_end}", html_bel_marcado, flags=re.IGNORECASE)
+
+        # 3. Aplicar Highlight Vermelho (Ortografia) - Apenas no Belfar
+        html_bel_marcado = _aplicar_marcas_ortografia(html_bel_marcado, erros_ortograficos)
+
+        # 4. Substituir placeholders ANVISA
+        html_ref_marcado = html_ref_marcado.replace(anvisa_placeholder_start, anvisa_start_tag).replace(anvisa_placeholder_end, "</mark>")
+        html_bel_marcado = html_bel_marcado.replace(anvisa_placeholder_start, anvisa_start_tag).replace(anvisa_placeholder_end, "</mark>")
+
+        # 5. Formatar para leitura
+        html_ref = formatar_html_para_leitura(html_ref_marcado, aplicar_numeracao=True)
+        html_bel = formatar_html_para_leitura(html_bel_marcado, aplicar_numeracao=False)
+        
+        # 6. Renderizar o Expander
+        expander_title = f"📄 {secao_nome} - "
+        if status == 'diferente':
+            expander_title += "❌ CONTEÚDO DIVERGENTE"
+        elif is_ignored_section:
+            expander_title += "✔️ NÃO CONFERIDO (Regra de Negócio)"
+        else: # status == 'identica'
+            expander_title += "✅ CONTEÚDO IDÊNTICO"
+            
+        with st.expander(expander_title):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**Arquivo ANVISA:**")
+                st.markdown(f"<div style='{expander_caixa_style}'>{html_ref}</div>", unsafe_allow_html=True)
+            with c2:
+                st.markdown("**Arquivo MKT:**")
+                st.markdown(f"<div style='{expander_caixa_style}'>{html_bel}</div>", unsafe_allow_html=True)
+    # --- [FIM DA CORREÇÃO v42] ---
 
     if erros_ortograficos:
         st.info(f"📝 **Possíveis erros ortográficos ({len(erros_ortograficos)} palavras):**\n" + ", ".join(erros_ortograficos))
@@ -956,32 +987,22 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.subheader("🎨 Visualização Lado a Lado com Destaques")
 
     # --- [INÍCIO DA LÓGICA DE DESTAQUE AZUL DA ANVISA] ---
+    # A lógica aqui é a mesma do 'expander', mas aplicada no texto completo
     
-    # 1. Definir o regex para encontrar a data da ANVISA (Grupo 1 captura tudo)
-    rx_anvisa_highlight = r"((?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprova\w+\s+na\s+anvisa:)\s*[\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4})"
-    
-    # 2. Aplicar placeholders ÚNICOS no texto original (case-insensitive)
-    #    'texto_ref' e 'texto_belfar' são os argumentos da função (o texto processado v40)
-    texto_ref_com_placeholder = re.sub(rx_anvisa_highlight, r"__ANVISA_START__\1__ANVISA_END__", texto_ref or "", flags=re.IGNORECASE)
-    texto_belfar_com_placeholder = re.sub(rx_anvisa_highlight, r"__ANVISA_START__\1__ANVISA_END__", texto_belfar or "", flags=re.IGNORECASE)
+    texto_ref_com_placeholder = re.sub(rx_anvisa_highlight, f"{anvisa_placeholder_start}\\1{anvisa_placeholder_end}", texto_ref or "", flags=re.IGNORECASE)
+    texto_belfar_com_placeholder = re.sub(rx_anvisa_highlight, f"{anvisa_placeholder_start}\\1{anvisa_placeholder_end}", texto_belfar or "", flags=re.IGNORECASE)
 
     # 3. Passar os textos com placeholders para a função de marcação de diff/ortografia
+    #    (A função 'marcar_divergencias_html' já aplica o amarelo e o vermelho)
     html_ref_bruto = marcar_divergencias_html(texto_original=texto_ref_com_placeholder, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=[], tipo_bula=tipo_bula, eh_referencia=True)
     html_belfar_marcado_bruto = marcar_divergencias_html(texto_original=texto_belfar_com_placeholder, secoes_problema_lista_dicionarios=relatorio_comparacao_completo, erros_ortograficos=erros_ortograficos, tipo_bula=tipo_bula, eh_referencia=False)
 
-    # 4. Definir o estilo do highlight azul e substituir os placeholders pelo HTML final
-    blue_highlight_style = "background-color: #DDEEFF; padding: 1px 3px; border: 1px solid #0000FF; border-radius: 3px;"
-    
-    html_ref_bruto = html_ref_bruto.replace("__ANVISA_START__", f"<mark style='{blue_highlight_style}'>")
-    html_ref_bruto = html_ref_bruto.replace("__ANVISA_END__", "</mark>")
-    
-    html_belfar_marcado_bruto = html_belfar_marcado_bruto.replace("__ANVISA_START__", f"<mark style='{blue_highlight_style}'>")
-    html_belfar_marcado_bruto = html_belfar_marcado_bruto.replace("__ANVISA_END__", "</mark>")
+    # 4. Substituir placeholders pelo HTML final
+    html_ref_bruto = html_ref_bruto.replace(anvisa_placeholder_start, anvisa_start_tag).replace(anvisa_placeholder_end, "</mark>")
+    html_belfar_marcado_bruto = html_belfar_marcado_bruto.replace(anvisa_placeholder_start, anvisa_start_tag).replace(anvisa_placeholder_end, "</mark>")
     
     # --- [FIM DA LÓGICA DE DESTAQUE AZUL DA ANVISA] ---
 
-
-    # [CORREÇÃO v31] - Simplificado, sem tipo_bula
     # Agora formatamos o HTML que já contém os destaques (amarelo, vermelho E azul)
     html_ref_marcado = formatar_html_para_leitura(html_ref_bruto, aplicar_numeracao=True)
     html_belfar_marcado = formatar_html_para_leitura(html_belfar_marcado_bruto, aplicar_numeracao=False)
@@ -1025,7 +1046,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         with st.spinner("🔄 Processando e analisando as bulas..."):
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # [v41] Texto RAW é extraído com o NOVO 'extrair_texto'
+            # [v42] Texto RAW é extraído com o 'extrair_texto' corrigido
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
@@ -1050,4 +1071,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref_processado, texto_belfar_processado, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v41 | Extração MKT Corrigida (Clipping).")
+st.caption("Sistema de Auditoria de Bulas v42 | Limpeza de Lixo MKT e Highlights Corrigidos.")
