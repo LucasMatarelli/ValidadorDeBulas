@@ -1,14 +1,14 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v43 - Limpeza de Lixo MKT Reforçada (Clipping + Regex)
-# - AJUSTADA a função 'extrair_texto' (v43):
-#   - Margens de clipping (corte) Y (topo/rodapé) ajustadas para 10%
-#     (um balanço entre salvar 'APRESENTAÇÕES' e remover lixo).
-#   - REFORÇADAS as regras de Regex (inline e linha) para
-#     remover "lixo" específico que escapa (ex: "Belmirax_comprimi",
-#     "mido_BUL...", "300, 00", "00300, 00").
+# Versão v45 - Filtros (Regex) de Lixo MKT Generalizados
+# - AJUSTADA a função 'extrair_texto' (v45):
+#   - Substituídas as regras de Regex específicas (ex: "Belmirax_comprimi")
+#     por regras GERAIS que detectam os *padrões* do lixo de
+#     cabeçalho/rodapé (ex: `..._...`, `...BUL...V...`, `...150, 00...`).
+#   - Isso garante que a limpeza funcione para QUALQUER bula,
+#     não apenas para a bula "Belmirax".
 # - Mantém a lógica de highlights (amarelo, azul, vermelho)
-#   nos expanders da v42.
+#   nos expanders da v42/v43.
 
 import re
 import difflib
@@ -66,7 +66,7 @@ def truncar_apos_anvisa(texto):
         cut_off_position += pos_match.end()
     return texto[:cut_off_position]
 
-# --- [FUNÇÃO MODIFICADA v43] ---
+# --- [FUNÇÃO MODIFICADA v45] ---
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -81,12 +81,14 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     for page in doc:
                         rect = page.rect
                         
-                        # --- [INÍCIO DA CORREÇÃO v43] ---
-                        # Margens de clipping ajustadas para 10% (balanço)
-                        margin_y_top = rect.height * 0.10    # 10% de margem superior
-                        margin_y_bottom = rect.height * 0.10  # 10% de margem inferior
-                        margin_x_left = rect.width * 0.10     # 10% de margem esquerda
-                        margin_x_right = rect.width * 0.10    # 10% de margem direita
+                        # --- [CORREÇÃO v44 - Mantida] ---
+                        # Margens de clipping: Y (topo/rodapé) mais seguras
+                        # para 'APRESENTAÇÕES'. X (laterais) mais agressivas
+                        # para 'mm', '300,00', etc.
+                        margin_y_top = rect.height * 0.08    # 8% de margem superior
+                        margin_y_bottom = rect.height * 0.08  # 8% de margem inferior
+                        margin_x_left = rect.width * 0.12     # 12% de margem esquerda
+                        margin_x_right = rect.width * 0.12    # 12% de margem direita
                         
                         # Ponto de divisão central
                         mid_x = rect.width / 2
@@ -106,7 +108,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                             rect.width - margin_x_right, # x1 (fim X)
                             rect.height - margin_y_bottom # y1 (fim Y)
                         )
-                        # --- [FIM DA CORREÇÃO v43] ---
+                        # --- [FIM DA CORREÇÃO v44] ---
 
                         texto_esquerda = page.get_text("text", clip=clip_esquerda, sort=True)
                         texto_direita = page.get_text("text", clip=clip_direita, sort=True)
@@ -161,10 +163,11 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|^\s*\d+\s+CLORIDRATO\s+DE\s+NAFAZOLINA.*'
                 r'|^\s*INFORMA[ÇC][OÕ]ES\s+(AO|PARA)\s+(O\s+)?PACIENTE.*'
                 r'|^\s*BULA\s+PARA\s+(O\s+)?PACIENTE.*'
-                # --- [INÍCIO DA CORREÇÃO v43] ---
-                # Regex mais forte para lixo de cabeçalho (linha inteira)
-                r'|^\s*(?:Belmirax_comprimi\w*|mido)(?:_BUL\d+V\d+)?\s*$'
-                # --- [FIM DA CORREÇÃO v43] ---
+                # --- [INÍCIO DA CORREÇÃO v45 - GERAL] ---
+                # Regex GERAL para lixo de cabeçalho (linha inteira)
+                r'|^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$' # Pega `...BUL...V...`
+                r'|^\s*[A-Za-z]{5,}_[A-Za-z_]+\s*$' # Pega `Produto_cortado...`
+                # --- [FIM DA CORREÇÃO v45] ---
             )
             padrao_ruido_linha = re.compile(padrao_ruido_linha_regex, re.IGNORECASE)
 
@@ -180,12 +183,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|(?<=\s)\d{3}(?=\s[a-zA-Z])'
                 r'|(?<=\s)mm(?=\s)'
                 r'|\b\d+([,.]\d+)?\s*mm\b' # Remove "150,00 mm"
-                # --- [INÍCIO DA CORREÇÃO v43] ---
-                # Regex mais forte para lixo de cabeçalho (inline)
-                r'|\b(?:Belmirax_comprimi\w*|mido)(?:_BUL\d+V\d+)?\b'
-                # Regex mais forte para lixo numérico (inline)
-                r'|\b(300\s*,\s*00|00300\s*,\s*00|00300)\b'
-                # --- [FIM DA CORREÇÃO v43] ---
+                # --- [INÍCIO DA CORREÇÃO v45 - GERAL] ---
+                # Regex GERAL para lixo de cabeçalho (inline)
+                r'|\b[\w_]*BUL\d+V\d+\b' # Pega `...BUL...V...` ou "BUL...V..."
+                r'|\b[A-Za-z]{5,}_[A-Za-z_]+\b' # Pega `Produto_cortado...`
+                # Regex GERAL (mas seguro) para lixo numérico (inline)
+                r'|\b(150|300|00150|00300)\s*,\s*00\b' # Pega `150, 00` e `300, 00`
+                # --- [FIM DA CORREÇÃO v45] ---
             )
             padrao_ruido_inline = re.compile(padrao_ruido_inline_regex, re.IGNORECASE)
 
@@ -1046,7 +1050,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         with st.spinner("🔄 Processando e analisando as bulas..."):
             tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            # [v43] Texto RAW é extraído com o 'extrair_texto' (v43)
+            # [v45] Texto RAW é extraído com o 'extrair_texto' (v45 - Geral)
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
             
@@ -1071,4 +1075,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref_processado, texto_belfar_processado, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v43 | Limpeza de Lixo MKT Reforçada.")
+st.caption("Sistema de Auditoria de Bulas v45 | Filtros de Lixo MKT Generalizados.")
