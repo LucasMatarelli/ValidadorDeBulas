@@ -585,8 +585,8 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     rx_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    match_ref = re.search(rx_anvisa, (texto_ref or "").lower())
-    match_bel = re.search(rx_anvisa, (texto_belfar or "").lower())
+    match_ref = re.search(rx_anvisa, texto_ref or "", re.IGNORECASE)
+    match_bel = re.search(rx_anvisa, texto_belfar or "", re.IGNORECASE)
     data_ref = match_ref.group(2).strip() if match_ref else "Não encontrada"
     data_bel = match_bel.group(2).strip() if match_bel else "Não encontrada"
 
@@ -598,11 +598,27 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Conformidade de Conteúdo", f"{score_sim:.0f}%")
     c2.metric("Erros Ortográficos", len(erros_ortograficos))
-    c3.metric("Data ANVISA (BELFAR)", data_bel)
-    c4.metric("Seções Faltantes", f"{len(secoes_faltantes)}")
+    c3.metric("Data ANVISA (Referência)", data_ref)
+    c4.metric("Data ANVISA (BELFAR)", data_bel)
 
     st.divider()
     st.subheader("Seções (clique para expandir e ver conteúdo lado a lado)")
+
+    # Mapa de prefixos
+    prefixos_paciente = {
+        "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", "COMO DEVO USAR ESTE MEDICAMENTO?": "6.",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
+        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
+    }
+    prefixos_profissional = {
+        "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
+        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
+        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
+        "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
+    }
+    prefixos_map = prefixos_paciente if tipo_bula == "Paciente" else prefixos_profissional
 
     # construir snippets por seção
     html_ref_map = construir_html_secoes(secoes_analisadas, [], tipo_bula, eh_referencia=True)
@@ -611,6 +627,17 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     # Expander por seção com caixas lado a lado (cada expander mostra apenas o conteúdo daquela seção)
     for diff in secoes_analisadas:
         sec = diff['secao']
+        prefixo = prefixos_map.get(sec, "")
+        
+        # Pega o título que foi encontrado no documento BELFAR
+        titulo_belfar = diff.get('titulo_encontrado_belfar') or sec
+        
+        # Se tem prefixo definido e o título ainda não começa com ele, adiciona
+        if prefixo and not titulo_belfar.strip().startswith(prefixo):
+            titulo_expander = f"{prefixo} {titulo_belfar}".strip()
+        else:
+            titulo_expander = titulo_belfar
+        
         status = "✅ Conteúdo Idêntico"
         if diff.get('faltante', False):
             status = "🚨 SEÇÃO FALTANTE"
@@ -619,7 +646,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         elif diff.get('tem_diferenca', False):
             status = "❌ Conteúdo Divergente"
 
-        exp_label = f"{sec} — {status}"
+        exp_label = f"{titulo_expander} — {status}"
+        
         with st.expander(exp_label, expanded=(diff.get('tem_diferenca', False) or diff.get('faltante', False))):
             col1, col2 = st.columns([1,1], gap="large")
             with col1:
