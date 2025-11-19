@@ -604,19 +604,29 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("Seções (clique para expandir e ver conteúdo lado a lado)")
 
-    # Mapa de prefixos
+    # Mapa de prefixos para numeração
     prefixos_paciente = {
-        "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
-        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", "COMO DEVO USAR ESTE MEDICAMENTO?": "6.",
-        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
+        "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.",
+        "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.",
+        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.",
+        "COMO DEVO USAR ESTE MEDICAMENTO?": "6.",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.",
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
     prefixos_profissional = {
-        "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
-        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
-        "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
+        "INDICAÇÕES": "1.",
+        "RESULTADOS DE EFICÁCIA": "2.",
+        "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
+        "CONTRAINDICAÇÕES": "4.",
+        "ADVERTÊNCIAS E PRECAUÇÕES": "5.",
+        "INTERAÇÕES MEDICAMENTOSAS": "6.",
+        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.",
+        "POSOLOGIA E MODO DE USAR": "8.",
+        "REAÇÕES ADVERSAS": "9.",
+        "SUPERDOSE": "10."
     }
     prefixos_map = prefixos_paciente if tipo_bula == "Paciente" else prefixos_profissional
 
@@ -624,19 +634,16 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     html_ref_map = construir_html_secoes(secoes_analisadas, [], tipo_bula, eh_referencia=True)
     html_bel_map = construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_referencia=False)
 
-    # Expander por seção com caixas lado a lado (cada expander mostra apenas o conteúdo daquela seção)
+    # Expander por seção com caixas lado a lado
     for diff in secoes_analisadas:
         sec = diff['secao']
         prefixo = prefixos_map.get(sec, "")
         
-        # Pega o título que foi encontrado no documento BELFAR
-        titulo_belfar = diff.get('titulo_encontrado_belfar') or sec
-        
-        # Se tem prefixo definido e o título ainda não começa com ele, adiciona
-        if prefixo and not titulo_belfar.strip().startswith(prefixo):
-            titulo_expander = f"{prefixo} {titulo_belfar}".strip()
+        # Monta o título do expander com numeração
+        if prefixo:
+            titulo_expander = f"{prefixo} {sec}"
         else:
-            titulo_expander = titulo_belfar
+            titulo_expander = sec
         
         status = "✅ Conteúdo Idêntico"
         if diff.get('faltante', False):
@@ -661,7 +668,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
             st.markdown("<div class='small-muted'>Clique no título da seção para abrir/fechar. As caixas exibem somente o conteúdo daquela seção.</div>", unsafe_allow_html=True)
 
-    # --- NOVA: Visualização completa lado a lado (igual ao visual anterior) ---
+    # --- Visualização completa lado a lado ---
     st.divider()
     st.subheader("🎨 Visualização Lado a Lado com Destaques")
     st.markdown("<div class='legend'><strong>Legenda:</strong> <mark class='diff'>Amarelo</mark> = Divergências | <mark class='ort'>Rosa</mark> = Erros ortográficos | <mark class='anvisa'>Azul</mark> = Data ANVISA</div>", unsafe_allow_html=True)
