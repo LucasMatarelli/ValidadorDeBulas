@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v65 - Forçar Numeração em Títulos MKT
-# - CORREÇÃO: A função `forcar_titulos_bula` agora insere a numeração (7., 8., etc)
-#   automaticamente se ela estiver faltando no arquivo MKT.
-# - CORREÇÃO: Reconhece o título mesmo se o número original estiver ausente.
-# - UI: Layout exato solicitado mantido.
+# Versão v66 - Correção por "Impressão Digital" (Keywords)
+# - SOLUÇÃO: Não busca mais a frase exata. Busca palavras-chave (ex: "males", "causar")
+#   e força a reescrita do título inteiro, garantindo quebras de linha (\n\n).
+# - UI: Layout v61 mantido (títulos corretos).
+# - EXTRAÇÃO: Split-Column mantido.
 
 import re
 import difflib
@@ -138,44 +138,6 @@ def limpar_lixo_grafico(texto):
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     return texto_limpo
 
-# ----------------- CORREÇÃO E NUMERAÇÃO FORÇADA (A CORREÇÃO) -----------------
-def forcar_titulos_bula(texto):
-    """
-    Encontra títulos quebrados (com ou SEM número) e força a inserção
-    da numeração correta e a junção em uma linha.
-    """
-    # O regex (?:7\.?\s*)? significa que o "7." é opcional na busca.
-    # Mas na substituição (r"\n7. ...") nós OBRIGAMOS ele a aparecer.
-    
-    substituicoes = [
-        # Seção 4
-        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,40}?USAR[\s\S]{1,40}?MEDICAMENTO\??",
-         r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-
-        # Seção 5
-        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,50}?GUARDAR[\s\S]{1,50}?MEDICAMENTO\??",
-         r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-
-        # Seção 7 (O que falhou na sua imagem)
-        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER\s*QUANDO\s*(?:EU\s+)?ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", 
-         r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-         
-        # Seção 8 (O que falhou na sua imagem)
-        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES\s*QUE\s*ESTE\s*MEDICAMENTO\s*PODE\s*(?:ME\s*)?CAUSAR\??", 
-         r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
-         
-        # Seção 9
-        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR\s*UMA\s*QUANTIDADE\s*MAIOR\s*DO\s*QUE\s*A\s*INDICADA\s*DESTE\s*MEDICAMENTO\??", 
-         r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
-    ]
-    
-    texto_arrumado = texto
-    for padrao, substituto in substituicoes:
-        # DOTALL e IGNORECASE garantem pegar mesmo quebrado em várias linhas
-        texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
-        
-    return texto_arrumado
-
 # ----------------- EXTRAÇÃO (SPLIT COLUMN) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
@@ -191,13 +153,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     
                     if is_marketing_pdf:
                         meio_x = rect.width / 2
-                        
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
-                        
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
-                        
                         texto_completo += texto_esq + "\n" + texto_dir + "\n"
                     else:
                         blocks = page.get_text("blocks", sort=True)
@@ -218,9 +177,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
-                # Aplica a correção e numeração forçada aqui
-                texto_completo = forcar_titulos_bula(texto_completo)
-                
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
 
@@ -230,7 +186,65 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS -----------------
+# ----------------- RECONSTRUÇÃO DE TÍTULOS (A SOLUÇÃO KEYWORD) -----------------
+def forcar_titulos_bula(texto):
+    """
+    Substitui blocos de texto que contêm palavras-chave por títulos limpos e formatados.
+    Isso resolve quebras de linha, falta de número e sujeira.
+    """
+    linhas = texto.split('\n')
+    linhas_out = []
+    
+    # Definição de "Fingerprints" (palavras obrigatórias na mesma linha ou bloco)
+    # Formato: [Lista de palavras chave], Título Substituto
+    regras_substituicao = [
+        (["DEVO", "SABER", "ANTES", "USAR"], "\n\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
+        (["ONDE", "COMO", "TEMPO", "GUARDAR"], "\n\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
+        (["COMO", "DEVO", "USAR", "MEDICAMENTO"], "\n\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
+        # O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?
+        (["DEVO", "FAZER", "QUANDO", "ESQUECER"], "\n\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
+        # QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?
+        (["QUAIS", "MALES", "PODE", "CAUSAR"], "\n\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
+        # O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR...
+        (["FAZER", "ALGUEM", "QUANTIDADE", "MAIOR"], "\n\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
+        (["DIZERES", "LEGAIS"], "\n\nDIZERES LEGAIS\n")
+    ]
+    
+    i = 0
+    while i < len(linhas):
+        linha_atual = linhas[i].strip()
+        linha_upper = linha_atual.upper()
+        
+        substituiu = False
+        
+        # Verifica se a linha atual contém as palavras-chave de algum título
+        # Mesmo que esteja "7. O QUE DEVO FAZER" (e o resto na outra linha)
+        for keywords, titulo_novo in regras_substituicao:
+            # Se encontrar pelo menos 3 palavras chave na linha atual + próxima
+            txt_analise = linha_upper
+            if i + 1 < len(linhas):
+                txt_analise += " " + linhas[i+1].upper().strip()
+                
+            # Conta quantas palavras chave batem
+            matches = sum(1 for k in keywords if k in txt_analise)
+            
+            # Se bater a maioria (flexibilidade), substitui
+            if matches >= len(keywords) - 1: 
+                linhas_out.append(titulo_novo)
+                substituiu = True
+                # Pula a linha atual e a próxima se ela for parte do título quebrado
+                if i + 1 < len(linhas) and len(linhas[i+1].strip()) < 50:
+                     i += 2
+                else:
+                     i += 1
+                break
+        
+        if not substituiu:
+            linhas_out.append(linhas[i])
+            i += 1
+            
+    return "\n".join(linhas_out)
+
 def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4: return False
@@ -241,7 +255,8 @@ def is_titulo_secao(linha):
 
 def reconstruir_paragrafos(texto):
     if not texto: return ""
-    # Reaplica a força nos títulos caso algo tenha escapado na extração
+    
+    # 1. Aplica a força nos títulos
     texto = forcar_titulos_bula(texto)
     
     linhas = texto.split('\n')
@@ -251,6 +266,8 @@ def reconstruir_paragrafos(texto):
 
     for linha in linhas:
         l_strip = linha.strip()
+        
+        # Filtro extra de lixo curto
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append("")
@@ -663,7 +680,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
+        with st.spinner("Lendo arquivos e validando estrutura..."):
             # Extração MKT (Split-Column) e Anvisa (Padrão)
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
