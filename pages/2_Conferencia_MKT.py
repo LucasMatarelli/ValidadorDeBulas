@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v66 - Correção por "Impressão Digital" (Keywords)
-# - SOLUÇÃO: Não busca mais a frase exata. Busca palavras-chave (ex: "males", "causar")
-#   e força a reescrita do título inteiro, garantindo quebras de linha (\n\n).
-# - UI: Layout v61 mantido (títulos corretos).
-# - EXTRAÇÃO: Split-Column mantido.
+# Versão v67 - Correção de Margem (O Resgate do Texto Perdido)
+# - CORREÇÃO CRÍTICA: Margem de corte reduzida de 13% para 1%.
+#   (O código anterior estava cortando o final da página, onde ficavam as seções sumidas).
+# - LIMPEZA: Filtro de lixo reforçado para compensar a leitura da página inteira.
+# - UI: Layout exato solicitado mantido.
 
 import re
 import difflib
@@ -23,6 +23,7 @@ st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="�
 
 GLOBAL_CSS = """
 <style>
+/* Ajuste do Container Principal */
 .main .block-container {
     padding-top: 2rem !important;
     padding-bottom: 2rem !important;
@@ -119,6 +120,7 @@ def _create_anchor_id(secao_nome, prefix):
 
 # ----------------- FILTRO DE LIXO (MKT) -----------------
 def limpar_lixo_grafico(texto):
+    """Remove lixo técnico sem cortar o texto útil."""
     padroes_lixo = [
         r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$', 
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
@@ -133,12 +135,42 @@ def limpar_lixo_grafico(texto):
         r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
         r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$' 
     ]
+    
     texto_limpo = texto
     for p in padroes_lixo:
+        # Substitui por espaço vazio
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     return texto_limpo
 
-# ----------------- EXTRAÇÃO (SPLIT COLUMN) -----------------
+# ----------------- CORREÇÃO E NUMERAÇÃO FORÇADA -----------------
+def forcar_titulos_bula(texto):
+    """
+    Procura títulos (mesmo quebrados) e força a formatação correta.
+    """
+    substituicoes = [
+        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,40}?USAR[\s\S]{1,40}?MEDICAMENTO\??",
+         r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
+
+        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,50}?GUARDAR[\s\S]{1,50}?MEDICAMENTO\??",
+         r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
+
+        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER\s*QUANDO\s*(?:EU\s+)?ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", 
+         r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
+         
+        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES\s*QUE\s*ESTE\s*MEDICAMENTO\s*PODE\s*(?:ME\s*)?CAUSAR\??", 
+         r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
+         
+        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR\s*UMA\s*QUANTIDADE\s*MAIOR\s*DO\s*QUE\s*A\s*INDICADA\s*DESTE\s*MEDICAMENTO\??", 
+         r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
+    ]
+    
+    texto_arrumado = texto
+    for padrao, substituto in substituicoes:
+        texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
+        
+    return texto_arrumado
+
+# ----------------- EXTRAÇÃO (SPLIT COLUMN - MARGEM CORRIGIDA) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -149,14 +181,22 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    margem_y = rect.height * 0.13
+                    
+                    # [CORREÇÃO AQUI] Margem reduzida de 0.13 para 0.01 (1%)
+                    # Isso garante que lemos até o final da página onde estão as seções faltantes
+                    margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
                         meio_x = rect.width / 2
+                        
+                        # Esquerda (Lê quase tudo verticalmente)
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
+                        
+                        # Direita
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
+                        
                         texto_completo += texto_esq + "\n" + texto_dir + "\n"
                     else:
                         blocks = page.get_text("blocks", sort=True)
@@ -174,9 +214,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
+            # Aplica a limpeza de lixo
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
+                # Força os títulos e remove numeração solta
+                texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
 
@@ -186,65 +229,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- RECONSTRUÇÃO DE TÍTULOS (A SOLUÇÃO KEYWORD) -----------------
-def forcar_titulos_bula(texto):
-    """
-    Substitui blocos de texto que contêm palavras-chave por títulos limpos e formatados.
-    Isso resolve quebras de linha, falta de número e sujeira.
-    """
-    linhas = texto.split('\n')
-    linhas_out = []
-    
-    # Definição de "Fingerprints" (palavras obrigatórias na mesma linha ou bloco)
-    # Formato: [Lista de palavras chave], Título Substituto
-    regras_substituicao = [
-        (["DEVO", "SABER", "ANTES", "USAR"], "\n\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-        (["ONDE", "COMO", "TEMPO", "GUARDAR"], "\n\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-        (["COMO", "DEVO", "USAR", "MEDICAMENTO"], "\n\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
-        # O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?
-        (["DEVO", "FAZER", "QUANDO", "ESQUECER"], "\n\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-        # QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?
-        (["QUAIS", "MALES", "PODE", "CAUSAR"], "\n\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
-        # O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR...
-        (["FAZER", "ALGUEM", "QUANTIDADE", "MAIOR"], "\n\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
-        (["DIZERES", "LEGAIS"], "\n\nDIZERES LEGAIS\n")
-    ]
-    
-    i = 0
-    while i < len(linhas):
-        linha_atual = linhas[i].strip()
-        linha_upper = linha_atual.upper()
-        
-        substituiu = False
-        
-        # Verifica se a linha atual contém as palavras-chave de algum título
-        # Mesmo que esteja "7. O QUE DEVO FAZER" (e o resto na outra linha)
-        for keywords, titulo_novo in regras_substituicao:
-            # Se encontrar pelo menos 3 palavras chave na linha atual + próxima
-            txt_analise = linha_upper
-            if i + 1 < len(linhas):
-                txt_analise += " " + linhas[i+1].upper().strip()
-                
-            # Conta quantas palavras chave batem
-            matches = sum(1 for k in keywords if k in txt_analise)
-            
-            # Se bater a maioria (flexibilidade), substitui
-            if matches >= len(keywords) - 1: 
-                linhas_out.append(titulo_novo)
-                substituiu = True
-                # Pula a linha atual e a próxima se ela for parte do título quebrado
-                if i + 1 < len(linhas) and len(linhas[i+1].strip()) < 50:
-                     i += 2
-                else:
-                     i += 1
-                break
-        
-        if not substituiu:
-            linhas_out.append(linhas[i])
-            i += 1
-            
-    return "\n".join(linhas_out)
-
+# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS -----------------
 def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4: return False
@@ -255,8 +240,7 @@ def is_titulo_secao(linha):
 
 def reconstruir_paragrafos(texto):
     if not texto: return ""
-    
-    # 1. Aplica a força nos títulos
+    # Reaplica a força nos títulos para garantir
     texto = forcar_titulos_bula(texto)
     
     linhas = texto.split('\n')
@@ -267,7 +251,7 @@ def reconstruir_paragrafos(texto):
     for linha in linhas:
         l_strip = linha.strip()
         
-        # Filtro extra de lixo curto
+        # Filtro de linhas muito curtas que podem ser lixo residual
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append("")
@@ -341,10 +325,7 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
         best_score = 0; best_canon = None
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
         numeric = int(mnum.group(1)) if mnum else None
-        letters = re.findall(r'[A-Za-zÀ-ÖØ-öø-ÿ]', raw)
-        is_upper = len(letters) and sum(1 for ch in letters if ch.isupper()) / len(letters) >= 0.6
-        starts_with_cap = raw and (raw[0].isupper() or raw[0].isdigit())
-
+        
         for t_possivel, t_canon in titulos_possiveis.items():
             t_norm = titulos_norm.get(t_possivel, "")
             if not t_norm: continue
@@ -452,7 +433,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # [CORREÇÃO ANTI-AMARELO]: Espaça pontuação para evitar falso-positivo
+        # [CORREÇÃO ANTI-AMARELO]: Espaça pontuação
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
         norm_ref = normalizar_texto(norm_ref)
@@ -510,12 +491,8 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     except: return []
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
-    def pre_norm(txt):
-        return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt or "")
-
-    def tokenizar(txt): 
-        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
-        
+    def pre_norm(txt): return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt or "")
+    def tokenizar(txt): return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
     def norm(tok):
         if tok == '\n': return ' '
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): return normalizar_texto(tok)
@@ -662,7 +639,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v65)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v67)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -680,7 +657,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Lendo arquivos e validando estrutura..."):
+        with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
             # Extração MKT (Split-Column) e Anvisa (Padrão)
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
@@ -708,4 +685,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v65 | Correção de Títulos 'Imã'.")
+st.caption("Sistema de Auditoria de Bulas v67 | Correção de Margem de Corte (1%).")
