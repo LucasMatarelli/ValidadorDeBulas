@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-# Aplicativo Streamlit: Auditoria de Bulas (v21.6)
+# Aplicativo Streamlit: Auditoria de Bulas (v21.7)
 # Ajustes nesta versão:
+# - NOVA FUNCIONALIDADE: Verificação automática se o arquivo enviado corresponde ao tipo selecionado (Paciente/Profissional).
 # - Removido o "Resumo das Seções".
-# - Restaurada a seção "🎨 Visualização Lado a Lado com Destaques" (exibição completa lado a lado),
-#   mantendo os expanders por seção acima.
-# - Mantida a regra DIZERES LEGAIS até o fim; COMPOSIÇÃO somente seu conteúdo;
-#   APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS marcadas como ignoradas para comparação.
-# - Layout de texto/fonte preservado (font-family: Georgia / serif) para ficar igual ao visual anterior.
+# - Restaurada a seção "🎨 Visualização Lado a Lado com Destaques".
+# - Mantida a regra DIZERES LEGAIS até o fim; COMPOSIÇÃO somente seu conteúdo.
+# - Layout de texto/fonte preservado (font-family: Georgia / serif).
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -689,8 +688,37 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     if erros_ortograficos:
         st.info(f"📝 Erros ortográficos (sugeridos): {', '.join(erros_ortograficos)}")
 
+# ----------------- CHECKER DE TIPO DE BULA (NOVO) -----------------
+def checar_tipo_arquivo(texto, tipo_esperado):
+    """Verifica se o texto contém cabeçalhos exclusivos do tipo OPOSTO ao selecionado."""
+    if not texto: return False
+    t_norm = normalizar_texto(texto)
+
+    # Se o usuário escolheu Paciente, não deve haver termos exclusivos de Profissional
+    termos_profissional = [
+        "caracteristicas farmacologicas",
+        "resultados de eficacia",
+        "propriedades farmacocinetica"
+    ]
+    # Se o usuário escolheu Profissional, não deve haver termos exclusivos de Paciente
+    termos_paciente = [
+        "como este medicamento funciona",
+        "o que devo saber antes de usar",
+        "quais os males que este medicamento pode causar"
+    ]
+
+    if tipo_esperado == "Paciente":
+        # Se escolheu Paciente, mas tem termos de Profissional
+        contagem = sum(1 for term in termos_profissional if term in t_norm)
+        return contagem >= 2
+    elif tipo_esperado == "Profissional":
+        # Se escolheu Profissional, mas tem termos de Paciente
+        contagem = sum(1 for term in termos_paciente if term in t_norm)
+        return contagem >= 2
+    return False
+
 # ----------------- INTERFACE PRINCIPAL -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v21.6)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v21.7)")
 st.markdown("Layout restaurado: expanders por seção + visualização completa lado a lado. Regras: DIZERES LEGAIS até o fim; não comparar APRESENTAÇÕES/COMPOSIÇÃO/DIZERES LEGAIS; COMPOSIÇÃO extrai somente sua seção.")
 
 st.divider()
@@ -712,6 +740,17 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             tipo_bel = 'docx' if pdf_belfar.name.lower().endswith('.docx') else 'pdf'
             texto_ref, erro_ref = extrair_texto(pdf_ref, tipo_ref)
             texto_belfar, erro_belfar = extrair_texto(pdf_belfar, tipo_bel)
+            
+            # --- NOVA VERIFICAÇÃO DE TIPO DE ARQUIVO ---
+            suspeita_ref = checar_tipo_arquivo(texto_ref, tipo_bula_selecionado)
+            suspeita_bel = checar_tipo_arquivo(texto_belfar, tipo_bula_selecionado)
+            
+            if suspeita_ref:
+                st.warning(f"⚠️ Atenção: O arquivo de REFERÊNCIA ({pdf_ref.name}) parece ser do tipo oposto ao selecionado ({tipo_bula_selecionado}). Verifique se enviou a bula correta.")
+            if suspeita_bel:
+                st.warning(f"⚠️ Atenção: O arquivo BELFAR ({pdf_belfar.name}) parece ser do tipo oposto ao selecionado ({tipo_bula_selecionado}). Verifique se enviou a bula correta.")
+            # --------------------------------------------
+
             if not erro_ref:
                 texto_ref = truncar_apos_anvisa(texto_ref)
             if not erro_belfar:
@@ -722,4 +761,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 gerar_relatorio_final(texto_ref, texto_belfar, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v21.6 | Expander por seção + Visualização completa lado a lado. Resposta: Resumo das Seções removido; visual completo restaurado.")
+st.caption("Sistema de Auditoria de Bulas v21.7 | Expander por seção + Visualização completa lado a lado. Resposta: Resumo das Seções removido; visual completo restaurado; checagem de tipo incluída.")
