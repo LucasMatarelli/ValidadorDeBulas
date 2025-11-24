@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v59 - Estável)
-# - Correção de Sintaxe: Removida atribuição complexa que causava Crash.
+# Aplicativo Streamlit: Auditoria de Bulas (v60 - Final Corrigido)
+# - Correção Crítica: Adicionado 'import html' para corrigir o NameError.
 # - Funcionalidades: Limpeza Gráfica Belfar, OCR Híbrido, Visual Justificado.
 # - Regra: Bloqueia automaticamente se detectar "Profissional".
 
@@ -18,6 +18,7 @@ from PIL import Image
 import pytesseract
 from thefuzz import fuzz
 from collections import namedtuple
+import html  # <--- IMPORTAÇÃO QUE FALTAVA ADICIONADA AQUI
 
 # ----------------- UI / CSS -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
@@ -451,7 +452,7 @@ def checar_ortografia(texto, ref_context):
     return list(erros)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v59)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v60)")
 st.markdown("Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Bloqueia automaticamente arquivos Profissionais.")
 st.divider()
 
@@ -540,4 +541,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                             st.markdown(f"<div class='bula-box'><div class='section-title bel-title'>{display_title}</div>{bel_marked}</div>", unsafe_allow_html=True)
 
 st.divider()
-st.caption("Sistema de Auditoria v59 | Estável")
+st.caption("Sistema de Auditoria v60 | Estável e Seguro")
