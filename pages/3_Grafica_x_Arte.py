@@ -1,23 +1,22 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v54 - Final)
-# - Interface Visual: v21.9 (Idêntica aos prints)
-# - Motor: Híbrido (Texto Nativo -> Fallback para OCR Automático)
-# - Regra: Validação Rígida (Bloqueia Bula Profissional)
+# Aplicativo Streamlit: Auditoria de Bulas (v55 - Final Simplificado)
+# - Interface: SEM seleção de tipo (Fixo em "Paciente").
+# - Motor: Híbrido (Texto Nativo -> Fallback para OCR Automático).
+# - Regra: Bloqueia automaticamente se detectar "Profissional".
 
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
 import re
 import spacy
-from thefuzz import fuzz
 from spellchecker import SpellChecker
 import difflib
 import unicodedata
-from collections import namedtuple
 import io
 from PIL import Image
 import pytesseract
+from thefuzz import fuzz
 
 # ----------------- UI / CSS (Visual v21.9) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
@@ -224,27 +223,19 @@ def truncar_apos_anvisa(texto):
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
-    secoes = {
-        "Paciente": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
-            "COMO ESTE MEDICAMENTO FUNCIONA?", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-            "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "COMO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
-            "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-            "DIZERES LEGAIS"
-        ],
-        "Profissional": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
-            "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
-            "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
-            "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
-            "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
-        ]
-    }
-    return secoes.get(tipo_bula, [])
+    # Como só existe tipo Paciente agora, esta função retorna sempre o mesmo
+    secoes = [
+        "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
+        "COMO ESTE MEDICAMENTO FUNCIONA?", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+        "COMO DEVO USAR ESTE MEDICAMENTO?",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
+        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "DIZERES LEGAIS"
+    ]
+    return secoes
 
 
 def obter_aliases_secao():
@@ -547,6 +538,8 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
         "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
+    # O prefixo profissional ainda existe aqui apenas para evitar erros se algo passar,
+    # mas o sistema força o uso de 'paciente'.
     prefixos_profissional = {
         "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
         "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
@@ -622,6 +615,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
+    # Apenas para fallback, mas não será usado se a validação funcionar
     prefixos_profissional = {
         "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
         "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
@@ -703,13 +697,14 @@ def detectar_tipo_arquivo_por_score(texto):
 
 
 # ----------------- MAIN APP -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v54)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v55)")
 st.markdown(
-    "Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
+    "Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Se for detectada Bula Profissional, o processo será bloqueado.")
 
 st.divider()
-# Restaura a seleção visual, mas com o padrão Paciente
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
+
+# CONFIGURAÇÃO INTERNA FIXA: Sempre Bula do Paciente
+tipo_bula_selecionado = "Paciente"
 
 col1, col2 = st.columns(2)
 with col1:
@@ -737,27 +732,21 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
 
                 erro_validacao = False
 
-                # Regra de Bloqueio: Se selecionou Paciente e veio Profissional -> ERRO
-                if tipo_bula_selecionado == "Paciente":
-                    if detectado_ref == "Profissional":
-                        st.error(f"🚨 ERRO DE ARQUIVO (Arte Vigente): Você selecionou 'Paciente', mas o arquivo '{pdf_ref.name}' parece ser uma Bula 'Profissional'.")
-                        erro_validacao = True
-                    if detectado_bel == "Profissional":
-                        st.error(f"🚨 ERRO DE ARQUIVO (PDF Gráfica): Você selecionou 'Paciente', mas o arquivo '{pdf_belfar.name}' parece ser uma Bula 'Profissional'.")
-                        erro_validacao = True
+                # Regra de Bloqueio: O sistema SÓ ACEITA Paciente.
+                # Se detectar "Profissional", bloqueia.
+                if detectado_ref == "Profissional":
+                    st.error(f"🚨 ERRO CRÍTICO (Arte Vigente): O arquivo '{pdf_ref.name}' foi identificado como **Bula Profissional**.")
+                    st.error("Este sistema é exclusivo para validação de **Bula do Paciente**.")
+                    erro_validacao = True
                 
-                # Regra de Bloqueio: Se selecionou Profissional e veio Paciente -> ERRO
-                elif tipo_bula_selecionado == "Profissional":
-                    if detectado_ref == "Paciente":
-                        st.error(f"🚨 ERRO DE ARQUIVO (Arte Vigente): Você selecionou 'Profissional', mas o arquivo '{pdf_ref.name}' parece ser uma Bula 'Paciente'.")
-                        erro_validacao = True
-                    if detectado_bel == "Paciente":
-                        st.error(f"🚨 ERRO DE ARQUIVO (PDF Gráfica): Você selecionou 'Profissional', mas o arquivo '{pdf_belfar.name}' parece ser uma Bula 'Paciente'.")
-                        erro_validacao = True
+                if detectado_bel == "Profissional":
+                    st.error(f"🚨 ERRO CRÍTICO (PDF Gráfica): O arquivo '{pdf_belfar.name}' foi identificado como **Bula Profissional**.")
+                    st.error("Este sistema é exclusivo para validação de **Bula do Paciente**.")
+                    erro_validacao = True
 
                 if erro_validacao:
                     st.error(
-                        "⛔ A comparação foi bloqueada. Verifique os arquivos e o tipo selecionado.")
+                        "⛔ A comparação foi bloqueada por segurança.")
                 else:
                     # 3. Processamento
                     texto_ref = truncar_apos_anvisa(texto_ref)
@@ -766,4 +755,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                                           tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v54 | Validação Rígida + OCR Automático")
+st.caption("Sistema de Auditoria v55 | Bula do Paciente Exclusiva")
