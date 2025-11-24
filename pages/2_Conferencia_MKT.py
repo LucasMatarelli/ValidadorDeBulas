@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v56 - Extração Split-Column (Esquerda/Direita) + Preservação de Tabelas
-# - EXTRAÇÃO: Divide a página ao meio e lê Esquerda -> Direita. Resolve mistura de colunas.
-# - TABELAS: Detecta linhas de tabela (pontilhados, qsp) e não junta os parágrafos.
-# - VISUAL: Layout v21.9 estrito.
+# Versão v57 - Correção de Títulos Quebrados + Filtro de Lixo Gráfico
+# - NOVO: Função `reparar_titulos_quebrados` -> Junta títulos que o PDF quebrou em 2 linhas.
+# - MELHORIA: Lista de Regex "Anti-Lixo" expandida para remover especificações técnicas (fontes, mm, cores).
+# - AJUSTE: Margem de segurança aumentada (10%) para evitar rodapés técnicos.
+# - UI: Layout mantido.
 
 import re
 import difflib
@@ -66,7 +67,6 @@ mark.anvisa { background-color: #cce5ff; padding:0 2px; font-weight:500; color: 
 .ref-title { color: #0b5686; font-weight:700; }
 .bel-title { color: #0b8a3e; font-weight:700; }
 .small-muted { color:#666; font-size:12px; }
-.legend { font-size:13px; margin-bottom:8px; }
 </style>
 """
 st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
@@ -110,7 +110,32 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- EXTRAÇÃO INTELIGENTE (SPLIT COLUMNS) -----------------
+# ----------------- EXTRAÇÃO E LIMPEZA (ATUALIZADO v57) -----------------
+def limpar_lixo_grafico(texto):
+    """Remove especificações técnicas que aparecem em arquivos de MKT."""
+    padroes_lixo = [
+        r'bula do paciente', r'página \d+\s*de\s*\d+', 
+        r'Tipologia', r'Dimensão', r'Dimensões',
+        r'Times New Roman', r'Myriad Pro', r'Arial', # Nomes de fontes comuns
+        r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
+        r'^\s*\d+[,.]?\d*\s*mm\s*$', # Medidas isoladas (ex: 150 mm)
+        r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b', # Medidas (ex: 150 x 200 mm)
+        r'^\s*FRENTE\s*$', r'^\s*VERSO\s*$', 
+        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
+        r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
+        r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
+        r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$' # Códigos internos de bula
+    ]
+    
+    texto_limpo = texto
+    for p in padroes_lixo:
+        texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # Remove caracteres isolados estranhos que sobram de tabelas
+    texto_limpo = re.sub(r'^\s*[|/_]\s*$', '', texto_limpo, flags=re.MULTILINE)
+    
+    return texto_limpo
+
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -122,29 +147,25 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 for page in doc:
                     rect = page.rect
                     
-                    # Margem de segurança (8%) para ignorar cabeçalho/rodapé técnico
-                    margem_y = rect.height * 0.08
+                    # [AJUSTE v57] Margem aumentada para 10% para cortar cabeçalho técnico
+                    margem_y = rect.height * 0.10
                     
                     if is_marketing_pdf:
-                        # LÓGICA SPLIT-COLUMN: Lê Esquerda -> Lê Direita
+                        # Split Column: Lê Esquerda -> Lê Direita
                         meio_x = rect.width / 2
                         
-                        # Define área da Coluna Esquerda (com margem superior/inferior)
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
                         
-                        # Define área da Coluna Direita
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
                         
-                        # Concatena na ordem correta de leitura
                         texto_completo += texto_esq + "\n" + texto_dir + "\n"
                     else:
-                        # Para ANVISA/DOCX (Coluna única ou padrão)
-                        # Usa blocks para garantir ordem visual, mas sem split forçado
+                        # Anvisa: Usa blocks
                         blocks = page.get_text("blocks", sort=True)
                         for b in blocks:
-                            if b[6] == 0: # Texto
+                            if b[6] == 0:
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
                                     texto_completo += b[4] + "\n"
 
@@ -153,22 +174,15 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
         if texto_completo:
-            # Limpezas gerais
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # Limpeza de Ruído MKT
-            ruidos_linha = (
-                r'bula do paciente|página \d+\s*de\s*\d+|Tipologia|Merida|Medida'
-                r'|Impressãe|Impressão|Papel|Cor:?|artes@belfar|Times New Roman'
-                r'|^\s*FRENTE\s*$|^\s*VERSO\s*$|^\s*\d+\s*mm\s*$'
-                r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*BUL\d+\s*$|BUL_CLORIDRATO'
-                r'|\d{2}\s\d{4}\s\d{4}|^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$'
-            )
-            texto_completo = re.sub(ruidos_linha, '', texto_completo, flags=re.IGNORECASE|re.MULTILINE)
+            # [AJUSTE v57] Aplica a limpeza pesada
+            texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
+                # Remove numeração solta (paginação)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
 
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
@@ -177,7 +191,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- RECONSTRUÇÃO E TABELAS -----------------
+# ----------------- REPARAÇÃO DE TÍTULOS E PARÁGRAFOS (v57) -----------------
 def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4 or len(ln.split('\n')) > 2 or len(ln.split()) > 20: return False
@@ -186,17 +200,59 @@ def is_titulo_secao(linha):
     if first.isupper() and not first.endswith('.'): return True
     return False
 
+def reparar_titulos_quebrados(linhas):
+    """
+    [NOVO v57] Verifica se um título foi quebrado em duas linhas pelo PDF.
+    Ex:
+    Linha 1: "1. PARA QUE ESTE"
+    Linha 2: "MEDICAMENTO É INDICADO?"
+    -> Junta em: "1. PARA QUE ESTE MEDICAMENTO É INDICADO?"
+    """
+    secoes_conhecidas_norm = [
+        normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()
+    ]
+    
+    linhas_corrigidas = []
+    i = 0
+    while i < len(linhas):
+        atual = linhas[i].strip()
+        
+        # Se for a última linha, só adiciona
+        if i == len(linhas) - 1:
+            linhas_corrigidas.append(linhas[i])
+            break
+            
+        proxima = linhas[i+1].strip()
+        
+        # Tenta juntar e ver se vira um título conhecido
+        juntas = atual + " " + proxima
+        juntas_norm = normalizar_titulo_para_comparacao(juntas)
+        
+        eh_titulo_quebrado = False
+        for s_norm in secoes_conhecidas_norm:
+            if fuzz.ratio(juntas_norm, s_norm) > 90:
+                eh_titulo_quebrado = True
+                break
+        
+        if eh_titulo_quebrado:
+            linhas_corrigidas.append(juntas) # Adiciona fundido
+            i += 2 # Pula a próxima pois já usamos
+        else:
+            linhas_corrigidas.append(linhas[i])
+            i += 1
+            
+    return linhas_corrigidas
+
 def reconstruir_paragrafos(texto):
-    """
-    Reconstroi o texto fatiado, mas preserva TABELAS e LISTAS.
-    """
     if not texto: return ""
+    
     linhas = texto.split('\n')
+    
+    # [PASSO 1 v57] Reparar títulos quebrados ANTES de reconstruir parágrafos
+    linhas = reparar_titulos_quebrados(linhas)
+    
     linhas_out = []
     buffer = ""
-    
-    # Regex para detectar linhas de tabela ou lista (que NÃO devem ser juntadas)
-    # Pontilhados (....), sublinhados (____), q.s.p, itens de lista
     padrao_tabela = re.compile(r'\.{3,}|_{3,}|q\.s\.p|^\s*[-•]\s+')
 
     for linha in linhas:
@@ -211,7 +267,6 @@ def reconstruir_paragrafos(texto):
             linhas_out.append(l_strip)
             continue
             
-        # Se é linha de tabela/lista, flush buffer e adiciona isolada
         if padrao_tabela.search(l_strip):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append(l_strip)
@@ -635,4 +690,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v56 | Extração Split-Column + Layout v21.9.")
+st.caption("Sistema de Auditoria de Bulas v57 | Correção de Títulos Quebrados + Filtro Anti-Lixo.")
