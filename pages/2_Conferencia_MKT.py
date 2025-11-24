@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v70 - Correção de Lixo Específico ("-. Cor") + Títulos Reforçados
-# - LIMPEZA: Adicionado regex para remover " -. Cor" e variações.
-# - TÍTULOS: Aumentado o alcance do Regex para juntar títulos muito espaçados/quebrados.
-# - UI: Layout exato mantido.
+# Versão v71 - Limpeza Cirúrgica de " -. Cor" e Reconstrução de Título
+# - NOVO: Regex específico para remover o lixo " -. Cor" e variações.
+# - TÍTULOS: A função de forçar títulos agora é "gulosa", engolindo qualquer lixo 
+#   que esteja no meio das palavras-chave do título quebrado.
+# - UI: Layout exato solicitado mantido.
 
 import re
 import difflib
@@ -28,6 +29,7 @@ GLOBAL_CSS = """
     padding-bottom: 2rem !important;
     max-width: 95% !important;
 }
+
 [data-testid="stHeader"] { display: none !important; }
 footer { display: none !important; }
 
@@ -117,77 +119,67 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO (MKT) -----------------
+# ----------------- FILTRO DE LIXO (ATUALIZADO v71) -----------------
 def limpar_lixo_grafico(texto):
     padroes_lixo = [
-        # Lixo específico relatado (v70)
-        r'.*-\.\s*Cor.*',        # Remove "-. Cor"
-        r'.*Cor\s*Preta.*',      # Remove "Cor Preta"
-        r'.*Papel:.*',           # "Papel: Ap 56gr"
-        r'.*Ap\s*\d+gr.*',       
-        r'.*da bula:.*',         
-        r'.*AFAZOLINA_BUL.*',    
+        # O LIXO ESPECÍFICO DO SEU ARQUIVO
+        r'.*-\s*\.\s*Cor.*',      # Remove " -. Cor" (e variações de espaço)
+        r'.*AFAZOLINA_BUL.*',     # Remove código do título
+        r'.*Papel:.*',            # Remove especificações de papel
+        r'.*da bula:.*',
         
         # Lixos Gerais
-        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$', 
+        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
-        
-        # Fontes e Cores
-        r'.*New\s*Roman.*', r'.*Myriad.*', r'.*Arial.*', r'.*Helvética.*',
-        r'.*Regular.*', r'.*Bold.*', r'.*Italic.*', r'.*Condensed.*',
-        r'.*rpo\s*10.*', r'.*po\s*10.*', 
+        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
-        r'.*Cor:.*',
-        
-        # Contatos
-        r'.*artes\s*@\s*belfar.*', r'.*31\s*2105\s*1100.*', 
-        r'.*contato:.*', r'BELFAR', r'PHARMA',
-        
-        # Códigos
-        r'.*AZOLINA:.*', 
-        r'BUL_CLORIDRATO.*',
-        r'Medida da bula:', r'Impress[ãa]o:.*', r'Normal e Negrito',
+        r'^\s*\d+[,.]?\d*\s*mm\s*$', r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b',
+        r'^\s*FRENTE\s*$', r'^\s*VERSO\s*$', 
+        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
         r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
         r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
-        
-        # Medidas e Controles
-        r'^\s*\d+[,.]?\d*\s*mm\s*$', r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b',
-        r'\d{6,}\s*-\s*\d{2}/\d{2}',
-        r'^\s*FRENTE\s*$', r'^\s*VERSO\s*$'
+        r'.*AZOLINA:\s*Tim.*', r'.*NAFAZOLINA:\s*Times.*', 
+        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
+        r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$' 
     ]
-    
     texto_limpo = texto
     for p in padroes_lixo:
-        # Substitui a linha inteira (ou o match) por vazio
+        # Substitui por espaço vazio (removendo a linha inteira ou trecho)
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
-    
     return texto_limpo
 
-# ----------------- CORREÇÃO E NUMERAÇÃO FORÇADA (REFORÇADA) -----------------
+# ----------------- CORREÇÃO FORÇADA DE TÍTULOS -----------------
 def forcar_titulos_bula(texto):
     """
-    Regex agora aceita até 100 caracteres de lixo/espaço entre as palavras do título
-    para garantir que ele junte mesmo se estiver muito quebrado.
+    Aplica substituições brutais para garantir que os títulos existam,
+    mesmo que haja lixo no meio deles no texto original.
     """
+    # [!] O '{1,100}?' diz: engula até 100 caracteres (lixo, cor, enters) entre as palavras chave
     substituicoes = [
+        # Seção 4
         (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
 
+        # Seção 5
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
 
+        # Seção 7
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER\s*QUANDO\s*(?:EU\s+)?ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", 
          r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
          
+        # Seção 8
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES\s*QUE\s*ESTE\s*MEDICAMENTO\s*PODE\s*(?:ME\s*)?CAUSAR\??", 
          r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
          
+        # Seção 9
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR\s*UMA\s*QUANTIDADE\s*MAIOR\s*DO\s*QUE\s*A\s*INDICADA\s*DESTE\s*MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
     
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
+        # Flags: IGNORECASE e DOTALL (para engolir quebras de linha)
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
         
     return texto_arrumado
@@ -203,7 +195,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    # Margem 1% para não cortar texto útil
+                    # Margem pequena (1%) para pegar seções do rodapé
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
@@ -234,11 +226,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # [LIMPEZA PESADA v70]
+            # 1. LIMPEZA DE LIXO
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
+                # 2. FORÇAR TÍTULOS AQUI (Antes de qualquer reconstrução)
                 texto_completo = forcar_titulos_bula(texto_completo)
+                
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
 
@@ -259,6 +253,8 @@ def is_titulo_secao(linha):
 
 def reconstruir_paragrafos(texto):
     if not texto: return ""
+    
+    # Reaplica força nos títulos
     texto = forcar_titulos_bula(texto)
     
     linhas = texto.split('\n')
@@ -450,7 +446,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # [CORREÇÃO ANTI-AMARELO]: Espaça pontuação
+        # [CORREÇÃO ANTI-AMARELO]
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
         norm_ref = normalizar_texto(norm_ref)
@@ -656,7 +652,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v70)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v71)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -702,4 +698,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v70 | Correção de Lixo Específico + Títulos Reforçados.")
+st.caption("Sistema de Auditoria de Bulas v71 | Limpeza Cirúrgica e Títulos Forçados.")
