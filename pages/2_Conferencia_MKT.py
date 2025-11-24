@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v68 - Limpeza de "Lixo Fragmentado"
-# - NOVO: Regex agressivos para remover fragmentos técnicos ("s New Roman", "AZOLINA", contatos).
-# - MANTIDO: Toda a lógica de correção de títulos, tabelas e split-column da v67.
+# Versão v69 - Limpeza de Fragmentos Específicos + Correção de Títulos
+# - NOVO: Regex para "Papel:", "Ap 56gr", "da bula: Time", "AFAZOLINA_BUL".
+# - AJUSTE: Limpeza ocorre antes da reconstrução de parágrafos para não sujar títulos.
 # - UI: Layout exato solicitado.
 
 import re
@@ -117,47 +117,51 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO (ATUALIZADO v68) -----------------
+# ----------------- FILTRO DE LIXO (ATUALIZADO v69) -----------------
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos de texto de borda."""
     
-    # Lista de padrões proibidos (se encontrar, apaga a parte ou a linha)
     padroes_lixo = [
-        # Cabeçalhos padrão
+        # --- Novos Lixos Relatados ---
+        r'.*Papel:.*',           # "Papel: Ap 56gr"
+        r'.*Ap\s*\d+gr.*',       # Fragmento de gramatura
+        r'.*da bula:.*',         # "da bula: Time"
+        r'.*-\.\s*Cor.*',        # "-. Cor"
+        r'.*AFAZOLINA_BUL.*',    # "AFAZOLINA_BUL22145V00"
+        
+        # --- Lixos Anteriores ---
         r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
         
-        # Fontes e fragmentos (s New Roman, rpo 10, etc)
+        # Fontes
         r'.*New\s*Roman.*', r'.*Myriad.*', r'.*Arial.*', r'.*Helvética.*',
         r'.*Regular.*', r'.*Bold.*', r'.*Italic.*', r'.*Condensed.*',
-        r'.*rpo\s*10.*', r'.*po\s*10.*', # Fragmentos de "Corpo 10"
+        r'.*rpo\s*10.*', r'.*po\s*10.*', 
         
-        # Cores e fragmentos
+        # Cores
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
         r'.*Cor:.*',
         
-        # Contatos e Gráfica
+        # Contatos
         r'.*artes\s*@\s*belfar.*', r'.*31\s*2105\s*1100.*', 
         r'.*contato:.*', r'BELFAR', r'PHARMA',
         
-        # Códigos e Fragmentos de Títulos Técnicos
-        r'.*AZOLINA:.*', # Pega "AZOLINA: Tim" e variações
+        # Códigos
+        r'.*AZOLINA:.*', 
         r'BUL_CLORIDRATO.*',
         r'Medida da bula:', r'Impress[ãa]o:.*', r'Normal e Negrito',
         r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
         r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
         
-        # Medidas e Códigos Numéricos
+        # Medidas e Controles
         r'^\s*\d+[,.]?\d*\s*mm\s*$', r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b',
         r'\d{6,}\s*-\s*\d{2}/\d{2}',
-        
-        # Controles de Lado
         r'^\s*FRENTE\s*$', r'^\s*VERSO\s*$'
     ]
     
     texto_limpo = texto
     for p in padroes_lixo:
-        # Substitui por vazio
+        # Substitui a linha inteira (ou o match) por vazio
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     
     return texto_limpo
@@ -198,7 +202,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    # Margem 1% para pegar tudo (pois o filtro de lixo vai limpar o excesso)
+                    # Margem 1% para não perder texto útil no rodapé
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
@@ -227,7 +231,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # Limpeza pesada (v68)
+            # [LIMPEZA PESADA]
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
@@ -649,7 +653,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v68)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v69)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -695,4 +699,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v68 | Limpeza de Fragmentos.")
+st.caption("Sistema de Auditoria de Bulas v69 | Limpeza de Fragmentos Específicos.")
