@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v67 - Correção de Margem (O Resgate do Texto Perdido)
-# - CORREÇÃO CRÍTICA: Margem de corte reduzida de 13% para 1%.
-#   (O código anterior estava cortando o final da página, onde ficavam as seções sumidas).
-# - LIMPEZA: Filtro de lixo reforçado para compensar a leitura da página inteira.
-# - UI: Layout exato solicitado mantido.
+# Versão v68 - Limpeza de "Lixo Fragmentado"
+# - NOVO: Regex agressivos para remover fragmentos técnicos ("s New Roman", "AZOLINA", contatos).
+# - MANTIDO: Toda a lógica de correção de títulos, tabelas e split-column da v67.
+# - UI: Layout exato solicitado.
 
 import re
 import difflib
@@ -118,35 +117,53 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO (MKT) -----------------
+# ----------------- FILTRO DE LIXO (ATUALIZADO v68) -----------------
 def limpar_lixo_grafico(texto):
-    """Remove lixo técnico sem cortar o texto útil."""
+    """Remove lixo técnico e fragmentos de texto de borda."""
+    
+    # Lista de padrões proibidos (se encontrar, apaga a parte ou a linha)
     padroes_lixo = [
-        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$', 
+        # Cabeçalhos padrão
+        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
-        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
+        
+        # Fontes e fragmentos (s New Roman, rpo 10, etc)
+        r'.*New\s*Roman.*', r'.*Myriad.*', r'.*Arial.*', r'.*Helvética.*',
+        r'.*Regular.*', r'.*Bold.*', r'.*Italic.*', r'.*Condensed.*',
+        r'.*rpo\s*10.*', r'.*po\s*10.*', # Fragmentos de "Corpo 10"
+        
+        # Cores e fragmentos
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
-        r'^\s*\d+[,.]?\d*\s*mm\s*$', r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b',
-        r'^\s*FRENTE\s*$', r'^\s*VERSO\s*$', 
-        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
+        r'.*Cor:.*',
+        
+        # Contatos e Gráfica
+        r'.*artes\s*@\s*belfar.*', r'.*31\s*2105\s*1100.*', 
+        r'.*contato:.*', r'BELFAR', r'PHARMA',
+        
+        # Códigos e Fragmentos de Títulos Técnicos
+        r'.*AZOLINA:.*', # Pega "AZOLINA: Tim" e variações
+        r'BUL_CLORIDRATO.*',
+        r'Medida da bula:', r'Impress[ãa]o:.*', r'Normal e Negrito',
         r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
         r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
-        r'.*AZOLINA:\s*Tim.*', r'.*NAFAZOLINA:\s*Times.*', 
-        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
-        r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$' 
+        
+        # Medidas e Códigos Numéricos
+        r'^\s*\d+[,.]?\d*\s*mm\s*$', r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b',
+        r'\d{6,}\s*-\s*\d{2}/\d{2}',
+        
+        # Controles de Lado
+        r'^\s*FRENTE\s*$', r'^\s*VERSO\s*$'
     ]
     
     texto_limpo = texto
     for p in padroes_lixo:
-        # Substitui por espaço vazio
+        # Substitui por vazio
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
+    
     return texto_limpo
 
 # ----------------- CORREÇÃO E NUMERAÇÃO FORÇADA -----------------
 def forcar_titulos_bula(texto):
-    """
-    Procura títulos (mesmo quebrados) e força a formatação correta.
-    """
     substituicoes = [
         (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,40}?USAR[\s\S]{1,40}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
@@ -170,7 +187,7 @@ def forcar_titulos_bula(texto):
         
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO (SPLIT COLUMN - MARGEM CORRIGIDA) -----------------
+# ----------------- EXTRAÇÃO (SPLIT COLUMN) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -181,19 +198,15 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    
-                    # [CORREÇÃO AQUI] Margem reduzida de 0.13 para 0.01 (1%)
-                    # Isso garante que lemos até o final da página onde estão as seções faltantes
+                    # Margem 1% para pegar tudo (pois o filtro de lixo vai limpar o excesso)
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
                         meio_x = rect.width / 2
                         
-                        # Esquerda (Lê quase tudo verticalmente)
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
                         
-                        # Direita
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
                         
@@ -214,11 +227,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # Aplica a limpeza de lixo
+            # Limpeza pesada (v68)
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
-                # Força os títulos e remove numeração solta
                 texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
@@ -240,7 +252,6 @@ def is_titulo_secao(linha):
 
 def reconstruir_paragrafos(texto):
     if not texto: return ""
-    # Reaplica a força nos títulos para garantir
     texto = forcar_titulos_bula(texto)
     
     linhas = texto.split('\n')
@@ -251,7 +262,6 @@ def reconstruir_paragrafos(texto):
     for linha in linhas:
         l_strip = linha.strip()
         
-        # Filtro de linhas muito curtas que podem ser lixo residual
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append("")
@@ -639,7 +649,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v67)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v68)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -685,4 +695,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v67 | Correção de Margem de Corte (1%).")
+st.caption("Sistema de Auditoria de Bulas v68 | Limpeza de Fragmentos.")
