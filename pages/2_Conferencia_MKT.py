@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v57 - Correção de Títulos Quebrados + Filtro de Lixo Gráfico
-# - NOVO: Função `reparar_titulos_quebrados` -> Junta títulos que o PDF quebrou em 2 linhas.
-# - MELHORIA: Lista de Regex "Anti-Lixo" expandida para remover especificações técnicas (fontes, mm, cores).
-# - AJUSTE: Margem de segurança aumentada (10%) para evitar rodapés técnicos.
-# - UI: Layout mantido.
+# Versão v59 - Filtro "Nuclear" de Lixo Gráfico
+# - NOVO: Função `filtrar_linhas_tecnicas` que deleta a linha INTEIRA se encontrar lixo.
+# - ALVO: Remove especificamente "Times New Roman", "Black", "AZOLINA: Tim", códigos "1042400 - 12/23".
+# - UI: Layout original mantido.
 
 import re
 import difflib
@@ -18,16 +17,23 @@ from thefuzz import fuzz
 from spellchecker import SpellChecker
 from collections import namedtuple
 
-# ----------------- UI / CSS (LAYOUT v21.9) -----------------
+# ----------------- UI / CSS (LAYOUT MANTIDO) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
 <style>
+/* Ajuste do Container Principal */
+.main .block-container {
+    padding-top: 2rem !important;
+    padding-bottom: 2rem !important;
+    max-width: 95% !important;
+}
+
 [data-testid="stHeader"] { display: none !important; }
 footer { display: none !important; }
 
 .bula-box {
-  height: 420px;
+  height: 350px;
   overflow-y: auto;
   border: 1px solid #dcdcdc;
   border-radius: 6px;
@@ -56,17 +62,19 @@ footer { display: none !important; }
   font-size: 15px;
   font-weight: 700;
   color: #222;
-  margin: 8px 0 12px;
+  margin: 12px 0 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
 }
 
-mark.diff { background-color: #ffff99; padding:0 2px; color: black; }
-mark.ort { background-color: #ffdfd9; padding:0 2px; color: black; border-bottom: 1px dashed red; }
-mark.anvisa { background-color: #cce5ff; padding:0 2px; font-weight:500; color: black; }
+.ref-title { color: #0b5686; }
+.bel-title { color: #0b8a3e; }
+
+mark.diff { background-color: #ffff99; padding: 0 2px; color: black; }
+mark.ort { background-color: #ffdfd9; padding: 0 2px; color: black; border-bottom: 1px dashed red; }
+mark.anvisa { background-color: #DDEEFF; padding: 0 2px; color: black; border: 1px solid #0000FF; }
 
 .stExpander > div[role="button"] { font-weight: 700; color: #333; }
-.ref-title { color: #0b5686; font-weight:700; }
-.bel-title { color: #0b8a3e; font-weight:700; }
-.small-muted { color:#666; font-size:12px; }
 </style>
 """
 st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
@@ -110,32 +118,68 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- EXTRAÇÃO E LIMPEZA (ATUALIZADO v57) -----------------
-def limpar_lixo_grafico(texto):
-    """Remove especificações técnicas que aparecem em arquivos de MKT."""
-    padroes_lixo = [
-        r'bula do paciente', r'página \d+\s*de\s*\d+', 
-        r'Tipologia', r'Dimensão', r'Dimensões',
-        r'Times New Roman', r'Myriad Pro', r'Arial', # Nomes de fontes comuns
-        r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
-        r'^\s*\d+[,.]?\d*\s*mm\s*$', # Medidas isoladas (ex: 150 mm)
-        r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b', # Medidas (ex: 150 x 200 mm)
-        r'^\s*FRENTE\s*$', r'^\s*VERSO\s*$', 
-        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
-        r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
-        r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
-        r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$' # Códigos internos de bula
+# ----------------- FILTRAGEM AVANÇADA (ANTI-LIXO) -----------------
+def filtrar_linhas_tecnicas(texto):
+    """
+    Remove linhas inteiras que contenham termos técnicos de impressão/gráfica.
+    Isso é mais agressivo e seguro que substituir palavras.
+    """
+    linhas = texto.split('\n')
+    linhas_limpas = []
+    
+    # Termos que, se encontrados, condenam a linha inteira à morte
+    termos_proibidos = [
+        # Fontes e Estilos
+        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética', r'Futura',
+        r'Regular', r'Bold', r'Italic', r'Condensed',
+        
+        # Cores (Inglês e PT)
+        r'\bBlack\b', r'\bCyan\b', r'\bMagenta\b', r'\bYellow\b', r'\bPantone\b',
+        r'Cores?:', r'Preto', r'Color', r'Colors',
+        
+        # Termos das suas fotos
+        r'AZOLINA:\s*Tim',  # O fragmento específico
+        r'NAFAZOLINA:\s*Times',
+        r'\d{6,}\s*-\s*\d{2}/\d{2}', # Padrão 1042400 - 12/23
+        
+        # Cabeçalhos técnicos
+        r'Tipologia', r'Dimensão', r'Dimensões', r'Formato', 
+        r'bula do paciente', r'página \d+', 
+        r'FRENTE', r'VERSO', r'BELFAR', r'PHARMA',
+        r'Cód\.?:', r'Ref\.?:', r'Laetus', r'Pharmacode', 
+        r'Cód\. de barras', r'Farm\. Resp',
+        
+        # Medidas
+        r'\d+\s*mm\b', r'\d+\s*x\s*\d+\s*mm'
     ]
     
-    texto_limpo = texto
-    for p in padroes_lixo:
-        texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
+    # Compila para ficar rápido
+    regex_proibidos = [re.compile(p, re.IGNORECASE) for p in termos_proibidos]
     
-    # Remove caracteres isolados estranhos que sobram de tabelas
-    texto_limpo = re.sub(r'^\s*[|/_]\s*$', '', texto_limpo, flags=re.MULTILINE)
-    
-    return texto_limpo
+    for linha in linhas:
+        linha_strip = linha.strip()
+        deletar = False
+        
+        # 1. Checa se tem termo proibido
+        for pattern in regex_proibidos:
+            if pattern.search(linha_strip):
+                deletar = True
+                break
+        
+        # 2. Checa se é linha de medida isolada (ex: "200 x 150")
+        if re.match(r'^\s*\d{2,4}\s*[xX]\s*\d{2,4}\s*$', linha_strip):
+            deletar = True
+            
+        # 3. Checa se é apenas um número de controle longo isolado
+        if re.match(r'^\s*\d{6,}\s*$', linha_strip):
+            deletar = True
 
+        if not deletar:
+            linhas_limpas.append(linha)
+            
+    return "\n".join(linhas_limpas)
+
+# ----------------- EXTRAÇÃO -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -146,9 +190,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    
-                    # [AJUSTE v57] Margem aumentada para 10% para cortar cabeçalho técnico
-                    margem_y = rect.height * 0.10
+                    # Margem aumentada para 12% (cabeçalho/rodapé)
+                    margem_y = rect.height * 0.12 
                     
                     if is_marketing_pdf:
                         # Split Column: Lê Esquerda -> Lê Direita
@@ -174,15 +217,17 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
         if texto_completo:
+            # Limpezas básicas
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # [AJUSTE v57] Aplica a limpeza pesada
-            texto_completo = limpar_lixo_grafico(texto_completo)
+            # 1. Aplica o filtro "NUCLEAR" de linhas técnicas
+            texto_completo = filtrar_linhas_tecnicas(texto_completo)
             
+            # 2. Limpezas residuais
             if is_marketing_pdf:
-                # Remove numeração solta (paginação)
+                # Remove paginação solta "1 de 2" ou "1."
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
 
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
@@ -191,7 +236,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- REPARAÇÃO DE TÍTULOS E PARÁGRAFOS (v57) -----------------
+# ----------------- REPARAÇÃO E RECONSTRUÇÃO -----------------
 def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4 or len(ln.split('\n')) > 2 or len(ln.split()) > 20: return False
@@ -201,54 +246,32 @@ def is_titulo_secao(linha):
     return False
 
 def reparar_titulos_quebrados(linhas):
-    """
-    [NOVO v57] Verifica se um título foi quebrado em duas linhas pelo PDF.
-    Ex:
-    Linha 1: "1. PARA QUE ESTE"
-    Linha 2: "MEDICAMENTO É INDICADO?"
-    -> Junta em: "1. PARA QUE ESTE MEDICAMENTO É INDICADO?"
-    """
-    secoes_conhecidas_norm = [
-        normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()
-    ]
-    
+    secoes_conhecidas_norm = [normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()]
     linhas_corrigidas = []
     i = 0
     while i < len(linhas):
         atual = linhas[i].strip()
-        
-        # Se for a última linha, só adiciona
         if i == len(linhas) - 1:
             linhas_corrigidas.append(linhas[i])
             break
-            
         proxima = linhas[i+1].strip()
-        
-        # Tenta juntar e ver se vira um título conhecido
         juntas = atual + " " + proxima
         juntas_norm = normalizar_titulo_para_comparacao(juntas)
-        
-        eh_titulo_quebrado = False
+        eh_titulo = False
         for s_norm in secoes_conhecidas_norm:
             if fuzz.ratio(juntas_norm, s_norm) > 90:
-                eh_titulo_quebrado = True
-                break
-        
-        if eh_titulo_quebrado:
-            linhas_corrigidas.append(juntas) # Adiciona fundido
-            i += 2 # Pula a próxima pois já usamos
+                eh_titulo = True; break
+        if eh_titulo:
+            linhas_corrigidas.append(juntas); i += 2
         else:
-            linhas_corrigidas.append(linhas[i])
-            i += 1
-            
+            linhas_corrigidas.append(linhas[i]); i += 1
     return linhas_corrigidas
 
 def reconstruir_paragrafos(texto):
     if not texto: return ""
-    
     linhas = texto.split('\n')
     
-    # [PASSO 1 v57] Reparar títulos quebrados ANTES de reconstruir parágrafos
+    # Repara títulos
     linhas = reparar_titulos_quebrados(linhas)
     
     linhas_out = []
@@ -257,7 +280,9 @@ def reconstruir_paragrafos(texto):
 
     for linha in linhas:
         l_strip = linha.strip()
-        if not l_strip:
+        
+        # Filtro Extra: Se a linha ficou vazia ou muito curta e sem sentido após limpeza
+        if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append("")
             continue
@@ -644,8 +669,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v21.9)")
-st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v59)")
+st.markdown("Sistema com validação RÍGIDA e Limpeza Gráfica: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -662,7 +687,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Lendo arquivos e validando estrutura..."):
+        with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
             # Extração MKT (Split-Column) e Anvisa (Padrão)
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
@@ -690,4 +715,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v57 | Correção de Títulos Quebrados + Filtro Anti-Lixo.")
+st.caption("Sistema de Auditoria de Bulas v59 | Filtro 'Nuclear' de Lixo Gráfico.")
