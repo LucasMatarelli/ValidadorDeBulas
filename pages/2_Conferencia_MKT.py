@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v50 - Layout de Upload Restaurado + Texto MKT Corrigido
-# - VISUAL: Restaurado padding do topo (block-container) para o layout ficar compacto.
-# - VISUAL: Ajustado estilo dos títulos de upload.
-# - LÓGICA: Mantém a reconstrução de parágrafos para o texto do MKT preencher a linha.
+# Versão v52 - A Combinação Final
+# - UI: Layout compacto (padding ajustado) + Interface exata solicitada (st.radio, botões largos).
+# - LÓGICA: Validação de Bula Profissional/Paciente baseada em contagem de títulos (v21.9 logic).
+# - FUNCIONALIDADE: Correção de quebras de linha do MKT (reconstruir_paragrafos).
 
 import re
 import difflib
@@ -16,12 +16,12 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- UI / CSS (LAYOUT COMPLETO RESTAURADO) -----------------
+# ----------------- UI / CSS (LAYOUT COMPACTO + VISUAL CLÁSSICO) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
 <style>
-/* 1. Ajuste do Container Principal (Layout Antigo Compacto) */
+/* 1. Ajuste do Container Principal (Layout Compacto) */
 .main .block-container {
     padding-top: 2rem !important;
     padding-bottom: 2rem !important;
@@ -59,7 +59,7 @@ footer { display: none !important; }
   color: #111;
 }
 
-/* 4. Títulos de Seção (Resultados) */
+/* 4. Títulos de Seção */
 .section-title {
   font-size: 15px;
   font-weight: 700;
@@ -129,21 +129,16 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 if is_marketing_pdf:
                     for page in doc:
                         rect = page.rect
-                        # Margens (v45)
                         margin_y = rect.height * 0.08
                         margin_x = rect.width * 0.12
                         mid_x = rect.width / 2
-                        
                         clip_esq = fitz.Rect(margin_x, margin_y, mid_x, rect.height - margin_y)
                         clip_dir = fitz.Rect(mid_x, margin_y, rect.width - margin_x, rect.height - margin_y)
-
                         t_esq = page.get_text("text", clip=clip_esq, sort=True)
                         t_dir = page.get_text("text", clip=clip_dir, sort=True)
-                        full_text_list.append(t_esq)
-                        full_text_list.append(t_dir)
+                        full_text_list.append(t_esq); full_text_list.append(t_dir)
                 else:
-                    for page in doc:
-                        full_text_list.append(page.get_text("text", sort=True))
+                    for page in doc: full_text_list.append(page.get_text("text", sort=True))
             texto = "\n\n".join(full_text_list)
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -173,7 +168,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 r'|^\s*[A-Za-z]{5,}_[A-Za-z_]+\s*$'
             )
             padrao_ruido_linha = re.compile(ruidos_linha, re.IGNORECASE)
-
             ruidos_inline = (
                 r'BUL_CLORIDRATO_[\w\d_]+|New\s*Roman|Times\s*New|(?<=\s)mm(?=\s)'
                 r'|\b\d+([,.]\d+)?\s*mm\b|\b[\w_]*BUL\d+V\d+\b'
@@ -182,9 +176,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             padrao_ruido_inline = re.compile(ruidos_inline, re.IGNORECASE)
 
             texto = padrao_ruido_inline.sub(' ', texto)
-            
-            if is_marketing_pdf:
-                texto = re.sub(r'(?m)^\s*\d{1,2}\.\s*', '', texto)
+            if is_marketing_pdf: texto = re.sub(r'(?m)^\s*\d{1,2}\.\s*', '', texto)
 
             linhas = texto.split('\n')
             linhas_limpas = []
@@ -195,7 +187,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 if is_marketing_pdf and not re.search(r'[A-Za-z]', l_clean): continue
                 if l_clean: linhas_limpas.append(l_clean)
                 elif not linhas_limpas or linhas_limpas[-1] != "": linhas_limpas.append("")
-            
             texto = "\n".join(linhas_limpas)
             texto = re.sub(r'\n{3,}', '\n\n', texto).strip()
             return texto, None
@@ -211,11 +202,8 @@ def is_titulo_secao(linha):
     if first_line.isupper() and not first_line.endswith('.'): return True
     return False
 
-# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS (FIXED MKT) -----------------
+# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS (MKT REFLOW) -----------------
 def reconstruir_paragrafos(texto):
-    """
-    Pega o texto fatiado do MKT e junta em linhas completas.
-    """
     if not texto: return ""
     linhas = texto.split('\n')
     linhas_reconstruidas = []
@@ -223,53 +211,54 @@ def reconstruir_paragrafos(texto):
     for linha in linhas:
         linha = linha.strip()
         if not linha:
-            if buffer:
-                linhas_reconstruidas.append(buffer); buffer = ""
-            if linhas_reconstruidas and linhas_reconstruidas[-1] != "":
-                linhas_reconstruidas.append("")
+            if buffer: linhas_reconstruidas.append(buffer); buffer = ""
+            if linhas_reconstruidas and linhas_reconstruidas[-1] != "": linhas_reconstruidas.append("")
             continue
         if is_titulo_secao(linha):
-            if buffer:
-                linhas_reconstruidas.append(buffer); buffer = ""
+            if buffer: linhas_reconstruidas.append(buffer); buffer = ""
             linhas_reconstruidas.append(linha)
             continue
         if buffer:
-            if buffer.endswith('-'):
-                buffer = buffer[:-1] + linha
-            elif not buffer.endswith(('.', ':', '!', '?')):
-                buffer += " " + linha
-            else:
-                linhas_reconstruidas.append(buffer); buffer = linha
-        else:
-            buffer = linha
+            if buffer.endswith('-'): buffer = buffer[:-1] + linha
+            elif not buffer.endswith(('.', ':', '!', '?')): buffer += " " + linha
+            else: linhas_reconstruidas.append(buffer); buffer = linha
+        else: buffer = linha
     if buffer: linhas_reconstruidas.append(buffer)
     texto_final = "\n".join(linhas_reconstruidas)
     return re.sub(r'\n{2,}', '\n\n', texto_final)
 
-# ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
+# ----------------- SEÇÕES E ALIASES -----------------
 def obter_secoes_por_tipo(tipo_bula):
-    return [
-        "APRESENTAÇÕES", "COMPOSIÇÃO",
-        "1.PARA QUE ESTE MEDICAMENTO É INDICADO?", "2.COMO ESTE MEDICAMENTO FUNCIONA?",
-        "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?", "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-        "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", "6.COMO DEVO USAR ESTE MEDICAMENTO?",
-        "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-        "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "DIZERES LEGAIS"
-    ]
+    secoes = {
+        "Paciente": [
+            "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
+            "COMO ESTE MEDICAMENTO FUNCIONA?", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+            "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+            "COMO DEVO USAR ESTE MEDICAMENTO?",
+            "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
+            "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+            "DIZERES LEGAIS"
+        ],
+        "Profissional": [
+            "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
+            "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
+            "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
+            "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
+            "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
+        ]
+    }
+    return secoes.get(tipo_bula, [])
 
 def obter_aliases_secao():
     return {
-        "PARA QUE ESTE MEDICAMENTO É INDICADO?": "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
-        "COMO ESTE MEDICAMENTO FUNCIONA?": "2.COMO ESTE MEDICAMENTO FUNCIONA?",
-        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICamento?": "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-        "COMO DEVO USAR ESTE MEDICAMENTO?": "6.COMO DEVO USAR ESTE MEDICAMENTO?",
-        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
-        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO",
+        "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
+        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
+        "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
     }
 
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
@@ -308,33 +297,6 @@ def obter_dados_secao(secao_canonico, mapa, linhas):
     fim = mapa[idx+1]['linha_inicio'] if idx+1 < len(mapa) else len(linhas)
     conteudo = "\n".join(linhas[inicio:fim]).strip()
     return True, info['titulo_encontrado'], f"{conteudo}" if conteudo else ""
-
-# ----------------- HELPERS DE QUALIFIERS -----------------
-def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
-    if not texto: return [], texto
-    linhas = texto.split('\n'); qualifiers = []; i = 0
-    while i < min(len(linhas), max_lines):
-        ln = linhas[i].strip(); ln_up = ln.upper()
-        if not ln: i += 1; continue
-        if 'USO NASAL' in ln_up and 'ADULTO' in ln_up:
-            qualifiers.append(ln); i += 1; continue
-        if 'USO NASAL' in ln_up and i+1 < len(linhas) and 'ADULTO' in linhas[i+1].upper():
-            qualifiers.append(ln); qualifiers.append(linhas[i+1].strip()); i += 2; continue
-        break
-    return qualifiers, '\n'.join(linhas[i:]).strip()
-
-def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
-    src = conteudos.get(src_section); dst = conteudos.get(dst_section)
-    if not src or not dst or not src.get('cb', "").strip() or not dst.get('eb', False): return
-    qualifiers_bel, restante_bel = _extrair_linhas_qualificadoras_iniciais(src['cb'], max_lines=4)
-    if not qualifiers_bel: return
-    qual_text = ' '.join(q for q in qualifiers_bel if q.strip())
-    if not qual_text or re.search(r'\b(?:cont[eé]m|mg\b|ml\b|equivalente|q\.s\.p|qsp)\b', qual_text, re.I): return
-    if len(restante_bel.strip()) < 30: return
-    dst_norm = normalizar_texto(dst.get('cb', ""))
-    if normalizar_texto(qual_text) in dst_norm: src['cb'] = restante_bel; return
-    dst['cb'] = f"{qual_text}\n\n{dst['cb']}".strip()
-    src['cb'] = restante_bel
 
 # ----------------- ORTOGRAFIA E MARCAÇÃO -----------------
 def marcar_diferencas(ref, bel, eh_ref):
@@ -394,17 +356,81 @@ def construir_html_secoes(dados_secao, nome_secao, eh_referencia):
     html += f"<div>{conteudo_html}</div>"
     return html
 
-# ----------------- COMPARAÇÃO E RELATÓRIO -----------------
-def validar_paciente(txt):
-    tn = normalizar_texto(txt)
-    if any(t in tn for t in ["resultados de eficacia", "propriedades farmacocinetica", "posologia e modo de usar"]): return False
-    ct = sum(1 for t in ["como este medicamento funciona", "o que devo saber antes de usar", "onde como e por quanto tempo"] if t in tn)
-    return ct >= 1
+def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
+    src = conteudos.get(src_section); dst = conteudos.get(dst_section)
+    if not src or not dst or not src.get('cb', "").strip() or not dst.get('eb', False): return
+    qualifiers_bel, restante_bel = _extrair_linhas_qualificadoras_iniciais(src['cb'], max_lines=4)
+    if not qualifiers_bel: return
+    qual_text = ' '.join(q for q in qualifiers_bel if q.strip())
+    if not qual_text or re.search(r'\b(?:cont[eé]m|mg\b|ml\b|equivalente|q\.s\.p|qsp)\b', qual_text, re.I): return
+    if len(restante_bel.strip()) < 30: return
+    dst_norm = normalizar_texto(dst.get('cb', ""))
+    if normalizar_texto(qual_text) in dst_norm: src['cb'] = restante_bel; return
+    dst['cb'] = f"{qual_text}\n\n{dst['cb']}".strip()
+    src['cb'] = restante_bel
 
-def gerar_relatorio(ref, bel, nome_ref, nome_bel):
-    st.header("Relatório de Auditoria Inteligente")
-    secoes = obter_secoes_por_tipo("Paciente")
+def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
+    if not texto: return [], texto
+    linhas = texto.split('\n'); qualifiers = []; i = 0
+    while i < min(len(linhas), max_lines):
+        ln = linhas[i].strip(); ln_up = ln.upper()
+        if not ln: i += 1; continue
+        if 'USO NASAL' in ln_up and 'ADULTO' in ln_up:
+            qualifiers.append(ln); i += 1; continue
+        if 'USO NASAL' in ln_up and i+1 < len(linhas) and 'ADULTO' in linhas[i+1].upper():
+            qualifiers.append(ln); qualifiers.append(linhas[i+1].strip()); i += 2; continue
+        break
+    return qualifiers, '\n'.join(linhas[i:]).strip()
+
+# ----------------- VALIDAÇÃO DE TIPO -----------------
+def validar_eh_bula_paciente(texto, tipo_esperado):
+    """
+    Conta os títulos e verifica se bate com o tipo esperado (Paciente ou Profissional).
+    """
+    if not texto: return False
+    t_norm = normalizar_texto(texto)
     
+    # Termos Fortes de Paciente
+    paciente_terms = [
+        "como este medicamento funciona", "o que devo saber antes de usar",
+        "onde como e por quanto tempo", "quais os males que este medicamento"
+    ]
+    # Termos Fortes de Profissional
+    profissional_terms = [
+        "resultados de eficacia", "caracteristicas farmacologicas",
+        "propriedades farmacocinetica", "posologia e modo de usar"
+    ]
+    
+    score_pac = sum(1 for t in paciente_terms if t in t_norm)
+    score_prof = sum(1 for t in profissional_terms if t in t_norm)
+    
+    if tipo_esperado == "Paciente":
+        return score_pac > score_prof
+    elif tipo_esperado == "Profissional":
+        return score_prof > score_pac
+    
+    return False
+
+# ----------------- GERAÇÃO DE RELATÓRIO -----------------
+def gerar_relatorio_final(ref, bel, nome_ref, nome_bel, tipo_bula_selecionado):
+    st.header("Relatório de Auditoria Inteligente")
+    secoes = obter_secoes_por_tipo(tipo_bula_selecionado)
+    
+    prefixos_paciente = {
+        "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", "COMO DEVO USAR ESTE MEDICAMENTO?": "6.",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
+        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
+    }
+    prefixos_profissional = {
+        "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
+        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
+        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
+        "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
+    }
+    prefixos_map = prefixos_paciente if tipo_bula_selecionado == "Paciente" else prefixos_profissional
+
     l_ref = ref.split('\n'); l_bel = bel.split('\n')
     m_ref = mapear_secoes(ref, secoes); m_bel = mapear_secoes(bel, secoes)
     
@@ -413,7 +439,9 @@ def gerar_relatorio(ref, bel, nome_ref, nome_bel):
         er, tr, cr = obter_dados_secao(sec, m_ref, l_ref)
         eb, tb, cb = obter_dados_secao(sec, m_bel, l_bel)
         conteudos[sec] = {'cr': cr, 'cb': cb, 'eb': eb, 'er': er, 'tr': tr, 'tb': tb}
-    realocar_qualifiers_inplace(conteudos)
+    
+    if tipo_bula_selecionado == "Paciente":
+        realocar_qualifiers_inplace(conteudos)
 
     data_comp = []
     missing = []
@@ -447,18 +475,20 @@ def gerar_relatorio(ref, bel, nome_ref, nome_bel):
     
     rx_anvisa = r"((?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprova\w+[\s\n]+na[\s\n]+anvisa:)[\s\n]*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     m_dt_ref = re.search(rx_anvisa, ref, re.I | re.DOTALL)
+    m_dt_bel = re.search(rx_anvisa, bel, re.I | re.DOTALL)
     dt_ref_txt = m_dt_ref.group(2).replace('\n', '') if m_dt_ref else "N/A"
+    dt_bel_txt = m_dt_bel.group(2).replace('\n', '') if m_dt_bel else "N/A"
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Conformidade", f"{score:.0f}%")
     c2.metric("Erros Ortográficos", len(erros))
     c3.metric("Data ANVISA (Ref)", dt_ref_txt)
-    c4.metric("Faltantes", len(missing))
+    c4.metric("Data ANVISA (Bel)", dt_bel_txt)
     
     st.divider()
     if missing: st.error(f"Seções Faltantes: {', '.join(missing)}")
-    else: st.success("✅ Todas seções presentes")
-    st.markdown("---")
+    
+    st.subheader("Seções (clique para expandir)")
     
     ph_start, ph_end = "__AZ_S__", "__AZ_E__"
     html_full_ref = ""; html_full_bel = ""
@@ -487,44 +517,84 @@ def gerar_relatorio(ref, bel, nome_ref, nome_bel):
         
         html_full_ref += chunk_ref; html_full_bel += chunk_bel
         
-        label = f"📄 {sec} - {'❌ DIVERGENTE' if st_code=='diferente' else '✅ IDÊNTICO'}"
-        with st.expander(label):
-            c1, c2 = st.columns(2)
-            with c1: st.markdown(f"**ANVISA**<div class='bula-box'>{chunk_ref}</div>", unsafe_allow_html=True)
-            with c2: st.markdown(f"**MKT**<div class='bula-box'>{chunk_bel}</div>", unsafe_allow_html=True)
+        pref = prefixos_map.get(sec, "")
+        tit_display = f"{pref} {sec}" if pref else sec
+        
+        status_icon = "✅ Idêntico"
+        if item_comp.get('status') == 'faltante': status_icon = "🚨 FALTANTE"
+        elif sec.upper() in ignorar: status_icon = "⚠️ Ignorada"
+        elif st_code == 'diferente': status_icon = "❌ Divergente"
+        
+        with st.expander(f"{tit_display} — {status_icon}", expanded=(st_code=='diferente' or st_code=='faltante')):
+            c1, c2 = st.columns([1,1], gap="large")
+            with c1: 
+                st.markdown(f"**Ref: {nome_ref}**", unsafe_allow_html=True)
+                st.markdown(f"<div class='bula-box'>{chunk_ref}</div>", unsafe_allow_html=True)
+            with c2: 
+                st.markdown(f"**Bel: {nome_bel}**", unsafe_allow_html=True)
+                st.markdown(f"<div class='bula-box'>{chunk_bel}</div>", unsafe_allow_html=True)
 
     if erros: st.info(f"Erros: {', '.join(erros)}")
     
     st.divider()
-    st.subheader("Visualização Lado a Lado")
+    st.subheader("🎨 Visualização Completa")
     c1, c2 = st.columns(2, gap="large")
-    with c1: st.markdown(f"**{nome_ref}**<div class='bula-box-full'>{html_full_ref}</div>", unsafe_allow_html=True)
-    with c2: st.markdown(f"**{nome_bel}**<div class='bula-box-full'>{html_full_bel}</div>", unsafe_allow_html=True)
+    with c1: st.markdown(f"<div class='bula-box-full'>{html_full_ref}</div>", unsafe_allow_html=True)
+    with c2: st.markdown(f"<div class='bula-box-full'>{html_full_bel}</div>", unsafe_allow_html=True)
 
-# ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v50)")
-st.warning("⚠️ Módulo exclusivo para **Bula do Paciente**.")
+# ----------------- INTERFACE PRINCIPAL (IGUAL PEDIDO) -----------------
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
+st.markdown("Envie o arquivo da ANVISA (pdf/docx) e o PDF Marketing (MKT).")
+st.warning("⚠️ ATENÇÃO: Este módulo aceita **APENAS Bula do Paciente**. Arquivos de Bula Profissional serão bloqueados.")
+
+st.divider()
+tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
 
 col1, col2 = st.columns(2)
 with col1:
-    st.markdown("### 📄 Arquivo ANVISA")
-    f_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+    st.subheader("📄 Arquivo ANVISA")
+    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
 with col2:
-    st.markdown("### 📄 Arquivo MKT")
-    f_bel = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
+    st.subheader("📄 Arquivo MKT")
+    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
-if st.button("🔍 Iniciar Auditoria Completa", type="primary"):
-    if f_ref and f_bel:
-        with st.spinner("Processando..."):
-            t_ref, e1 = extrair_texto(f_ref, 'docx' if f_ref.name.endswith('docx') else 'pdf', False)
-            t_bel, e2 = extrair_texto(f_bel, 'pdf', True)
+if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+    if not (pdf_ref and pdf_belfar):
+        st.warning("⚠️ Por favor, envie ambos os arquivos para iniciar a auditoria.")
+    else:
+        with st.spinner("🔄 Processando e analisando as bulas..."):
+            tipo_arquivo_ref = 'docx' if pdf_ref.name.lower().endswith('.docx') else 'pdf'
             
-            if e1 or e2: st.error(f"Erro: {e1 or e2}")
-            elif not validar_paciente(t_ref) or not validar_paciente(t_bel):
-                st.error("⛔ Bloqueio: Um dos arquivos não parece ser Bula do Paciente.")
+            texto_ref_raw, erro_ref = extrair_texto(pdf_ref, tipo_arquivo_ref, is_marketing_pdf=False)
+            texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'pdf', is_marketing_pdf=True)
+            
+            if erro_ref or erro_belfar:
+                st.error(f"Erro ao processar arquivos: {erro_ref or erro_belfar}")
+            elif not texto_ref_raw or not texto_belfar_raw:
+                st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
-                t_ref = truncar_apos_anvisa(t_ref)
-                t_bel = reconstruir_paragrafos(t_bel)
-                t_bel = truncar_apos_anvisa(t_bel)
-                gerar_relatorio(t_ref, t_bel, f_ref.name, f_bel.name)
-    else: st.warning("Envie ambos os arquivos.")
+                # --- [NOVO BLOQUEIO] Validação de Tipo ---
+                eh_valido_ref = validar_eh_bula_paciente(texto_ref_raw, tipo_bula_selecionado)
+                eh_valido_bel = validar_eh_bula_paciente(texto_belfar_raw, tipo_bula_selecionado)
+                
+                msg_erro = ""
+                if not eh_valido_ref:
+                    msg_erro += f"❌ O Arquivo ANVISA ({pdf_ref.name}) NÃO corresponde ao tipo '{tipo_bula_selecionado}'.\n"
+                if not eh_valido_bel:
+                    msg_erro += f"❌ O Arquivo MKT ({pdf_belfar.name}) NÃO corresponde ao tipo '{tipo_bula_selecionado}'.\n"
+                
+                if msg_erro:
+                    st.error("⛔ BLOQUEIO DE SEGURANÇA:\n" + msg_erro)
+                else:
+                    # Continua processamento
+                    # AQUI APLICA A CORREÇÃO DO TEXTO MKT (Reflow)
+                    texto_ref_processado = reconstruir_paragrafos(texto_ref_raw)
+                    texto_ref_processado = truncar_apos_anvisa(texto_ref_processado)
+                    
+                    texto_belfar_processado = reconstruir_paragrafos(texto_belfar_raw)
+                    texto_belfar_processado = truncar_apos_anvisa(texto_belfar_processado)
+
+                    gerar_relatorio_final(texto_ref_processado, texto_belfar_processado, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
+
+st.divider()
+st.caption("Sistema de Auditoria de Bulas v52 | Interface Original + Correção MKT + Validação Dinâmica.")
