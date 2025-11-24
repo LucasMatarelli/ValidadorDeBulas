@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v73 - Correção Específica do Título Seção 4 (Quebra de Linha)
-# - REPARO: Regex da Seção 4 ajustado para pegar a quebra "ESTE \n MEDICAMENTO".
-# - LIMPEZA: Mantida a remoção de lixo gráfico (Cores, Fragmentos).
-# - UI: Layout solicitado mantido.
+# Versão v74 - Correção Título 4 e Remoção de "VERSO"
+# - LIMPEZA: Remove linhas contendo "VERSO" ou "FRENTE" isolados.
+# - TÍTULO 4: Regex reescrito para ser "guloso" e capturar a quebra "ESTE \n MEDICAMENTO".
+# - UI: Layout exato solicitado mantido.
 
 import re
 import difflib
@@ -121,22 +121,28 @@ def _create_anchor_id(secao_nome, prefix):
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos de texto de borda."""
     padroes_lixo = [
-        r'.*New\s*Roman.*', r'.*r?po\s*10.*', 
-        r'.*AZOLINA:.*', r'.*artes\s*@\s*belfar.*', 
-        r'.*2105\s*1100.*', r'.*BUL_CLORIDRATO.*',   
-        r'.*Impress[ãa]o.*', r'.*Frente\s*/\s*Verso.*',
-        r'.*Normal\s*e\s*Negrito.*', 
+        # Lixo que você pediu para remover
+        r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',  # Verso/Frente isolados
+        r'.*Frente\s*/\s*Verso.*',            # Frente / Verso no meio da frase
         r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
+        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', 
+        r'.*da bula:.*', r'.*AFAZOLINA_BUL.*',
+        
+        # Lixos Gerais
         r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
-        r'Myriad', r'Arial', r'Helvética',
+        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
         r'^\s*\d+[,.]?\d*\s*mm\s*$', r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b',
         r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
         r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
         r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
+        r'.*AZOLINA:\s*Tim.*', r'.*NAFAZOLINA:\s*Times.*', 
         r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
-        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', r'.*da bula:.*'
+        r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
+        r'.*New\s*Roman.*', r'.*r?po\s*10.*',
+        r'.*artes\s*@\s*belfar.*', r'.*2105\s*1100.*',
+        r'.*BUL_CLORIDRATO.*', r'.*Impress[ãa]o.*', r'.*Normal\s*e\s*Negrito.*'
     ]
     
     texto_limpo = texto
@@ -147,28 +153,29 @@ def limpar_lixo_grafico(texto):
 # ----------------- CORREÇÃO FORÇADA DE TÍTULOS (ATUALIZADO) -----------------
 def forcar_titulos_bula(texto):
     """
-    Regex atualizados para pegar quebras de linha no meio dos títulos.
-    Ex: "USAR ESTE \n MEDICAMENTO"
+    Reescreve títulos longos quebrados.
+    O '{0,200}?' aumenta a tolerância para lixo entre o inicio e o fim do título.
     """
     substituicoes = [
-        # Seção 4: Corrigida para pegar quebra entre ESTE e MEDICAMENTO
-        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER\s*ANTES\s*DE\s*USAR\s*ESTE[\s\S]{0,30}?MEDICAMENTO\??",
+        # Seção 4: O "Estômago" do Regex agora engole até 200 caracteres entre "SABER" e "MEDICAMENTO?"
+        # Isso resolve a quebra "ESTE \n MEDICAMENTO"
+        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{0,200}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
 
         # Seção 5
-        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO\s*TEMPO\s*POSSO\s*GUARDAR[\s\S]{0,30}?MEDICAMENTO\??",
+        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO\s*TEMPO[\s\S]{0,200}?MEDICAMENTO\??",
          r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
 
         # Seção 7
-        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER\s*QUANDO\s*(?:EU\s+)?ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", 
+        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
          
         # Seção 8
-        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES\s*QUE\s*ESTE\s*MEDICAMENTO\s*PODE\s*(?:ME\s*)?CAUSAR\??", 
+        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
          
         # Seção 9
-        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR\s*UMA\s*QUANTIDADE\s*MAIOR\s*DO\s*QUE\s*A\s*INDICADA\s*DESTE\s*MEDICAMENTO\??", 
+        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
     
@@ -193,10 +200,10 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     
                     if is_marketing_pdf:
                         meio_x = rect.width / 2
-                        
+                        # Esquerda
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
-                        
+                        # Direita
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
                         
@@ -432,7 +439,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # [CORREÇÃO ANTI-AMARELO]
+        # [CORREÇÃO ANTI-AMARELO]: Espaça pontuação
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
         norm_ref = normalizar_texto(norm_ref)
@@ -638,7 +645,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v73)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v74)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -684,4 +691,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v73 | Correção de Título Seção 4.")
+st.caption("Sistema de Auditoria de Bulas v74 | Correção de Título e Remoção de 'VERSO'.")
