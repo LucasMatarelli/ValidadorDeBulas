@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v52 - A Combinação Final
-# - UI: Layout compacto (padding ajustado) + Interface exata solicitada (st.radio, botões largos).
-# - LÓGICA: Validação de Bula Profissional/Paciente baseada em contagem de títulos (v21.9 logic).
-# - FUNCIONALIDADE: Correção de quebras de linha do MKT (reconstruir_paragrafos).
+# Versão v53 - Seleção de Tipo Removida
+# - UI: Removido o st.radio "Tipo de Bula". Define automaticamente como "Paciente".
+# - UI: Mantém o layout compacto e organizado.
+# - LÓGICA: Mantém a correção de texto do MKT e validação de segurança.
 
 import re
 import difflib
@@ -16,12 +16,12 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- UI / CSS (LAYOUT COMPACTO + VISUAL CLÁSSICO) -----------------
+# ----------------- UI / CSS (LAYOUT COMPACTO) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
 <style>
-/* 1. Ajuste do Container Principal (Layout Compacto) */
+/* 1. Ajuste do Container Principal */
 .main .block-container {
     padding-top: 2rem !important;
     padding-bottom: 2rem !important;
@@ -202,7 +202,7 @@ def is_titulo_secao(linha):
     if first_line.isupper() and not first_line.endswith('.'): return True
     return False
 
-# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS (MKT REFLOW) -----------------
+# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS -----------------
 def reconstruir_paragrafos(texto):
     if not texto: return ""
     linhas = texto.split('\n')
@@ -229,36 +229,29 @@ def reconstruir_paragrafos(texto):
 
 # ----------------- SEÇÕES E ALIASES -----------------
 def obter_secoes_por_tipo(tipo_bula):
-    secoes = {
-        "Paciente": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
-            "COMO ESTE MEDICAMENTO FUNCIONA?", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
-            "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
-            "COMO DEVO USAR ESTE MEDICAMENTO?",
-            "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
-            "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
-            "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-            "DIZERES LEGAIS"
-        ],
-        "Profissional": [
-            "APRESENTAÇÕES", "COMPOSIÇÃO", "INDICAÇÕES", "RESULTADOS DE EFICÁCIA",
-            "CARACTERÍSTICAS FARMACOLÓGICAS", "CONTRAINDICAÇÕES",
-            "ADVERTÊNCIAS E PRECAUÇÕES", "INTERAÇÕES MEDICAMENTOSAS",
-            "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO", "POSOLOGIA E MODO DE USAR",
-            "REAÇÕES ADVERSAS", "SUPERDOSE", "DIZERES LEGAIS"
-        ]
-    }
-    return secoes.get(tipo_bula, [])
+    # Sempre retorna Paciente por padrão nesta página
+    return [
+        "APRESENTAÇÕES", "COMPOSIÇÃO",
+        "1.PARA QUE ESTE MEDICAMENTO É INDICADO?", "2.COMO ESTE MEDICAMENTO FUNCIONA?",
+        "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?", "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+        "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?", "6.COMO DEVO USAR ESTE MEDICAMENTO?",
+        "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+        "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
+        "DIZERES LEGAIS"
+    ]
 
 def obter_aliases_secao():
     return {
-        "INDICAÇÕES": "PARA QUE ESTE MEDICAMENTO É INDICADO",
-        "CONTRAINDICAÇÕES": "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
-        "POSOLOGIA E MODO DE USAR": "COMO DEVO USAR ESTE MEDICAMENTO?",
-        "REAÇÕES ADVERSAS": "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?",
-        "SUPERDOSE": "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?"
+        "PARA QUE ESTE MEDICAMENTO É INDICADO?": "1.PARA QUE ESTE MEDICAMENTO É INDICADO?",
+        "COMO ESTE MEDICAMENTO FUNCIONA?": "2.COMO ESTE MEDICAMENTO FUNCIONA?",
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
+        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICamento?": "5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?",
+        "COMO DEVO USAR ESTE MEDICAMENTO?": "6.COMO DEVO USAR ESTE MEDICAMENTO?",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?",
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?": "8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?",
+        "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
     }
 
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
@@ -384,9 +377,6 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
 
 # ----------------- VALIDAÇÃO DE TIPO -----------------
 def validar_eh_bula_paciente(texto, tipo_esperado):
-    """
-    Conta os títulos e verifica se bate com o tipo esperado (Paciente ou Profissional).
-    """
     if not texto: return False
     t_norm = normalizar_texto(texto)
     
@@ -408,7 +398,6 @@ def validar_eh_bula_paciente(texto, tipo_esperado):
         return score_pac > score_prof
     elif tipo_esperado == "Profissional":
         return score_prof > score_pac
-    
     return False
 
 # ----------------- GERAÇÃO DE RELATÓRIO -----------------
@@ -423,13 +412,8 @@ def gerar_relatorio_final(ref, bel, nome_ref, nome_bel, tipo_bula_selecionado):
         "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
-    prefixos_profissional = {
-        "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
-        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
-        "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
-    }
-    prefixos_map = prefixos_paciente if tipo_bula_selecionado == "Paciente" else prefixos_profissional
+    # Nota: Como esta página é MKT (Paciente), o prefixo_map é fixo de paciente
+    prefixos_map = prefixos_paciente
 
     l_ref = ref.split('\n'); l_bel = bel.split('\n')
     m_ref = mapear_secoes(ref, secoes); m_bel = mapear_secoes(bel, secoes)
@@ -440,8 +424,7 @@ def gerar_relatorio_final(ref, bel, nome_ref, nome_bel, tipo_bula_selecionado):
         eb, tb, cb = obter_dados_secao(sec, m_bel, l_bel)
         conteudos[sec] = {'cr': cr, 'cb': cb, 'eb': eb, 'er': er, 'tr': tr, 'tb': tb}
     
-    if tipo_bula_selecionado == "Paciente":
-        realocar_qualifiers_inplace(conteudos)
+    realocar_qualifiers_inplace(conteudos)
 
     data_comp = []
     missing = []
@@ -542,13 +525,13 @@ def gerar_relatorio_final(ref, bel, nome_ref, nome_bel, tipo_bula_selecionado):
     with c1: st.markdown(f"<div class='bula-box-full'>{html_full_ref}</div>", unsafe_allow_html=True)
     with c2: st.markdown(f"<div class='bula-box-full'>{html_full_bel}</div>", unsafe_allow_html=True)
 
-# ----------------- INTERFACE PRINCIPAL (IGUAL PEDIDO) -----------------
+# ----------------- MAIN -----------------
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas")
 st.markdown("Envie o arquivo da ANVISA (pdf/docx) e o PDF Marketing (MKT).")
 st.warning("⚠️ ATENÇÃO: Este módulo aceita **APENAS Bula do Paciente**. Arquivos de Bula Profissional serão bloqueados.")
 
 st.divider()
-tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
+tipo_bula_selecionado = "Paciente" # Definido automaticamente
 
 col1, col2 = st.columns(2)
 with col1:
@@ -573,7 +556,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             elif not texto_ref_raw or not texto_belfar_raw:
                 st.error("Erro: Um dos arquivos está vazio ou não pôde ser lido corretamente.")
             else:
-                # --- [NOVO BLOQUEIO] Validação de Tipo ---
+                # --- Validação de Tipo ---
                 eh_valido_ref = validar_eh_bula_paciente(texto_ref_raw, tipo_bula_selecionado)
                 eh_valido_bel = validar_eh_bula_paciente(texto_belfar_raw, tipo_bula_selecionado)
                 
@@ -597,4 +580,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(texto_ref_processado, texto_belfar_processado, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v52 | Interface Original + Correção MKT + Validação Dinâmica.")
+st.caption("Sistema de Auditoria de Bulas v53 | Interface Original + Correção MKT + Tipo Automático.")
