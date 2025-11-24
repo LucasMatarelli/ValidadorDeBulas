@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v69 - Limpeza de Fragmentos Específicos + Correção de Títulos
-# - NOVO: Regex para "Papel:", "Ap 56gr", "da bula: Time", "AFAZOLINA_BUL".
-# - AJUSTE: Limpeza ocorre antes da reconstrução de parágrafos para não sujar títulos.
-# - UI: Layout exato solicitado.
+# Versão v70 - Correção de Lixo Específico ("-. Cor") + Títulos Reforçados
+# - LIMPEZA: Adicionado regex para remover " -. Cor" e variações.
+# - TÍTULOS: Aumentado o alcance do Regex para juntar títulos muito espaçados/quebrados.
+# - UI: Layout exato mantido.
 
 import re
 import difflib
@@ -117,28 +117,25 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO (ATUALIZADO v69) -----------------
+# ----------------- FILTRO DE LIXO (MKT) -----------------
 def limpar_lixo_grafico(texto):
-    """Remove lixo técnico e fragmentos de texto de borda."""
-    
     padroes_lixo = [
-        # --- Novos Lixos Relatados ---
+        # Lixo específico relatado (v70)
+        r'.*-\.\s*Cor.*',        # Remove "-. Cor"
+        r'.*Cor\s*Preta.*',      # Remove "Cor Preta"
         r'.*Papel:.*',           # "Papel: Ap 56gr"
-        r'.*Ap\s*\d+gr.*',       # Fragmento de gramatura
-        r'.*da bula:.*',         # "da bula: Time"
-        r'.*-\.\s*Cor.*',        # "-. Cor"
-        r'.*AFAZOLINA_BUL.*',    # "AFAZOLINA_BUL22145V00"
+        r'.*Ap\s*\d+gr.*',       
+        r'.*da bula:.*',         
+        r'.*AFAZOLINA_BUL.*',    
         
-        # --- Lixos Anteriores ---
-        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$',
+        # Lixos Gerais
+        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$', 
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
         
-        # Fontes
+        # Fontes e Cores
         r'.*New\s*Roman.*', r'.*Myriad.*', r'.*Arial.*', r'.*Helvética.*',
         r'.*Regular.*', r'.*Bold.*', r'.*Italic.*', r'.*Condensed.*',
         r'.*rpo\s*10.*', r'.*po\s*10.*', 
-        
-        # Cores
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
         r'.*Cor:.*',
         
@@ -166,13 +163,17 @@ def limpar_lixo_grafico(texto):
     
     return texto_limpo
 
-# ----------------- CORREÇÃO E NUMERAÇÃO FORÇADA -----------------
+# ----------------- CORREÇÃO E NUMERAÇÃO FORÇADA (REFORÇADA) -----------------
 def forcar_titulos_bula(texto):
+    """
+    Regex agora aceita até 100 caracteres de lixo/espaço entre as palavras do título
+    para garantir que ele junte mesmo se estiver muito quebrado.
+    """
     substituicoes = [
-        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,40}?USAR[\s\S]{1,40}?MEDICAMENTO\??",
+        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
 
-        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,50}?GUARDAR[\s\S]{1,50}?MEDICAMENTO\??",
+        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
 
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER\s*QUANDO\s*(?:EU\s+)?ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", 
@@ -202,15 +203,17 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    # Margem 1% para não perder texto útil no rodapé
+                    # Margem 1% para não cortar texto útil
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
                         meio_x = rect.width / 2
                         
+                        # Esquerda
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
                         
+                        # Direita
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
                         
@@ -231,7 +234,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # [LIMPEZA PESADA]
+            # [LIMPEZA PESADA v70]
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
@@ -653,7 +656,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v69)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v70)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -699,4 +702,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v69 | Limpeza de Fragmentos Específicos.")
+st.caption("Sistema de Auditoria de Bulas v70 | Correção de Lixo Específico + Títulos Reforçados.")
