@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v58 - Limpeza Extrema & Correções Pontuais)
-# - Interface: SEM seleção de tipo (Fixo em "Paciente").
-# - Motor: Híbrido (Texto Nativo -> Fallback para OCR Automático).
+# Aplicativo Streamlit: Auditoria de Bulas (v59 - Estável)
+# - Correção de Sintaxe: Removida atribuição complexa que causava Crash.
+# - Funcionalidades: Limpeza Gráfica Belfar, OCR Híbrido, Visual Justificado.
 # - Regra: Bloqueia automaticamente se detectar "Profissional".
-# - Correções: Lixo de gráfica, €->e, Títulos invadindo texto, Data Anvisa.
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -139,7 +138,6 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         r"(?i)\bmediatamente\b": "imediatamente", r"(?i)\bAcido acetilsalicílico\b": "Ácido acetilsalicílico",
         r"(?i)\bse ALGUM usar\b": "se ALGUÉM usar", r"(?i)\blipirona\b": "dipirona",
         r"\s+mm\b": "", r"\s+mma\b": "",
-        # Remove ruídos específicos vistos nas imagens
         r"\bMM\b": "", r"\bEE\b": "", r"\bpe\b": "" 
     }
     for padrao, correcao in correcoes.items():
@@ -148,10 +146,10 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
 
 def consertar_titulos_quebrados(texto: str) -> str:
     """Junta títulos que quebraram de linha sem duplicar texto."""
-    # Remove duplicidade se já estiver corrigido errado (ex: DEVO USAR ESTE... DEVO USAR ESTE)
+    # Remove duplicidade se já estiver corrigido errado
     texto = re.sub(r"(?i)(DEVO USAR ESTE)\s*\n\s*\1", r"\1", texto)
     
-    # Junta quebras
+    # Junta quebras especificas
     texto = re.sub(r"(?i)(QUANDO NÃO DEVO USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
     texto = re.sub(r"(?i)(O QUE DEVO SABER ANTES DE USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
     texto = re.sub(r"(?i)(INDICADA)\s*\n\s*(DESTE MEDICAMENTO\?)", r"\1 \2", texto)
@@ -249,11 +247,10 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str): return texto
-    # Ajustado para pegar a data e cortar DEPOIS dela
     rx = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     m = re.search(rx, texto, re.IGNORECASE)
     if m:
-        return texto[:m.end()] # Corta exatamente no fim da data
+        return texto[:m.end()]
     return texto
 
 # ----------------- SEÇÕES -----------------
@@ -309,9 +306,6 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
         best_canon = None
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
         numeric = int(mnum.group(1)) if mnum else None
-        
-        # Heuristicas de Título
-        is_upper = raw.isupper() and len(raw) > 5
         
         for titulo_possivel, titulo_canonico in titulos_possiveis.items():
             t_norm = titulos_norm.get(titulo_possivel, "")
@@ -370,7 +364,6 @@ def obter_dados_secao(secao_canonico, mapa, linhas):
     if not entrada: return False, None, ""
     
     linha_inicio = entrada['linha_inicio']
-    # Procura o próximo título no mapa para definir o fim
     linha_fim = len(linhas)
     for m in mapa:
         if m['linha_inicio'] > linha_inicio:
@@ -396,20 +389,17 @@ def marcar_diff(texto_ref, texto_bel):
         if tag == 'equal':
             out.append("".join([" " + t if t.isalnum() else t for t in bel_tok[j1:j2]]))
         elif tag == 'replace' or tag == 'insert':
-            # Evita marcar pontuação isolada ou tokens muito curtos que são ruído
             chunk = bel_tok[j1:j2]
             if len(chunk) == 1 and len(chunk[0]) < 2 and not chunk[0].isalnum():
                  out.append(chunk[0])
             else:
                 txt = "".join([" " + t if t.isalnum() else t for t in chunk])
                 out.append(f"<mark class='diff'>{txt}</mark>")
-        # Deletes are ignored in the Belfar view (as we show what IS there)
     return "".join(out).strip()
 
 def detectar_tipo(texto):
     if not texto: return "Indeterminado"
     norm = normalizar_titulo_para_comparacao(texto)
-    # Termos exclusivos de profissional
     prof_terms = ["resultados de eficacia", "caracteristicas farmacologicas", "posologia e modo de usar"]
     for t in prof_terms:
         if t in norm: return "Profissional"
@@ -427,17 +417,15 @@ def verificar_conteudo(texto_ref, texto_bel):
         ok_ref, tit_ref, cont_ref = obter_dados_secao(sec, mapa_ref, linhas_ref)
         ok_bel, tit_bel, cont_bel = obter_dados_secao(sec, mapa_bel, linhas_bel)
         
-        # Normalização para comparação
         n_ref = normalizar_titulo_para_comparacao(cont_ref)
         n_bel = normalizar_titulo_para_comparacao(cont_bel)
         
-        # Lógica de Status
         status = "OK"
         if not ok_bel: status = "FALTANTE"
         elif n_ref != n_bel: status = "DIVERGENTE"
         
         if sec in ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]:
-            status = "INFO" # Ignora comparação rigorosa
+            status = "INFO"
             
         if status == "OK": similaridades.append(100)
         elif status == "DIVERGENTE": similaridades.append(0)
@@ -454,7 +442,6 @@ def verificar_conteudo(texto_ref, texto_bel):
 
 def checar_ortografia(texto, ref_context):
     spell = SpellChecker(language='pt')
-    # Adiciona palavras do contexto de referência ao dicionário para não marcar como erro
     vocab = set(re.findall(r'\w+', ref_context.lower()))
     spell.word_frequency.load_words(vocab)
     spell.word_frequency.load_words(['belfar', 'belspan', 'anvisa', 'mg', 'ml', 'fr', 'drageas'])
@@ -464,11 +451,9 @@ def checar_ortografia(texto, ref_context):
     return list(erros)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v58)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v59)")
 st.markdown("Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Bloqueia automaticamente arquivos Profissionais.")
 st.divider()
-
-tipo_bula_selecionado = "Paciente" # Fixo
 
 col1, col2 = st.columns(2)
 with col1:
@@ -489,14 +474,13 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro: {erro_ref or erro_belfar}")
             else:
-                # Validação de Tipo
-                if detecting_ref := detecting_bel := "Paciente": # Default safe assumption if check fails, but verify:
-                    type_ref = detectar_tipo(texto_ref)
-                    type_bel = detectar_tipo(texto_belfar)
-                    
-                    if type_ref == "Profissional" or type_bel == "Profissional":
-                        st.error("🚨 BLOQUEIO: Arquivo de Bula Profissional detectado. Este sistema valida apenas Bula do Paciente.")
-                        st.stop()
+                # Validação Segura
+                type_ref = detectar_tipo(texto_ref)
+                type_bel = detectar_tipo(texto_belfar)
+                
+                if type_ref == "Profissional" or type_bel == "Profissional":
+                    st.error("🚨 BLOQUEIO: Arquivo de Bula Profissional detectado. Este sistema valida apenas Bula do Paciente.")
+                    st.stop()
 
                 # Processamento
                 texto_ref = truncar_apos_anvisa(texto_ref)
@@ -505,7 +489,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 analise, score = verificar_conteudo(texto_ref, texto_belfar)
                 erros = checar_ortografia(texto_belfar, texto_ref)
                 
-                # Header Data
                 rx_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d/]+)"
                 data_ref = re.search(rx_anvisa, texto_ref, re.I)
                 data_bel = re.search(rx_anvisa, texto_belfar, re.I)
@@ -518,7 +501,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 
                 st.divider()
                 
-                # Visualização
                 prefixos = {
                     "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
                     "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
@@ -539,24 +521,18 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     
                     with st.expander(f"{icon} {display_title}", expanded=(item['status'] in ["FALTANTE", "DIVERGENTE"])):
                         c1, c2 = st.columns(2)
-                        
-                        # Ref
                         ref_html = html.escape(item['cont_ref'] or "").replace('\n', '<br>')
                         with c1:
                             st.markdown(f"**Arte Vigente**")
                             st.markdown(f"<div class='bula-box'><div class='section-title ref-title'>{display_title}</div>{ref_html}</div>", unsafe_allow_html=True)
                             
-                        # Belfar (com marcações)
                         bel_content = item['cont_bel'] or ""
                         bel_marked = marcar_diff(item['cont_ref'], bel_content)
                         
-                        # Marca ortografia
                         for erro in erros:
                             bel_marked = re.sub(r'\b'+erro+r'\b', f"<mark class='ort'>{erro}</mark>", bel_marked)
                         
-                        # Marca Anvisa
                         bel_marked = re.sub(rx_anvisa, r"<mark class='anvisa'>\g<0></mark>", bel_marked, flags=re.I)
-                        
                         bel_marked = bel_marked.replace('\n', '<br>')
                         
                         with c2:
@@ -564,4 +540,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                             st.markdown(f"<div class='bula-box'><div class='section-title bel-title'>{display_title}</div>{bel_marked}</div>", unsafe_allow_html=True)
 
 st.divider()
-st.caption("Sistema de Auditoria v58 | Limpeza Gráfica Completa & Ajuste de Títulos")
+st.caption("Sistema de Auditoria v59 | Estável")
