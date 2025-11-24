@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v55 - Correção Definitiva de Colunas/Tabelas MKT
-# - EXTRAÇÃO: Usa 'blocks' do PyMuPDF para ler colunas na ordem correta (não mistura esquerda/direita).
-# - LIMPEZA: Corta margens (cabeçalho/rodapé técnico) automaticamente.
-# - UI: Interface EXATA solicitada pelo usuário.
-# - LÓGICA: Reconhece seções e corrige parágrafos quebrados.
+# Versão v56 - Extração Split-Column (Esquerda/Direita) + Preservação de Tabelas
+# - EXTRAÇÃO: Divide a página ao meio e lê Esquerda -> Direita. Resolve mistura de colunas.
+# - TABELAS: Detecta linhas de tabela (pontilhados, qsp) e não junta os parágrafos.
+# - VISUAL: Layout v21.9 estrito.
 
 import re
 import difflib
@@ -18,23 +17,16 @@ from thefuzz import fuzz
 from spellchecker import SpellChecker
 from collections import namedtuple
 
-# ----------------- UI / CSS (LAYOUT SOLICITADO) -----------------
+# ----------------- UI / CSS (LAYOUT v21.9) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
 <style>
-/* Ajuste do Container Principal */
-.main .block-container {
-    padding-top: 2rem !important;
-    padding-bottom: 2rem !important;
-    max-width: 95% !important;
-}
-
 [data-testid="stHeader"] { display: none !important; }
 footer { display: none !important; }
 
 .bula-box {
-  height: 350px;
+  height: 420px;
   overflow-y: auto;
   border: 1px solid #dcdcdc;
   border-radius: 6px;
@@ -63,19 +55,18 @@ footer { display: none !important; }
   font-size: 15px;
   font-weight: 700;
   color: #222;
-  margin: 12px 0 8px;
-  padding-top: 8px;
-  border-top: 1px solid #eee;
+  margin: 8px 0 12px;
 }
 
-.ref-title { color: #0b5686; }
-.bel-title { color: #0b8a3e; }
-
-mark.diff { background-color: #ffff99; padding: 0 2px; color: black; }
-mark.ort { background-color: #ffdfd9; padding: 0 2px; color: black; border-bottom: 1px dashed red; }
-mark.anvisa { background-color: #DDEEFF; padding: 0 2px; color: black; border: 1px solid #0000FF; }
+mark.diff { background-color: #ffff99; padding:0 2px; color: black; }
+mark.ort { background-color: #ffdfd9; padding:0 2px; color: black; border-bottom: 1px dashed red; }
+mark.anvisa { background-color: #cce5ff; padding:0 2px; font-weight:500; color: black; }
 
 .stExpander > div[role="button"] { font-weight: 700; color: #333; }
+.ref-title { color: #0b5686; font-weight:700; }
+.bel-title { color: #0b8a3e; font-weight:700; }
+.small-muted { color:#666; font-size:12px; }
+.legend { font-size:13px; margin-bottom:8px; }
 </style>
 """
 st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
@@ -106,7 +97,6 @@ def normalizar_titulo_para_comparacao(texto):
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str): return texto
-    # Regex robusto para pegar data mesmo com quebras de linha ou espaços estranhos
     regex_anvisa = r"((?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprova\w+[\s\n]+na[\s\n]+anvisa:)[\s\n]*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     match = re.search(regex_anvisa, texto, re.IGNORECASE | re.DOTALL)
     if not match: return texto
@@ -120,7 +110,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- EXTRAÇÃO INTELIGENTE (MKT / COLUNAS) -----------------
+# ----------------- EXTRAÇÃO INTELIGENTE (SPLIT COLUMNS) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -130,73 +120,64 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    # SEGREDO DO SUCESSO PARA MKT:
-                    # 1. Definir margem de corte para ignorar cabeçalho/rodapé técnico
                     rect = page.rect
-                    margem_y = rect.height * 0.08 # Ignora 8% superior e inferior
                     
-                    # 2. Usar "blocks" com sort=True. 
-                    # Isso força o PyMuPDF a ler coluna por coluna visualmente,
-                    # em vez de ler linha a linha (que mistura tudo).
-                    blocks = page.get_text("blocks", sort=True)
+                    # Margem de segurança (8%) para ignorar cabeçalho/rodapé técnico
+                    margem_y = rect.height * 0.08
                     
-                    for b in blocks:
-                        # b = (x0, y0, x1, y1, "texto", block_no, block_type)
-                        if b[6] == 0: # Tipo 0 é texto
-                            y0, y1 = b[1], b[3]
-                            # Se for MKT, ignora se estiver muito na borda (lixo técnico)
-                            if is_marketing_pdf:
-                                if y0 < margem_y or y1 > (rect.height - margem_y):
-                                    continue
-                            
-                            texto_bloco = b[4]
-                            texto_completo += texto_bloco + "\n"
-                            
+                    if is_marketing_pdf:
+                        # LÓGICA SPLIT-COLUMN: Lê Esquerda -> Lê Direita
+                        meio_x = rect.width / 2
+                        
+                        # Define área da Coluna Esquerda (com margem superior/inferior)
+                        clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
+                        texto_esq = page.get_textpage(clip=clip_esq).extractText()
+                        
+                        # Define área da Coluna Direita
+                        clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
+                        texto_dir = page.get_textpage(clip=clip_dir).extractText()
+                        
+                        # Concatena na ordem correta de leitura
+                        texto_completo += texto_esq + "\n" + texto_dir + "\n"
+                    else:
+                        # Para ANVISA/DOCX (Coluna única ou padrão)
+                        # Usa blocks para garantir ordem visual, mas sem split forçado
+                        blocks = page.get_text("blocks", sort=True)
+                        for b in blocks:
+                            if b[6] == 0: # Texto
+                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                                    texto_completo += b[4] + "\n"
+
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
         if texto_completo:
-            # Limpeza de caracteres invisíveis
+            # Limpezas gerais
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
-            
-            # Normalização básica
-            texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n')
-            texto_completo = texto_completo.replace('\u00A0', ' ')
+            texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # Limpeza de Lixo Específico de Marketing (Cores, Fontes, Tamanhos)
+            # Limpeza de Ruído MKT
             ruidos_linha = (
-                r'bula do paciente|página \d+\s*de\s*\d+|Tipologie|Tipologia|Merida|Medida'
-                r'|Impressãe|Impressão|Papel[\.:]? Ap|Cor:? Preta|artes@belfar|Cores?:'
-                r'|Times New Roman|^\s*FRENTE\s*$|^\s*VERSO\s*$|^\s*\d+\s*mm\s*$'
+                r'bula do paciente|página \d+\s*de\s*\d+|Tipologia|Merida|Medida'
+                r'|Impressãe|Impressão|Papel|Cor:?|artes@belfar|Times New Roman'
+                r'|^\s*FRENTE\s*$|^\s*VERSO\s*$|^\s*\d+\s*mm\s*$'
                 r'|^\s*BELFAR\s*$|^\s*REZA\s*$|^\s*BUL\d+\s*$|BUL_CLORIDRATO'
                 r'|\d{2}\s\d{4}\s\d{4}|^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$'
-                r'|^\s*[A-Za-z]{5,}_[A-Za-z_]+\s*$'
             )
             texto_completo = re.sub(ruidos_linha, '', texto_completo, flags=re.IGNORECASE|re.MULTILINE)
             
-            # Limpeza inline
-            ruidos_inline = (
-                r'BUL_CLORIDRATO_[\w\d_]+|New\s*Roman|Times\s*New|(?<=\s)mm(?=\s)'
-                r'|\b\d+([,.]\d+)?\s*mm\b|\b[\w_]*BUL\d+V\d+\b'
-                r'|\b(150|300|00150|00300)\s*,\s*00\b'
-            )
-            texto_completo = re.sub(ruidos_inline, ' ', texto_completo, flags=re.IGNORECASE)
-
-            # Remove numeração solta (ex: paginação) se for MKT
             if is_marketing_pdf:
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
 
-            # Remove linhas vazias excessivas
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
-            
             return texto_completo.strip(), None
-            
+
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- LÓGICA DE TÍTULOS & PARÁGRAFOS -----------------
+# ----------------- RECONSTRUÇÃO E TABELAS -----------------
 def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4 or len(ln.split('\n')) > 2 or len(ln.split()) > 20: return False
@@ -207,16 +188,17 @@ def is_titulo_secao(linha):
 
 def reconstruir_paragrafos(texto):
     """
-    Reconstroi parágrafos quebrados (MKT), mas preserva listas e tabelas.
+    Reconstroi o texto fatiado, mas preserva TABELAS e LISTAS.
     """
     if not texto: return ""
     linhas = texto.split('\n')
     linhas_out = []
     buffer = ""
     
-    # Detecta itens de lista/tabela para NÃO juntar
-    padrao_lista = re.compile(r'^\s*(?:-|•|\d+\.|[a-z]\))\s+')
-    
+    # Regex para detectar linhas de tabela ou lista (que NÃO devem ser juntadas)
+    # Pontilhados (....), sublinhados (____), q.s.p, itens de lista
+    padrao_tabela = re.compile(r'\.{3,}|_{3,}|q\.s\.p|^\s*[-•]\s+')
+
     for linha in linhas:
         l_strip = linha.strip()
         if not l_strip:
@@ -229,21 +211,18 @@ def reconstruir_paragrafos(texto):
             linhas_out.append(l_strip)
             continue
             
-        # Se parece item de lista, flush e adiciona
-        if padrao_lista.match(l_strip):
-            if buffer: linhas_out.append(buffer)
-            buffer = l_strip
+        # Se é linha de tabela/lista, flush buffer e adiciona isolada
+        if padrao_tabela.search(l_strip):
+            if buffer: linhas_out.append(buffer); buffer = ""
+            linhas_out.append(l_strip)
             continue
 
         if buffer:
-            # Se terminar com hífen, junta direto
             if buffer.endswith('-'):
                 buffer = buffer[:-1] + l_strip
-            # Se não terminar com pontuação final, junta (provável quebra de coluna)
             elif not buffer.endswith(('.', ':', '!', '?')):
                 buffer += " " + l_strip
             else:
-                # Se terminou com ponto, é novo parágrafo
                 linhas_out.append(buffer)
                 buffer = l_strip
         else:
@@ -618,18 +597,18 @@ tipo_bula_selecionado = "Paciente" # Fixo
 
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arquivo ANVISA")
-    pdf_ref = st.file_uploader("Envie o arquivo da Anvisa (.docx ou .pdf)", type=["docx", "pdf"], key="ref")
+    st.subheader("📄 Documento de Referência")
+    pdf_ref = st.file_uploader("PDF/DOCX Referência", type=["pdf", "docx"], key="ref")
 with col2:
-    st.subheader("📄 Arquivo MKT")
-    pdf_belfar = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
+    st.subheader("📄 Documento BELFAR")
+    pdf_belfar = st.file_uploader("PDF/DOCX Belfar", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
         with st.spinner("Lendo arquivos e validando estrutura..."):
-            # Extração MKT (Inteligente) e Anvisa (Padrão)
+            # Extração MKT (Split-Column) e Anvisa (Padrão)
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
 
@@ -656,4 +635,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v55 | Correção de Colunas/Tabelas MKT.")
+st.caption("Sistema de Auditoria de Bulas v56 | Extração Split-Column + Layout v21.9.")
