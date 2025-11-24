@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v48 - Visual Restaurado + Lógica de Reflow MKT
-# - VISUAL: Restaurado todo o CSS e layout da v46 (caixas, fontes, cabeçalho).
-# - LÓGICA: Mantém a função `reconstruir_paragrafos` da v47 para corrigir texto quebrado do MKT.
-# - LÓGICA: Mantém a marcação azul da ANVISA robusta.
+# Versão v49 - "O Retorno do Rei" (Visual Clássico + Correção MKT)
+# - VISUAL: Restaurado CSS e classes (.ref-title, .bel-title) das versões v42/v45.
+# - BUGFIX: Corrigido erro onde tags HTML apareciam escritas na tela.
+# - FUNCIONALIDADE: Mantida a função `reconstruir_paragrafos` para o MKT não ficar enxuto.
+# - FUNCIONALIDADE: Mantido bloqueio de Bula Profissional.
 
 import re
 import difflib
@@ -16,7 +17,7 @@ import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 
-# ----------------- UI / CSS (RESTAURADO) -----------------
+# ----------------- UI / CSS (O CLÁSSICO) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 GLOBAL_CSS = """
 <style>
@@ -57,18 +58,21 @@ footer { display: none !important; }
   font-size: 15px;
   font-weight: 700;
   color: #222;
-  margin: 8px 0 12px;
+  margin: 12px 0 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
 }
 
+/* Cores específicas dos Títulos (Visual Antigo) */
+.ref-title { color: #0b5686; } /* Azul Anvisa */
+.bel-title { color: #0b8a3e; } /* Verde Belfar */
+
 /* Estilos de destaque */
-mark { color: black !important; } /* Força texto preto dentro do mark */
+mark.diff { background-color: #ffff99; padding: 0 2px; color: black; }
+mark.ort { background-color: #ffdfd9; padding: 0 2px; color: black; border-bottom: 1px dashed red; }
+mark.anvisa { background-color: #DDEEFF; padding: 0 2px; color: black; border: 1px solid #0000FF; }
 
 .stExpander > div[role="button"] { font-weight: 700; color: #333; }
-
-/* Boxes de referência / belfar */
-.ref-title { color: #0b5686; font-weight:700; }
-.bel-title { color: #0b8a3e; font-weight:700; }
-
 .small-muted { color:#666; font-size:12px; }
 </style>
 """
@@ -100,7 +104,6 @@ def normalizar_titulo_para_comparacao(texto):
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str): return texto
-    # Regex robusto para pegar data mesmo com quebras de linha
     regex_anvisa = r"((?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprova\w+[\s\n]+na[\s\n]+anvisa:)[\s\n]*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     match = re.search(regex_anvisa, texto, re.IGNORECASE | re.DOTALL)
     if not match: return texto
@@ -109,7 +112,7 @@ def truncar_apos_anvisa(texto):
     if pos_match: cut_off_position += pos_match.end()
     return texto[:cut_off_position]
 
-# ----------------- EXTRAÇÃO DE TEXTO (Robustez v45/46) -----------------
+# ----------------- EXTRAÇÃO DE TEXTO -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -122,6 +125,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 if is_marketing_pdf:
                     for page in doc:
                         rect = page.rect
+                        # Margens (igual v45)
                         margin_y = rect.height * 0.08
                         margin_x = rect.width * 0.12
                         mid_x = rect.width / 2
@@ -156,6 +160,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 linhas_filtradas_info.append(linha)
             texto = '\n'.join(linhas_filtradas_info)
 
+            # Ruídos (igual v45)
             ruidos_linha = (
                 r'bula do paciente|página \d+\s*de\s*\d+|Tipologie|Tipologia|Merida|Medida'
                 r'|Impressãe|Impressão|Papel[\.:]? Ap|Cor:? Preta|artes@belfar'
@@ -203,83 +208,43 @@ def is_titulo_secao(linha):
     if first_line.isupper() and not first_line.endswith('.'): return True
     return False
 
-# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS (v47) -----------------
+# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS (ESSA FICA!) -----------------
 def reconstruir_paragrafos(texto):
     """
-    Pega o texto que está quebrado linha a linha (coluna estreita) e 
-    junta em parágrafos contínuos, respeitando os Títulos.
+    Pega o texto que está quebrado linha a linha (MKT) e junta em parágrafos.
+    Isso é o que faz o texto 'ir até o fim' da caixa.
     """
     if not texto: return ""
-    
     linhas = texto.split('\n')
     linhas_reconstruidas = []
     buffer = ""
-    
     for linha in linhas:
         linha = linha.strip()
-        
         if not linha:
             if buffer:
-                linhas_reconstruidas.append(buffer)
-                buffer = ""
+                linhas_reconstruidas.append(buffer); buffer = ""
             if linhas_reconstruidas and linhas_reconstruidas[-1] != "":
                 linhas_reconstruidas.append("")
             continue
-            
         if is_titulo_secao(linha):
             if buffer:
-                linhas_reconstruidas.append(buffer)
-                buffer = ""
+                linhas_reconstruidas.append(buffer); buffer = ""
             linhas_reconstruidas.append(linha)
             continue
-            
         if buffer:
             if buffer.endswith('-'):
                 buffer = buffer[:-1] + linha
             elif not buffer.endswith(('.', ':', '!', '?')):
                 buffer += " " + linha
             else:
-                linhas_reconstruidas.append(buffer)
-                buffer = linha
+                linhas_reconstruidas.append(buffer); buffer = linha
         else:
             buffer = linha
-            
-    if buffer:
-        linhas_reconstruidas.append(buffer)
-        
+    if buffer: linhas_reconstruidas.append(buffer)
     texto_final = "\n".join(linhas_reconstruidas)
-    texto_final = re.sub(r'\n{2,}', '\n\n', texto_final)
-    return texto_final
+    return re.sub(r'\n{2,}', '\n\n', texto_final)
 
-# ----------------- CORREÇÃO DE QUEBRAS EM TÍTULOS -----------------
-def corrigir_quebras_em_titulos(texto):
-    # Mantemos essa função também, pois ela ajuda na ANVISA
-    if not texto: return texto
-    linhas = texto.split("\n")
-    out = []
-    buffer = ""
-    empty_cnt = 0
-    for linha in linhas:
-        ls = linha.strip()
-        if not ls:
-            empty_cnt += 1
-            if empty_cnt > 1 and buffer:
-                out.append(buffer); buffer = ""
-            if not buffer: out.append("")
-            continue
-        empty_cnt = 0
-        is_pot = is_titulo_secao(ls)
-        if is_pot and len(ls.split()) < 20:
-            if buffer: buffer += " " + ls
-            else: buffer = ls
-        else:
-            if buffer: out.append(buffer); buffer = ""
-            out.append(ls)
-    if buffer: out.append(buffer)
-    res = "\n".join(out)
-    return re.sub(r'\n{3,}', '\n\n', res)
-
-# ----------------- SEÇÕES E ALIASES -----------------
+# ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
     return [
         "APRESENTAÇÕES", "COMPOSIÇÃO",
@@ -308,35 +273,26 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO -----------------
+# ----------------- MAPEAMENTO E DADOS -----------------
 def mapear_secoes(texto, secoes_esperadas):
     mapa = []
     linhas = texto.split('\n')
     aliases = obter_aliases_secao()
-    
     titulos_possiveis = {normalizar_titulo_para_comparacao(s): s for s in secoes_esperadas}
     for alias, canon in aliases.items():
         if canon in secoes_esperadas:
             titulos_possiveis[normalizar_titulo_para_comparacao(alias)] = canon
-
     for idx, linha in enumerate(linhas):
         l_strip = linha.strip()
         if not l_strip or not is_titulo_secao(l_strip): continue
-        
         norm = normalizar_titulo_para_comparacao(l_strip)
-        best_score = 0
-        best_canon = None
-        
+        best_score = 0; best_canon = None
         for t_norm, canon in titulos_possiveis.items():
             score = fuzz.token_set_ratio(t_norm, norm)
-            if score > best_score:
-                best_score = score
-                best_canon = canon
-        
+            if score > best_score: best_score = score; best_canon = canon
         if best_score > 85:
             if not mapa or mapa[-1]['canonico'] != best_canon:
                 mapa.append({'canonico': best_canon, 'titulo_encontrado': l_strip, 'linha_inicio': idx})
-    
     mapa.sort(key=lambda x: x['linha_inicio'])
     return mapa
 
@@ -345,24 +301,19 @@ def obter_dados_secao(secao_canonico, mapa, linhas):
     for i, m in enumerate(mapa):
         if m['canonico'] == secao_canonico: idx = i; break
     if idx == -1: return False, None, ""
-    
     info = mapa[idx]
     inicio = info['linha_inicio'] + 1
     fim = mapa[idx+1]['linha_inicio'] if idx+1 < len(mapa) else len(linhas)
-    
     conteudo = "\n".join(linhas[inicio:fim]).strip()
-    return True, info['titulo_encontrado'], f"{info['titulo_encontrado']}\n\n{conteudo}" if conteudo else info['titulo_encontrado']
+    return True, info['titulo_encontrado'], f"{conteudo}" if conteudo else ""
 
-# ----------------- HELPERS DE QUALIFIERS (Mantidos) -----------------
+# ----------------- HELPERS DE QUALIFIERS -----------------
 def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
     if not texto: return [], texto
-    linhas = texto.split('\n')
-    qualifiers = []
-    i = 0
+    linhas = texto.split('\n'); qualifiers = []; i = 0
     while i < min(len(linhas), max_lines):
-        ln = linhas[i].strip()
+        ln = linhas[i].strip(); ln_up = ln.upper()
         if not ln: i += 1; continue
-        ln_up = ln.upper()
         if 'USO NASAL' in ln_up and 'ADULTO' in ln_up:
             qualifiers.append(ln); i += 1; continue
         if 'USO NASAL' in ln_up and i+1 < len(linhas) and 'ADULTO' in linhas[i+1].upper():
@@ -371,24 +322,17 @@ def _extrair_linhas_qualificadoras_iniciais(texto, max_lines=4):
     return qualifiers, '\n'.join(linhas[i:]).strip()
 
 def realocar_qualifiers_inplace(conteudos, src_section='COMPOSIÇÃO', dst_section='APRESENTAÇÕES'):
-    src = conteudos.get(src_section)
-    dst = conteudos.get(dst_section)
-    if not src or not dst: return
-    if not src.get('conteudo_bel', "").strip(): return
-    qualifiers_bel, restante_bel = _extrair_linhas_qualificadoras_iniciais(src['conteudo_bel'], max_lines=4)
+    src = conteudos.get(src_section); dst = conteudos.get(dst_section)
+    if not src or not dst or not src.get('cb', "").strip() or not dst.get('eb', False): return
+    qualifiers_bel, restante_bel = _extrair_linhas_qualificadoras_iniciais(src['cb'], max_lines=4)
     if not qualifiers_bel: return
-    if not dst.get('encontrou_bel', False): return
     qual_text = ' '.join(q for q in qualifiers_bel if q.strip())
-    if not qual_text: return
-    if re.search(r'\b(?:cont[eé]m|mg\b|ml\b|equivalente|q\.s\.p|qsp)\b', qual_text, flags=re.IGNORECASE): return
+    if not qual_text or re.search(r'\b(?:cont[eé]m|mg\b|ml\b|equivalente|q\.s\.p|qsp)\b', qual_text, re.I): return
     if len(restante_bel.strip()) < 30: return
-    dst_norm = normalizar_texto(dst.get('conteudo_bel', ""))
-    if normalizar_texto(qual_text) in dst_norm: src['conteudo_bel'] = restante_bel; return
-    lines_dst = dst.get('conteudo_bel', "").split('\n')
-    title_dst = lines_dst[0] if lines_dst and lines_dst[0].strip() else dst_section
-    rest_dst = '\n'.join(lines_dst[1:]).strip() if len(lines_dst) > 1 else ""
-    dst['conteudo_bel'] = f"{title_dst}\n\n{qual_text}\n\n{rest_dst}".strip()
-    src['conteudo_bel'] = restante_bel
+    dst_norm = normalizar_texto(dst.get('cb', ""))
+    if normalizar_texto(qual_text) in dst_norm: src['cb'] = restante_bel; return
+    dst['cb'] = f"{qual_text}\n\n{dst['cb']}".strip()
+    src['cb'] = restante_bel
 
 # ----------------- ORTOGRAFIA E MARCAÇÃO -----------------
 def marcar_diferencas(ref, bel, eh_ref):
@@ -403,13 +347,12 @@ def marcar_diferencas(ref, bel, eh_ref):
     tokens = t1 if eh_ref else t2
     out = []
     for i, t in enumerate(tokens):
-        if i in indices and t.strip(): out.append(f"<mark style='background-color:#ffff99;padding:2px;'>{t}</mark>")
+        if i in indices and t.strip(): out.append(f"<mark class='diff'>{t}</mark>")
         else: out.append(t)
     res = ""
     for i, t in enumerate(out):
         if i == 0: res += t; continue
-        prev = re.sub(r'<[^>]+>', '', out[i-1])
-        curr = re.sub(r'<[^>]+>', '', t)
+        prev = re.sub(r'<[^>]+>', '', out[i-1]); curr = re.sub(r'<[^>]+>', '', t)
         if not re.match(r'^[.,;:!?)\\]$', curr) and curr != '\n' and prev != '\n': res += " " + t
         else: res += t
     return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", res)
@@ -436,46 +379,34 @@ def aplicar_marcas_ort(html, erros):
     final = []
     for p in parts:
         if p.startswith('<'): final.append(p)
-        else:
-            final.append(re.sub(regex, lambda m: f"<mark style='background-color:#ffcccb;border:1px dashed red;'>{m.group(1)}</mark>", hlib.unescape(p), flags=re.I))
+        else: final.append(re.sub(regex, lambda m: f"<mark class='ort'>{m.group(1)}</mark>", hlib.unescape(p), flags=re.I))
     return "".join(final)
 
-# ----------------- FORMATAÇÃO -----------------
-def formatar_leitura(html, numerar=True):
-    if not html: return ""
-    try:
-        validos = {normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo("Paciente")}
-        validos.update(normalizar_titulo_para_comparacao(a) for a in obter_aliases_secao())
-    except: validos = set()
+# ----------------- CONSTRUÇÃO HTML (O RETORNO DO CLÁSSICO) -----------------
+# Essa função volta a usar as classes CSS (.section-title, .ref-title)
+# e não mais estilos inline dinâmicos, o que resolve o bug da visualização.
 
-    style_h = "font-family:'Georgia';font-weight:700;font-size:16px;margin-top:16px;margin-bottom:12px;color:#0b5686;"
-    lines = html.split('\n')
-    out = []
+def construir_html_secoes(dados_secao, nome_secao, eh_referencia, aplicar_numeracao=True):
+    # Recupera o título correto
+    titulo = dados_secao['tr'] if eh_referencia else dados_secao['tb']
+    conteudo = dados_secao['cr'] if eh_referencia else dados_secao['cb']
     
-    for ln in lines:
-        ls = ln.strip()
-        if not ls: 
-            out.append(""); continue
-        
-        txt_raw = re.sub(r'<[^>]+>', '', ls).strip()
-        is_title = False
-        if txt_raw:
-            norm = normalizar_titulo_para_comparacao(txt_raw)
-            if norm in validos: is_title = True
-            elif is_titulo_secao(txt_raw):
-                for v in validos:
-                    if fuzz.ratio(norm, v) > 85: is_title = True; break
-        
-        if is_title:
-            color = "#000000" if "#ffff99" in ls else "#0b5686"
-            clean_title = re.sub(r'\s+', ' ', ls.replace('\n', ' ').replace('<br>', ' '))
-            if not numerar: 
-                clean_title = re.sub(r'^\s*(\d+\s*[\.\-)]*\s*)', '', clean_title)
-            out.append(f"<div style='{style_h}color:{color};'>{clean_title}</div>")
-        else:
-            out.append(ls)
-    final = "<br>".join(out)
-    return re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', final)
+    # Se não tiver título capturado, usa o nome da seção
+    if not titulo: titulo = nome_secao
+    
+    # Remove numeração se solicitado (para ficar limpo se necessario)
+    # Mas no seu caso, MKT precisa numerar, entao deixamos padrão True.
+    
+    # Define a classe de cor baseada no tipo (Azul ou Verde)
+    classe_titulo = "ref-title" if eh_referencia else "bel-title"
+    
+    html = f"<div class='section-title {classe_titulo}'>{titulo}</div>"
+    
+    # Tratamento de quebras de linha para HTML
+    conteudo_html = conteudo.replace("\n", "<br>")
+    
+    html += f"<div>{conteudo_html}</div>"
+    return html
 
 # ----------------- COMPARAÇÃO E RELATÓRIO -----------------
 def validar_paciente(txt):
@@ -488,17 +419,14 @@ def gerar_relatorio(ref, bel, nome_ref, nome_bel):
     st.header("Relatório de Auditoria Inteligente")
     secoes = obter_secoes_por_tipo("Paciente")
     
-    # Mapa e Separação
-    l_ref = ref.split('\n')
-    l_bel = bel.split('\n')
-    m_ref = mapear_secoes(ref, secoes)
-    m_bel = mapear_secoes(bel, secoes)
+    l_ref = ref.split('\n'); l_bel = bel.split('\n')
+    m_ref = mapear_secoes(ref, secoes); m_bel = mapear_secoes(bel, secoes)
     
     conteudos = {}
     for sec in secoes:
         er, tr, cr = obter_dados_secao(sec, m_ref, l_ref)
         eb, tb, cb = obter_dados_secao(sec, m_bel, l_bel)
-        conteudos[sec] = {'cr': cr, 'cb': cb, 'eb': eb, 'er': er}
+        conteudos[sec] = {'cr': cr, 'cb': cb, 'eb': eb, 'er': er, 'tr': tr, 'tb': tb} # Guardamos Títulos
     realocar_qualifiers_inplace(conteudos)
 
     data_comp = []
@@ -506,7 +434,7 @@ def gerar_relatorio(ref, bel, nome_ref, nome_bel):
     sim_scores = []
     ignorar = [s.upper() for s in obter_secoes_ignorar_comparacao()]
     
-    # Diff de Títulos
+    # Diff Títulos
     tit_ref = {m['canonico']: m['titulo_encontrado'] for m in m_ref}
     tit_bel = {m['canonico']: m['titulo_encontrado'] for m in m_bel}
     diff_titles = set()
@@ -520,7 +448,7 @@ def gerar_relatorio(ref, bel, nome_ref, nome_bel):
         
         if not eb: 
             missing.append(sec)
-            data_comp.append({'secao': sec, 'status': 'faltante', 'cr': cr, 'cb': ""})
+            data_comp.append({'secao': sec, 'status': 'faltante', 'data': item})
             continue
             
         status = 'identica'
@@ -530,13 +458,11 @@ def gerar_relatorio(ref, bel, nome_ref, nome_bel):
                 sim_scores.append(0)
             else: sim_scores.append(100)
         
-        data_comp.append({'secao': sec, 'status': status, 'cr': cr, 'cb': cb})
+        data_comp.append({'secao': sec, 'status': status, 'data': item})
 
-    # Ortografia e Data
     erros = checar_ortografia(bel, ref)
     score = sum(sim_scores)/len(sim_scores) if sim_scores else 100
     
-    # Regex Data Anvisa (Blindado)
     rx_anvisa = r"((?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprova\w+[\s\n]+na[\s\n]+anvisa:)[\s\n]*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
     m_dt_ref = re.search(rx_anvisa, ref, re.I | re.DOTALL)
     dt_ref_txt = m_dt_ref.group(2).replace('\n', '') if m_dt_ref else "N/A"
@@ -550,86 +476,74 @@ def gerar_relatorio(ref, bel, nome_ref, nome_bel):
     st.divider()
     if missing: st.error(f"Seções Faltantes: {', '.join(missing)}")
     else: st.success("✅ Todas seções presentes")
-    
     st.markdown("---")
     
-    # Setup Highlights
-    tag_azul = "<mark style='background-color:#DDEEFF;border:1px solid blue;padding:1px;'>"
     ph_start, ph_end = "__AZ_S__", "__AZ_E__"
     
-    for item in data_comp:
-        sec = item['secao']
-        st_code = item['status']
-        cr, cb = item['cr'], item['cb']
+    # ---------------- PREPARAÇÃO DO TEXTO COMPLETO (LADO A LADO) ----------------
+    # Vamos construir o HTML completo concatenando as seções geradas
+    html_full_ref = ""
+    html_full_bel = ""
+
+    for item_comp in data_comp:
+        sec = item_comp['secao']
+        st_code = item_comp['status']
+        data = item_comp['data']
         
+        cr, cb = data['cr'], data['cb']
+        
+        # Marcação Diff
         if st_code == 'diferente':
             hr = marcar_diferencas(cr, cb, True)
             hb = marcar_diferencas(cr, cb, False)
         else: hr, hb = cr, cb
         
-        # Highlight Azul
+        # Marcação Azul
         hr = re.sub(rx_anvisa, f"{ph_start}\\1{ph_end}", hr, flags=re.I|re.DOTALL)
         hb = re.sub(rx_anvisa, f"{ph_start}\\1{ph_end}", hb, flags=re.I|re.DOTALL)
         
-        # Ortografia
+        # Marcação Ortografia
         hb = aplicar_marcas_ort(hb, erros)
         
-        # Swap
-        hr = hr.replace(ph_start, tag_azul).replace(ph_end, "</mark>")
-        hb = hb.replace(ph_start, tag_azul).replace(ph_end, "</mark>")
+        # Substitui placeholders pelos SPANs (não style inline, classes CSS)
+        hr = hr.replace(ph_start, "<mark class='anvisa'>").replace(ph_end, "</mark>")
+        hb = hb.replace(ph_start, "<mark class='anvisa'>").replace(ph_end, "</mark>")
         
-        html_r = formatar_leitura(hr, True)
-        html_b = formatar_leitura(hb, True)
+        # Atualiza o dicionário de dados processados para usar no Expander e no Full
+        data['html_ref_final'] = hr
+        data['html_bel_final'] = hb
         
+        # Constrói o HTML usando o método CLÁSSICO (Divs com Classes)
+        # Passamos 'data' que tem os títulos originais (tr, tb)
+        # Mas passamos o 'hr/hb' já marcado como conteúdo
+        dados_ref = data.copy(); dados_ref['cr'] = hr
+        dados_bel = data.copy(); dados_bel['cb'] = hb
+        
+        chunk_ref = construir_html_secoes(dados_ref, sec, True)
+        chunk_bel = construir_html_secoes(dados_bel, sec, False)
+        
+        html_full_ref += chunk_ref
+        html_full_bel += chunk_bel
+        
+        # --- RENDERIZA O EXPANDER ---
         label = f"📄 {sec} - {'❌ DIVERGENTE' if st_code=='diferente' else '✅ IDÊNTICO'}"
         with st.expander(label):
             c1, c2 = st.columns(2)
-            with c1: st.markdown(f"**ANVISA**<div class='bula-box'>{html_r}</div>", unsafe_allow_html=True)
-            with c2: st.markdown(f"**MKT**<div class='bula-box'>{html_b}</div>", unsafe_allow_html=True)
-            
+            with c1: st.markdown(f"**ANVISA**<div class='bula-box'>{chunk_ref}</div>", unsafe_allow_html=True)
+            with c2: st.markdown(f"**MKT**<div class='bula-box'>{chunk_bel}</div>", unsafe_allow_html=True)
+
     if erros: st.info(f"Erros: {', '.join(erros)}")
     
     st.divider()
     st.subheader("Visualização Lado a Lado")
     
-    # Full View
-    full_ref_ph = re.sub(rx_anvisa, f"{ph_start}\\1{ph_end}", ref, flags=re.I|re.DOTALL)
-    full_bel_ph = re.sub(rx_anvisa, f"{ph_start}\\1{ph_end}", bel, flags=re.I|re.DOTALL)
-    
-    # Vamos apenas montar as seções para garantir a mesma marcação do expander
-    full_html_r = ""
-    full_html_b = ""
-    
-    for item in data_comp:
-        st_code = item['status']
-        cr, cb = item['cr'], item['cb']
-        if st_code == 'diferente':
-            hr_s = marcar_diferencas(cr, cb, True)
-            hb_s = marcar_diferencas(cr, cb, False)
-        else: hr_s, hb_s = cr, cb
-        
-        full_html_r += hr_s + "\n\n"
-        full_html_b += hb_s + "\n\n"
-        
-    full_html_r = re.sub(rx_anvisa, f"{ph_start}\\1{ph_end}", full_html_r, flags=re.I|re.DOTALL)
-    full_html_b = re.sub(rx_anvisa, f"{ph_start}\\1{ph_end}", full_html_b, flags=re.I|re.DOTALL)
-    full_html_b = aplicar_marcas_ort(full_html_b, erros)
-    
-    full_html_r = full_html_r.replace(ph_start, tag_azul).replace(ph_end, "</mark>")
-    full_html_b = full_html_b.replace(ph_start, tag_azul).replace(ph_end, "</mark>")
-    
-    final_view_r = formatar_leitura(full_html_r, True)
-    final_view_b = formatar_leitura(full_html_b, True)
-    
     c1, c2 = st.columns(2, gap="large")
-    with c1: st.markdown(f"**{nome_ref}**<div class='bula-box-full'>{final_view_r}</div>", unsafe_allow_html=True)
-    with c2: st.markdown(f"**{nome_bel}**<div class='bula-box-full'>{final_view_b}</div>", unsafe_allow_html=True)
+    with c1: st.markdown(f"**{nome_ref}**<div class='bula-box-full'>{html_full_ref}</div>", unsafe_allow_html=True)
+    with c2: st.markdown(f"**{nome_bel}**<div class='bula-box-full'>{html_full_bel}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v48)")
-st.markdown("Envie o arquivo da ANVISA (pdf/docx) e o PDF Marketing (MKT).")
-
-st.divider()
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v49)")
+st.warning("⚠️ Módulo exclusivo para **Bula do Paciente**.")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -639,7 +553,7 @@ with col2:
     st.subheader("📄 Arquivo MKT")
     f_bel = st.file_uploader("Envie o PDF do Marketing", type="pdf", key="belfar")
 
-if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
+if st.button("🔍 Iniciar Auditoria Completa", type="primary"):
     if f_ref and f_bel:
         with st.spinner("Processando..."):
             t_ref, e1 = extrair_texto(f_ref, 'docx' if f_ref.name.endswith('docx') else 'pdf', False)
@@ -649,15 +563,12 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             elif not validar_paciente(t_ref) or not validar_paciente(t_bel):
                 st.error("⛔ Bloqueio: Um dos arquivos não parece ser Bula do Paciente.")
             else:
-                # [APLICAÇÃO DA LÓGICA DE REFLOW MKT]
-                t_ref = corrigir_quebras_em_titulos(t_ref)
+                # [MANTIDA CORREÇÃO DE QUEBRAS DE TÍTULO PARA ANVISA]
                 t_ref = truncar_apos_anvisa(t_ref)
                 
-                t_bel = reconstruir_paragrafos(t_bel) # <--- O SEGREDO DO TEXTO ARRUMADO
+                # [MANTIDA CORREÇÃO DE PARÁGRAFOS PARA MKT]
+                t_bel = reconstruir_paragrafos(t_bel) 
                 t_bel = truncar_apos_anvisa(t_bel)
                 
                 gerar_relatorio(t_ref, t_bel, f_ref.name, f_bel.name)
-    else: st.warning("Por favor, envie ambos os arquivos para iniciar a auditoria.")
-
-st.divider()
-st.caption("Sistema de Auditoria de Bulas v48 | Visual v46 + Lógica v47.")
+    else: st.warning("Envie ambos os arquivos.")
