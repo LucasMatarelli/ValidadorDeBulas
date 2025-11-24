@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v59 - Filtro "Nuclear" de Lixo Gráfico
-# - NOVO: Função `filtrar_linhas_tecnicas` que deleta a linha INTEIRA se encontrar lixo.
-# - ALVO: Remove especificamente "Times New Roman", "Black", "AZOLINA: Tim", códigos "1042400 - 12/23".
-# - UI: Layout original mantido.
+# Versão v60 - Ajuste Fino de Pontuação e Limpeza
+# - UI: Layout EXATO solicitado (v53).
+# - CORREÇÃO AMARELO: Normaliza espaços em parênteses/pontuação antes de comparar.
+# - LIMPEZA: Margens aumentadas (13%) e regex específicos para o lixo relatado.
+# - EXTRAÇÃO: Split-Column mantido e refinado.
 
 import re
 import difflib
@@ -17,7 +18,7 @@ from thefuzz import fuzz
 from spellchecker import SpellChecker
 from collections import namedtuple
 
-# ----------------- UI / CSS (LAYOUT MANTIDO) -----------------
+# ----------------- UI / CSS (LAYOUT SOLICITADO) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
@@ -89,7 +90,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- UTILITÁRIOS -----------------
+# ----------------- UTILITÁRIOS DE TEXTO -----------------
 def normalizar_texto(texto):
     if not isinstance(texto, str): return ""
     texto = texto.replace('\n', ' ')
@@ -118,68 +119,28 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRAGEM AVANÇADA (ANTI-LIXO) -----------------
-def filtrar_linhas_tecnicas(texto):
-    """
-    Remove linhas inteiras que contenham termos técnicos de impressão/gráfica.
-    Isso é mais agressivo e seguro que substituir palavras.
-    """
-    linhas = texto.split('\n')
-    linhas_limpas = []
-    
-    # Termos que, se encontrados, condenam a linha inteira à morte
-    termos_proibidos = [
-        # Fontes e Estilos
-        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética', r'Futura',
-        r'Regular', r'Bold', r'Italic', r'Condensed',
-        
-        # Cores (Inglês e PT)
-        r'\bBlack\b', r'\bCyan\b', r'\bMagenta\b', r'\bYellow\b', r'\bPantone\b',
-        r'Cores?:', r'Preto', r'Color', r'Colors',
-        
-        # Termos das suas fotos
-        r'AZOLINA:\s*Tim',  # O fragmento específico
-        r'NAFAZOLINA:\s*Times',
-        r'\d{6,}\s*-\s*\d{2}/\d{2}', # Padrão 1042400 - 12/23
-        
-        # Cabeçalhos técnicos
-        r'Tipologia', r'Dimensão', r'Dimensões', r'Formato', 
-        r'bula do paciente', r'página \d+', 
-        r'FRENTE', r'VERSO', r'BELFAR', r'PHARMA',
-        r'Cód\.?:', r'Ref\.?:', r'Laetus', r'Pharmacode', 
-        r'Cód\. de barras', r'Farm\. Resp',
-        
-        # Medidas
-        r'\d+\s*mm\b', r'\d+\s*x\s*\d+\s*mm'
+# ----------------- FILTRO DE LIXO (MKT) -----------------
+def limpar_lixo_grafico(texto):
+    padroes_lixo = [
+        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$', # Numeros soltos (paginação)
+        r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
+        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
+        r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
+        r'^\s*\d+[,.]?\d*\s*mm\s*$', r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b',
+        r'^\s*FRENTE\s*$', r'^\s*VERSO\s*$', 
+        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
+        r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
+        r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
+        r'.*AZOLINA:\s*Tim.*', r'.*NAFAZOLINA:\s*Times.*', # Lixo específico relatado
+        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', # Codigos 1042400 - 12/23
+        r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$' 
     ]
-    
-    # Compila para ficar rápido
-    regex_proibidos = [re.compile(p, re.IGNORECASE) for p in termos_proibidos]
-    
-    for linha in linhas:
-        linha_strip = linha.strip()
-        deletar = False
-        
-        # 1. Checa se tem termo proibido
-        for pattern in regex_proibidos:
-            if pattern.search(linha_strip):
-                deletar = True
-                break
-        
-        # 2. Checa se é linha de medida isolada (ex: "200 x 150")
-        if re.match(r'^\s*\d{2,4}\s*[xX]\s*\d{2,4}\s*$', linha_strip):
-            deletar = True
-            
-        # 3. Checa se é apenas um número de controle longo isolado
-        if re.match(r'^\s*\d{6,}\s*$', linha_strip):
-            deletar = True
+    texto_limpo = texto
+    for p in padroes_lixo:
+        texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
+    return texto_limpo
 
-        if not deletar:
-            linhas_limpas.append(linha)
-            
-    return "\n".join(linhas_limpas)
-
-# ----------------- EXTRAÇÃO -----------------
+# ----------------- EXTRAÇÃO (SPLIT COLUMN) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -190,22 +151,22 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    # Margem aumentada para 12% (cabeçalho/rodapé)
-                    margem_y = rect.height * 0.12 
+                    # [AJUSTE] Margem 13% para eliminar códigos de barra/controle no topo/pé
+                    margem_y = rect.height * 0.13
                     
                     if is_marketing_pdf:
-                        # Split Column: Lê Esquerda -> Lê Direita
                         meio_x = rect.width / 2
                         
+                        # Esquerda
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
                         
+                        # Direita
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
                         
                         texto_completo += texto_esq + "\n" + texto_dir + "\n"
                     else:
-                        # Anvisa: Usa blocks
                         blocks = page.get_text("blocks", sort=True)
                         for b in blocks:
                             if b[6] == 0:
@@ -217,18 +178,17 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
         if texto_completo:
-            # Limpezas básicas
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # 1. Aplica o filtro "NUCLEAR" de linhas técnicas
-            texto_completo = filtrar_linhas_tecnicas(texto_completo)
+            # [FILTRO NUCLEAR]
+            texto_completo = limpar_lixo_grafico(texto_completo)
             
-            # 2. Limpezas residuais
             if is_marketing_pdf:
-                # Remove paginação solta "1 de 2" ou "1."
+                # Remove numeração solta (paginação) e traços
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
+                texto_completo = re.sub(r'(?m)^_+$', '', texto_completo) # Remove linhas de underline
 
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
             return texto_completo.strip(), None
@@ -270,18 +230,16 @@ def reparar_titulos_quebrados(linhas):
 def reconstruir_paragrafos(texto):
     if not texto: return ""
     linhas = texto.split('\n')
-    
-    # Repara títulos
-    linhas = reparar_titulos_quebrados(linhas)
+    linhas = reparar_titulos_quebrados(linhas) # Passo 1
     
     linhas_out = []
     buffer = ""
+    # Protege tabelas (q.s.p, pontilhados) e listas
     padrao_tabela = re.compile(r'\.{3,}|_{3,}|q\.s\.p|^\s*[-•]\s+')
 
     for linha in linhas:
         l_strip = linha.strip()
-        
-        # Filtro Extra: Se a linha ficou vazia ou muito curta e sem sentido após limpeza
+        # Filtro extra de lixo curto
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append("")
@@ -298,13 +256,13 @@ def reconstruir_paragrafos(texto):
             continue
 
         if buffer:
+            # Junta linhas, adicionando espaço se não tiver hífen
             if buffer.endswith('-'):
                 buffer = buffer[:-1] + l_strip
             elif not buffer.endswith(('.', ':', '!', '?')):
                 buffer += " " + l_strip
             else:
-                linhas_out.append(buffer)
-                buffer = l_strip
+                linhas_out.append(buffer); buffer = l_strip
         else:
             buffer = l_strip
             
@@ -469,8 +427,14 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
+        # [CORREÇÃO AMARELO] Normaliza pontuação antes de comparar (ex: "local(mucosa" == "local (mucosa")
+        norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
+        norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
+        norm_ref = normalizar_texto(norm_ref)
+        norm_bel = normalizar_texto(norm_bel)
+
         tem_diferenca = False
-        if normalizar_texto(conteudo_ref or "") != normalizar_texto(conteudo_belfar or ""):
+        if norm_ref != norm_bel:
             tem_diferenca = True
             diferencas_conteudo.append({'secao': sec, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
             similaridades_secoes.append(0)
@@ -521,34 +485,48 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     except: return []
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
-    def tokenizar(txt): return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', txt or "", re.UNICODE)
+    # Normaliza pontuação para tokenização (separa "local(mucosa" em "local ( mucosa")
+    def pre_norm(txt):
+        return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt or "")
+
+    def tokenizar(txt): 
+        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
+        
     def norm(tok):
         if tok == '\n': return ' '
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): return normalizar_texto(tok)
-        return tok
+        return tok.strip() # Remove espaços extras de pontuação
+
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
+    
     ref_norm = [norm(t) for t in ref_tokens]
     bel_norm = [norm(t) for t in bel_tokens]
+    
     matcher = difflib.SequenceMatcher(None, ref_norm, bel_norm, autojunk=False)
     indices = set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag != 'equal': indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
+    
     tokens = ref_tokens if eh_referencia else bel_tokens
     marcado = []
     for idx, tok in enumerate(tokens):
         if tok == '\n': marcado.append('<br>'); continue
         if idx in indices and tok.strip() != '': marcado.append(f"<mark class='diff'>{tok}</mark>")
         else: marcado.append(tok)
+    
     resultado = ""
     for i, tok in enumerate(marcado):
         if i == 0: resultado += tok; continue
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        if tok == '<br>' or marcado[i-1] == '<br>': resultado += tok
-        elif re.match(r'^[^\w\s]$', raw_tok): resultado += tok
-        else: resultado += " " + tok
-    resultado = re.sub(r'\s+([.,;:!?)])', r'\1', resultado)
-    resultado = re.sub(r'(\()\s+', r'\1', resultado)
+        # Lógica para não adicionar espaço antes de pontuação
+        if re.match(r'^[.,;:!?)\\]$', raw_tok):
+            resultado += tok
+        elif tok == '<br>' or marcado[i-1] == '<br>' or re.match(r'^[(]$', re.sub(r'<[^>]+>', '', marcado[i-1])):
+            resultado += tok
+        else: 
+            resultado += " " + tok
+            
     resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
     return resultado
 
@@ -669,8 +647,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v59)")
-st.markdown("Sistema com validação RÍGIDA e Limpeza Gráfica: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v60)")
+st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -687,7 +665,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
+        with st.spinner("Lendo arquivos e validando estrutura..."):
             # Extração MKT (Split-Column) e Anvisa (Padrão)
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
@@ -715,4 +693,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v59 | Filtro 'Nuclear' de Lixo Gráfico.")
+st.caption("Sistema de Auditoria de Bulas v60 | Ajuste de Pontuação e Limpeza.")
