@@ -1,6 +1,6 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v60 - Ajuste Fino de Pontuação e Limpeza
+# Versão v60 - Ajuste Fino de Pontuação e Limpeza (Anti-Amarelo)
 # - UI: Layout EXATO solicitado (v53).
 # - CORREÇÃO AMARELO: Normaliza espaços em parênteses/pontuação antes de comparar.
 # - LIMPEZA: Margens aumentadas (13%) e regex específicos para o lixo relatado.
