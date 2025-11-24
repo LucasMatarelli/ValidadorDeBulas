@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v56 - Final Corrigido)
-# - Correção: Adicionado import 'namedtuple' que faltava na v55.
+# Aplicativo Streamlit: Auditoria de Bulas (v57 - Limpeza Gráfica & Visual Aprimorado)
 # - Interface: SEM seleção de tipo (Fixo em "Paciente").
 # - Motor: Híbrido (Texto Nativo -> Fallback para OCR Automático).
 # - Regra: Bloqueia automaticamente se detectar "Profissional".
+# - NOVO: Limpeza agressiva de marcas de corte/impressão e correção de títulos quebrados.
+# - NOVO: Texto justificado e fluido nas caixas.
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -18,9 +19,9 @@ import io
 from PIL import Image
 import pytesseract
 from thefuzz import fuzz
-from collections import namedtuple # <--- IMPORTAÇÃO RESTAURADA AQUI
+from collections import namedtuple
 
-# ----------------- UI / CSS (Visual v21.9) -----------------
+# ----------------- UI / CSS (Visual Aprimorado) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
@@ -29,47 +30,51 @@ GLOBAL_CSS = """
 footer { display: none !important; }
 
 .bula-box {
-  height: 450px;
+  height: 500px; /* Aumentei um pouco */
   overflow-y: auto;
   border: 1px solid #dcdcdc;
-  border-radius: 6px;
-  padding: 18px;
+  border-radius: 8px;
+  padding: 25px; /* Mais espaçamento interno */
   background: #ffffff;
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #111;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px; /* Fonte levemente maior */
+  line-height: 1.7; /* Melhor leitura */
+  color: #222;
+  text-align: justify; /* Texto "bonitinho" do inicio ao fim */
+  white-space: pre-wrap; /* Mantém parágrafos mas permite quebra de linha responsiva */
 }
 
 .bula-box-full {
   height: 700px;
   overflow-y: auto;
   border: 1px solid #dcdcdc;
-  border-radius: 6px;
-  padding: 20px;
+  border-radius: 8px;
+  padding: 25px;
   background: #ffffff;
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 14px;
-  line-height: 1.6;
-  color: #111;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #222;
+  text-align: justify;
 }
 
 .section-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #222;
-  margin: 8px 0 12px;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 5px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #1a1a1a;
+  margin: 15px 0 10px;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 6px;
+  text-transform: uppercase;
 }
 
-mark.diff { background-color: #ffff99; padding:0 2px; border-radius: 2px; }
-mark.ort { background-color: #ffdfd9; padding:0 2px; border-radius: 2px; }
-mark.anvisa { background-color: #cce5ff; padding:0 2px; font-weight:500; border-radius: 2px; }
+mark.diff { background-color: #ffff99; padding: 2px 4px; border-radius: 4px; font-weight: bold; }
+mark.ort { background-color: #ffdfd9; padding: 2px 4px; border-radius: 4px; text-decoration: underline wavy #ff5555; }
+mark.anvisa { background-color: #cce5ff; padding: 2px 4px; font-weight:600; border-radius: 4px; }
 
-.stExpander > div[role="button"] { font-weight: 600; color: #333; }
-.ref-title { color: #0b5686; font-weight:700; }
-.bel-title { color: #0b8a3e; font-weight:700; }
+.stExpander > div[role="button"] { font-weight: 600; color: #333; font-size: 15px; }
+.ref-title { color: #005a9c; font-weight:800; } /* Azul mais profissional */
+.bel-title { color: #2e7d32; font-weight:800; } /* Verde mais profissional */
 .small-muted { color:#666; font-size:12px; }
 </style>
 """
@@ -88,6 +93,99 @@ nlp = carregar_modelo_spacy()
 
 
 # ----------------- FUNÇÕES DE LIMPEZA E OCR -----------------
+
+def limpar_lixo_grafica_belfar(texto: str) -> str:
+    """Remove especificamente o lixo técnico da gráfica Belfar e marcas de corte."""
+    if not texto: return ""
+    
+    # Lista de padrões de lixo para remover (Baseado no seu input)
+    padroes_lixo = [
+        r"BUL\s*BELSPAN\s*COMPRIMIDO.*",
+        r"BUL\d+V\d+",
+        r"Medida da bula:.*",
+        r"Impressão: Frente.*",
+        r"Papel: Ap 56gr.*",
+        r"BELSPAN: Times New Roman.*",
+        r"Cor: Preta.*",
+        r"Normal e Negrito.*Corpo \d+",
+        r"Negrito\. Corpo \d+",
+        r"BELFAR\s*contato",
+        r"\(31\) 3514-\s*2900",
+        r"artes@belfar\.com\.br",
+        r"artesObelfar\. com\. br", # Erro OCR comum
+        r"\d+a\s*prova.*", # 1a prova
+        r"\d+/\d+/\d+", # Datas soltas de prova
+        r"e?[-—_]{5,}\s*190\s*mm.*", # Linha de corte
+        r"190\s*mm\s*>>",
+        r"45\s*,\s*0\s*cm",
+        r"4\s*\.\s*0\s*cm",
+        r"Mm\s*>>>",
+        r"\|" # Barras verticais soltas
+    ]
+    
+    # Remove os padrões
+    for padrao in padroes_lixo:
+        texto = re.sub(padrao, "", texto, flags=re.IGNORECASE)
+    
+    # Limpeza de quebras de linha excessivas deixadas pela remoção
+    texto = re.sub(r'\n{3,}', '\n\n', texto)
+    
+    return texto
+
+def consertar_titulos_quebrados(texto: str) -> str:
+    """Conserta títulos que foram quebrados em duas linhas pelo OCR."""
+    # Caso 3: QUANDO NÃO DEVO USAR ESTE [quebra] MEDICAMENTO?
+    texto = re.sub(r"(?i)(QUANDO NÃO DEVO USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
+    
+    # Caso 4: O QUE DEVO SABER ANTES DE USAR ESTE [quebra] MEDICAMENTO?
+    texto = re.sub(r"(?i)(O QUE DEVO SABER ANTES DE USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
+    
+    # Caso 9: O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA [quebra] DESTE MEDICAMENTO?
+    texto = re.sub(r"(?i)(INDICADA)\s*\n\s*(DESTE MEDICAMENTO\?)", r"\1 \2", texto)
+    
+    return texto
+
+def fluir_texto(texto: str) -> str:
+    """
+    Remove quebras de linha no meio de frases para o texto ficar 'bonitinho' (justificado).
+    Mantém quebras apenas se parecer ser um novo parágrafo ou item de lista.
+    """
+    linhas = texto.split('\n')
+    novo_texto = []
+    buffer = ""
+    
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha:
+            if buffer:
+                novo_texto.append(buffer)
+                buffer = ""
+            novo_texto.append("") # Mantém parágrafo vazio
+            continue
+        
+        # Se a linha atual começa com letra minúscula, provavelmente é continuação da anterior
+        if buffer and len(linha) > 0 and linha[0].islower():
+            buffer += " " + linha
+        
+        # Se a linha anterior terminava com hífen (quebra de palavra)
+        elif buffer and buffer.endswith("-"):
+            buffer = buffer[:-1] + linha
+            
+        # Se parece um tópico (começa com bolinha ou traço), quebra
+        elif re.match(r'^[-•*]\s+', linha):
+            if buffer: novo_texto.append(buffer)
+            buffer = linha
+            
+        # Caso padrão: junta com espaço se a anterior não terminou com pontuação final forte
+        elif buffer and not re.search(r'[.!?:;]$', buffer):
+             buffer += " " + linha
+        else:
+            if buffer: novo_texto.append(buffer)
+            buffer = linha
+            
+    if buffer: novo_texto.append(buffer)
+    
+    return "\n".join(novo_texto)
 
 def corrigir_erros_ocr_comuns(texto: str) -> str:
     if not texto: return ""
@@ -116,33 +214,6 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
         texto = re.sub(padrao, correcao, texto, flags=re.MULTILINE)
     return texto
 
-def limpar_texto_grafica(texto: str) -> str:
-    """Limpa lixo de PDFs de gráfica (marcas de corte, linhas quebradas)."""
-    if not texto: return ""
-    texto = corrigir_erros_ocr_comuns(texto)
-    texto = texto.replace('\r\n', '\n').replace('\r', '\n').replace('\t', ' ')
-    texto = re.sub(r'\u00A0', ' ', texto)
-    texto = re.sub(r"(\w+)-\s*\n\s*(\w+)", r"\1\2", texto) # Junta hifenização
-    
-    linhas = texto.split('\n')
-    linhas_limpas = []
-    padroes_lixo = [
-        r'^mm\s*$', r'^mma\s*$', r'^Too\s*$', r'^HM\s*$', r'^TR\s*$', r'^BRR\s*$',
-        r'^\s*\|\s*$', r'^\s*-{5,}\s*$', r'^\s*\d+\s*$', r'^\s*S\s*$', r'^\s*E\s*$',
-        r'^\s*O\s*$', r'^\s*m\s*$', r'^\s*EN\s*$', r'fig\.\s+\d', r'^\d+-\s+\d+$',
-        r"(?i)BUL\s+.*FRENTE", r"(?i)Tipologia\s+da\s+bul", r"0,\s*00—", 
-        r"^\s*\d+\s+\d+-\s+\d+\s*$"
-    ]
-    for linha in linhas:
-        l = linha.strip()
-        if not l:
-            linhas_limpas.append("")
-            continue
-        eh_lixo = any(re.search(p, l, re.IGNORECASE) for p in padroes_lixo)
-        if not eh_lixo:
-            linhas_limpas.append(linha)
-    return "\n".join(linhas_limpas).strip()
-
 def executar_ocr(arquivo_bytes):
     """Executa OCR em todas as páginas do PDF."""
     texto_ocr = ""
@@ -151,19 +222,14 @@ def executar_ocr(arquivo_bytes):
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             try:
-                # --psm 3 é bom para página completa
                 texto_ocr += pytesseract.image_to_string(img, lang='por', config='--psm 3') + "\n"
             except:
                 pass
-    return limpar_texto_grafica(texto_ocr)
+    return texto_ocr
 
 # ----------------- EXTRAÇÃO INTELIGENTE (HÍBRIDA) -----------------
 
 def extrair_texto_inteligente(arquivo, tipo_arquivo):
-    """
-    Tenta extrair texto nativo. 
-    Se o resultado for muito curto ou vazio, assume que é imagem/curva e roda OCR.
-    """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
 
@@ -179,9 +245,8 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
                 for page in doc:
                     texto += page.get_text("text", sort=True) + "\n"
             
-            # 2. Verifica qualidade da extração nativa
+            # 2. Verifica qualidade
             texto_teste = re.sub(r'\s+', '', texto)
-            # Se tiver menos de 100 caracteres úteis, considera como curva/imagem
             if len(texto_teste) < 100:
                 usou_ocr = True
                 texto = executar_ocr(arquivo_bytes)
@@ -190,22 +255,29 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto = "\n".join([p.text for p in doc.paragraphs])
 
-        # Limpeza Final Comum
+        # Limpeza e Formatação
         if texto:
+            # 1. Remove caracteres invisiveis
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto = texto.replace(c, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             
-            if not usou_ocr:
-                # Se não usou OCR, faz a junção de hífens padrão
-                texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
-                
-            linhas = texto.split('\n')
-            padrao_rodape = re.compile(r'bula (?:do|para o) paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
-            linhas = [l for l in linhas if not padrao_rodape.search(l.strip())]
-            texto = "\n".join(linhas)
-            texto = re.sub(r'\n{3,}', '\n\n', texto)
-            texto = re.sub(r'[ \t]+', ' ', texto)
+            # 2. Limpa Lixo da Gráfica (Antes de fluir o texto)
+            texto = limpar_lixo_grafica_belfar(texto)
+            
+            # 3. OCR Corrections
+            texto = corrigir_erros_ocr_comuns(texto)
+            
+            # 4. Conserta Títulos Quebrados (CRÍTICO para o OCR)
+            texto = consertar_titulos_quebrados(texto)
+            
+            # 5. Remove hifenização de quebra de linha se não usou OCR
+            # (Se usou OCR, a função limpar_texto_grafica trataria, mas aqui garantimos)
+            texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
+            
+            # 6. Fluir texto (Deixar Bonitinho e Justificado)
+            texto = fluir_texto(texto)
+            
             texto = texto.strip()
             
         return texto, None
@@ -225,7 +297,7 @@ def truncar_apos_anvisa(texto):
 
 # ----------------- CONFIGURAÇÃO DE SEÇÕES -----------------
 def obter_secoes_por_tipo(tipo_bula):
-    # Como só existe tipo Paciente agora, esta função retorna sempre o mesmo
+    # Fixo em Paciente
     secoes = [
         "APRESENTAÇÕES", "COMPOSIÇÃO", "PARA QUE ESTE MEDICAMENTO É INDICADO",
         "COMO ESTE MEDICAMENTO FUNCIONA?", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?",
@@ -540,15 +612,10 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
         "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
-    # O prefixo profissional ainda existe aqui apenas para evitar erros se algo passar,
-    # mas o sistema força o uso de 'paciente'.
-    prefixos_profissional = {
-        "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
-        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
-        "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
-    }
-    prefixos_map = prefixos_paciente if tipo_bula == "Paciente" else prefixos_profissional
+    # Prefixo profissional apenas para compatibilidade, não será usado
+    prefixos_profissional = {} 
+    
+    prefixos_map = prefixos_paciente 
     mapa_erros = {}
     if erros_ortograficos and not eh_referencia:
         for erro in erros_ortograficos:
@@ -565,6 +632,8 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, tipo_bula, eh_r
             conteudo = diff['conteudo_ref'] or ""
         else:
             tit_enc = diff.get('titulo_encontrado_belfar') or diff.get('titulo_encontrado_ref') or secao_canonico
+            # Tenta limpar titulo quebrado no display tb
+            tit_enc = tit_enc.replace('\n', ' ') 
             tit = f"{prefixo} {tit_enc}".strip() if prefixo and not tit_enc.strip().startswith(
                 prefixo) else tit_enc
             title_html = f"<div class='section-title bel-title'>{tit}</div>"
@@ -608,6 +677,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("Seções (clique para expandir)")
 
+    html_ref = construir_html_secoes(secoes_analisadas, [], tipo_bula, True)
+    html_bel = construir_html_secoes(secoes_analisadas, erros, tipo_bula, False)
+
+    # Prefixo para display
     prefixos_paciente = {
         "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
         "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
@@ -617,21 +690,10 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
         "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
-    # Apenas para fallback, mas não será usado se a validação funcionar
-    prefixos_profissional = {
-        "INDICAÇÕES": "1.", "RESULTADOS DE EFICÁCIA": "2.", "CARACTERÍSTICAS FARMACOLÓGICAS": "3.",
-        "CONTRAINDICAÇÕES": "4.", "ADVERTÊNCIAS E PRECAUÇÕES": "5.", "INTERAÇÕES MEDICAMENTOSAS": "6.",
-        "CUIDADOS DE ARMAZENAMENTO DO MEDICAMENTO": "7.", "POSOLOGIA E MODO DE USAR": "8.",
-        "REAÇÕES ADVERSAS": "9.", "SUPERDOSE": "10."
-    }
-    prefixos_map = prefixos_paciente if tipo_bula == "Paciente" else prefixos_profissional
-
-    html_ref = construir_html_secoes(secoes_analisadas, [], tipo_bula, True)
-    html_bel = construir_html_secoes(secoes_analisadas, erros, tipo_bula, False)
 
     for diff in secoes_analisadas:
         sec = diff['secao']
-        pref = prefixos_map.get(sec, "")
+        pref = prefixos_paciente.get(sec, "")
         tit = f"{pref} {sec}" if pref else sec
         status = "✅ Idêntico"
         if diff.get('faltante'):
@@ -699,9 +761,9 @@ def detectar_tipo_arquivo_por_score(texto):
 
 
 # ----------------- MAIN APP -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v56)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v57)")
 st.markdown(
-    "Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Se for detectada Bula Profissional, o processo será bloqueado.")
+    "Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Bloqueia automaticamente arquivos Profissionais.")
 
 st.divider()
 
@@ -735,7 +797,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 erro_validacao = False
 
                 # Regra de Bloqueio: O sistema SÓ ACEITA Paciente.
-                # Se detectar "Profissional", bloqueia.
                 if detectado_ref == "Profissional":
                     st.error(f"🚨 ERRO CRÍTICO (Arte Vigente): O arquivo '{pdf_ref.name}' foi identificado como **Bula Profissional**.")
                     st.error("Este sistema é exclusivo para validação de **Bula do Paciente**.")
@@ -757,4 +818,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                                           tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v56 | Bula do Paciente Exclusiva")
+st.caption("Sistema de Auditoria v57 | Limpeza de Gráfica Belfar | Texto Justificado")
