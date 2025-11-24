@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v72 - Limpeza Final de Fragmentos (New Roman, Contatos, Cores)
-# - NOVO: Regex agressivos para "s New Roman", "po 10", "artes @ belfar".
-# - NOVO: Remoção de linhas contendo "Normal e Negrito", "Impressão".
-# - UI: Layout exato solicitado mantido.
-# - LÓGICA: Mantém Correção de Títulos e Split-Column.
+# Versão v73 - Correção Específica do Título Seção 4 (Quebra de Linha)
+# - REPARO: Regex da Seção 4 ajustado para pegar a quebra "ESTE \n MEDICAMENTO".
+# - LIMPEZA: Mantida a remoção de lixo gráfico (Cores, Fragmentos).
+# - UI: Layout solicitado mantido.
 
 import re
 import difflib
@@ -118,25 +117,16 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO (ATUALIZADO v72) -----------------
+# ----------------- FILTRO DE LIXO (MKT) -----------------
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos de texto de borda."""
-    
     padroes_lixo = [
-        # --- Fragmentos Específicos Relatados ---
-        r'.*New\s*Roman.*',      # Pega "s New Roman", "es New Roman", "Times New Roman"
-        r'.*r?po\s*10.*',        # Pega "po 10", "rpo 10" (fragmento de Corpo 10)
-        r'.*AZOLINA:.*',         # Pega "AZOLINA:"
-        r'.*artes\s*@\s*belfar.*', # Pega o email mesmo com espaços
-        r'.*2105\s*1100.*',      # Pega o telefone no meio do lixo
-        r'.*BUL_CLORIDRATO.*',   # Pega "BUL_CLORIDRATO_DE_NA"
-        r'.*Impress[ãa]o.*',     # Pega linha de impressão
-        r'.*Frente\s*/\s*Verso.*',
-        r'.*Normal\s*e\s*Negrito.*', # Pega "Normal e Negrito"
-        r'.*-\s*\.\s*Cor.*',     # Pega "-. Cor"
-        r'.*Cor:\s*Preta.*',
-        
-        # --- Lixos Gerais Mantidos ---
+        r'.*New\s*Roman.*', r'.*r?po\s*10.*', 
+        r'.*AZOLINA:.*', r'.*artes\s*@\s*belfar.*', 
+        r'.*2105\s*1100.*', r'.*BUL_CLORIDRATO.*',   
+        r'.*Impress[ãa]o.*', r'.*Frente\s*/\s*Verso.*',
+        r'.*Normal\s*e\s*Negrito.*', 
+        r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
         r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
         r'Myriad', r'Arial', r'Helvética',
@@ -151,26 +141,33 @@ def limpar_lixo_grafico(texto):
     
     texto_limpo = texto
     for p in padroes_lixo:
-        # Substitui a linha inteira (ou o match) por vazio
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
-    
     return texto_limpo
 
-# ----------------- CORREÇÃO FORÇADA DE TÍTULOS -----------------
+# ----------------- CORREÇÃO FORÇADA DE TÍTULOS (ATUALIZADO) -----------------
 def forcar_titulos_bula(texto):
+    """
+    Regex atualizados para pegar quebras de linha no meio dos títulos.
+    Ex: "USAR ESTE \n MEDICAMENTO"
+    """
     substituicoes = [
-        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
+        # Seção 4: Corrigida para pegar quebra entre ESTE e MEDICAMENTO
+        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER\s*ANTES\s*DE\s*USAR\s*ESTE[\s\S]{0,30}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
 
-        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
+        # Seção 5
+        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO\s*TEMPO\s*POSSO\s*GUARDAR[\s\S]{0,30}?MEDICAMENTO\??",
          r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
 
+        # Seção 7
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER\s*QUANDO\s*(?:EU\s+)?ME\s+ESQUECER\s+DE\s+USAR\s+ESTE\s+MEDICAMENTO\??", 
          r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
          
+        # Seção 8
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES\s*QUE\s*ESTE\s*MEDICAMENTO\s*PODE\s*(?:ME\s*)?CAUSAR\??", 
          r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
          
+        # Seção 9
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR\s*UMA\s*QUANTIDADE\s*MAIOR\s*DO\s*QUE\s*A\s*INDICADA\s*DESTE\s*MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
@@ -192,17 +189,14 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    # Margem 1% para não cortar conteúdo
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
                         meio_x = rect.width / 2
                         
-                        # Esquerda
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
                         
-                        # Direita
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
                         
@@ -223,7 +217,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-            # [LIMPEZA PESADA v72]
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
@@ -645,7 +638,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v72)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v73)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -691,4 +684,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v72 | Limpeza de Fragmentos Fina.")
+st.caption("Sistema de Auditoria de Bulas v73 | Correção de Título Seção 4.")
