@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v55 - Final Simplificado)
+# Aplicativo Streamlit: Auditoria de Bulas (v56 - Final Corrigido)
+# - Correção: Adicionado import 'namedtuple' que faltava na v55.
 # - Interface: SEM seleção de tipo (Fixo em "Paciente").
 # - Motor: Híbrido (Texto Nativo -> Fallback para OCR Automático).
 # - Regra: Bloqueia automaticamente se detectar "Profissional".
@@ -17,6 +18,7 @@ import io
 from PIL import Image
 import pytesseract
 from thefuzz import fuzz
+from collections import namedtuple # <--- IMPORTAÇÃO RESTAURADA AQUI
 
 # ----------------- UI / CSS (Visual v21.9) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
@@ -697,7 +699,7 @@ def detectar_tipo_arquivo_por_score(texto):
 
 
 # ----------------- MAIN APP -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v55)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v56)")
 st.markdown(
     "Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Se for detectada Bula Profissional, o processo será bloqueado.")
 
@@ -755,4 +757,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                                           tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v55 | Bula do Paciente Exclusiva")
+st.caption("Sistema de Auditoria v56 | Bula do Paciente Exclusiva")
