@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v74 - Correção Título 4 e Remoção de "VERSO"
-# - LIMPEZA: Remove linhas contendo "VERSO" ou "FRENTE" isolados.
-# - TÍTULO 4: Regex reescrito para ser "guloso" e capturar a quebra "ESTE \n MEDICAMENTO".
+# Versão v75 - Limpeza de "Buracos" (Espaços) + Remoção de AZOLINA/Contato
+# - LIMPEZA: Regex adicionado para "AZOLINA:", "contato:" e telefones.
+# - VISUAL: Adicionada lógica para colapsar múltiplos <br> e \n, removendo espaços gigantes.
 # - UI: Layout exato solicitado mantido.
 
 import re
@@ -121,14 +121,16 @@ def _create_anchor_id(secao_nome, prefix):
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos de texto de borda."""
     padroes_lixo = [
-        # Lixo que você pediu para remover
-        r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',  # Verso/Frente isolados
-        r'.*Frente\s*/\s*Verso.*',            # Frente / Verso no meio da frase
+        # Lixo específico reportado (v75)
+        r'AZOLINA:', r'contato:', r'31\s*2105\s*1100', 
+        r'artes\s*@\s*belfar\.com\.br',
+        
+        # Lixo anterior
+        r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
+        r'.*Frente\s*/\s*Verso.*',
         r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
         r'.*Papel:.*', r'.*Ap\s*\d+gr.*', 
         r'.*da bula:.*', r'.*AFAZOLINA_BUL.*',
-        
-        # Lixos Gerais
         r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
         r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
@@ -141,7 +143,6 @@ def limpar_lixo_grafico(texto):
         r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
         r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
         r'.*New\s*Roman.*', r'.*r?po\s*10.*',
-        r'.*artes\s*@\s*belfar.*', r'.*2105\s*1100.*',
         r'.*BUL_CLORIDRATO.*', r'.*Impress[ãa]o.*', r'.*Normal\s*e\s*Negrito.*'
     ]
     
@@ -150,31 +151,21 @@ def limpar_lixo_grafico(texto):
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     return texto_limpo
 
-# ----------------- CORREÇÃO FORÇADA DE TÍTULOS (ATUALIZADO) -----------------
+# ----------------- CORREÇÃO FORÇADA DE TÍTULOS -----------------
 def forcar_titulos_bula(texto):
-    """
-    Reescreve títulos longos quebrados.
-    O '{0,200}?' aumenta a tolerância para lixo entre o inicio e o fim do título.
-    """
     substituicoes = [
-        # Seção 4: O "Estômago" do Regex agora engole até 200 caracteres entre "SABER" e "MEDICAMENTO?"
-        # Isso resolve a quebra "ESTE \n MEDICAMENTO"
         (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{0,200}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
 
-        # Seção 5
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO\s*TEMPO[\s\S]{0,200}?MEDICAMENTO\??",
          r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
 
-        # Seção 7
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
          
-        # Seção 8
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
          
-        # Seção 9
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
@@ -200,10 +191,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     
                     if is_marketing_pdf:
                         meio_x = rect.width / 2
-                        # Esquerda
                         clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
                         texto_esq = page.get_textpage(clip=clip_esq).extractText()
-                        # Direita
+                        
                         clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
                         texto_dir = page.get_textpage(clip=clip_dir).extractText()
                         
@@ -231,6 +221,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
 
+            # [CORREÇÃO DOS ESPAÇOS GIGANTESCOS]
+            # Substitui 3 ou mais quebras de linha por apenas 2
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
             return texto_completo.strip(), None
 
@@ -260,7 +252,9 @@ def reconstruir_paragrafos(texto):
         
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
-            linhas_out.append("")
+            # [AJUSTE] Não adiciona linha vazia se a última já for vazia (evita buracos)
+            if not linhas_out or linhas_out[-1] != "":
+                linhas_out.append("")
             continue
             
         if is_titulo_secao(l_strip):
@@ -439,7 +433,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # [CORREÇÃO ANTI-AMARELO]: Espaça pontuação
+        # [CORREÇÃO ANTI-AMARELO]
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
         norm_ref = normalizar_texto(norm_ref)
@@ -558,10 +552,16 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=F
             tit = f"{prefixo} {tit_enc}".strip() if prefixo and not tit_enc.strip().startswith(prefixo) else tit_enc
             title_html = f"<div class='section-title bel-title'>{tit}</div>"
             conteudo = diff['conteudo_belfar'] or ""
+        
+        # [CORREÇÃO ESPAÇOS GIGANTES] Remove excesso de <br> gerado
         if diff.get('ignorada', False):
             conteudo_html = (conteudo or "").replace('\n', '<br>')
         else:
             conteudo_html = marcar_diferencas_palavra_por_palavra(diff.get('conteudo_ref') or "", diff.get('conteudo_belfar') or "", eh_referencia)
+        
+        # Limpeza final de HTML
+        conteudo_html = re.sub(r'(<br\s*/?>\s*){3,}', '<br><br>', conteudo_html)
+        
         if not eh_referencia and not diff.get('ignorada', False):
             for pat, repl in mapa_erros.items():
                 try: conteudo_html = re.sub(pat, repl, conteudo_html, flags=re.IGNORECASE)
@@ -645,7 +645,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v74)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v75)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -691,4 +691,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v74 | Correção de Título e Remoção de 'VERSO'.")
+st.caption("Sistema de Auditoria de Bulas v75 | Limpeza de Espaços e AZOLINA/Contato.")
