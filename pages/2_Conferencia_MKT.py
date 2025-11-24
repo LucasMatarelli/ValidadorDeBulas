@@ -1,8 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v61 - Ajuste de Nomes da Interface
-# - UI: Títulos alterados para "Arquivo ANVISA" e "Arquivo MKT".
-# - LÓGICA: Mantida toda a estrutura da v60 (Limpeza, Split-Column, Anti-Amarelo).
+# Versão v60 - Ajuste Fino de Pontuação e Limpeza (Anti-Amarelo)
+# - UI: Layout EXATO solicitado (v53).
+# - CORREÇÃO AMARELO: Normaliza espaços em parênteses/pontuação antes de comparar.
+# - LIMPEZA: Margens aumentadas (13%) e regex específicos para o lixo relatado.
+# - EXTRAÇÃO: Split-Column mantido e refinado.
 
 import re
 import difflib
@@ -120,7 +122,7 @@ def _create_anchor_id(secao_nome, prefix):
 # ----------------- FILTRO DE LIXO (MKT) -----------------
 def limpar_lixo_grafico(texto):
     padroes_lixo = [
-        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$', 
+        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$', # Numeros soltos (paginação)
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
         r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
@@ -129,8 +131,8 @@ def limpar_lixo_grafico(texto):
         r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
         r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
         r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
-        r'.*AZOLINA:\s*Tim.*', r'.*NAFAZOLINA:\s*Times.*', 
-        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
+        r'.*AZOLINA:\s*Tim.*', r'.*NAFAZOLINA:\s*Times.*', # Lixo específico relatado
+        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', # Codigos 1042400 - 12/23
         r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$' 
     ]
     texto_limpo = texto
@@ -149,6 +151,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
+                    # [AJUSTE] Margem 13% para eliminar códigos de barra/controle no topo/pé
                     margem_y = rect.height * 0.13
                     
                     if is_marketing_pdf:
@@ -179,11 +182,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
+            # [FILTRO NUCLEAR]
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
+                # Remove numeração solta (paginação) e traços
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
-                texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
+                texto_completo = re.sub(r'(?m)^_+$', '', texto_completo) # Remove linhas de underline
 
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
             return texto_completo.strip(), None
@@ -225,14 +230,16 @@ def reparar_titulos_quebrados(linhas):
 def reconstruir_paragrafos(texto):
     if not texto: return ""
     linhas = texto.split('\n')
-    linhas = reparar_titulos_quebrados(linhas)
+    linhas = reparar_titulos_quebrados(linhas) # Passo 1
     
     linhas_out = []
     buffer = ""
+    # Protege tabelas (q.s.p, pontilhados) e listas
     padrao_tabela = re.compile(r'\.{3,}|_{3,}|q\.s\.p|^\s*[-•]\s+')
 
     for linha in linhas:
         l_strip = linha.strip()
+        # Filtro extra de lixo curto
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append("")
@@ -249,6 +256,7 @@ def reconstruir_paragrafos(texto):
             continue
 
         if buffer:
+            # Junta linhas, adicionando espaço se não tiver hífen
             if buffer.endswith('-'):
                 buffer = buffer[:-1] + l_strip
             elif not buffer.endswith(('.', ':', '!', '?')):
@@ -419,7 +427,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # [CORREÇÃO AMARELO] Normaliza pontuação antes de comparar
+        # [CORREÇÃO AMARELO] Normaliza pontuação antes de comparar (ex: "local(mucosa" == "local (mucosa")
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
         norm_ref = normalizar_texto(norm_ref)
@@ -477,15 +485,21 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     except: return []
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
-    def pre_norm(txt): return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt or "")
-    def tokenizar(txt): return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
+    # Normaliza pontuação para tokenização (separa "local(mucosa" em "local ( mucosa")
+    def pre_norm(txt):
+        return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt or "")
+
+    def tokenizar(txt): 
+        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
+        
     def norm(tok):
         if tok == '\n': return ' '
         if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): return normalizar_texto(tok)
-        return tok.strip()
+        return tok.strip() # Remove espaços extras de pontuação
 
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
+    
     ref_norm = [norm(t) for t in ref_tokens]
     bel_norm = [norm(t) for t in bel_tokens]
     
@@ -505,11 +519,16 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
     for i, tok in enumerate(marcado):
         if i == 0: resultado += tok; continue
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        if re.match(r'^[.,;:!?)\\]$', raw_tok): resultado += tok
+        # Lógica para não adicionar espaço antes de pontuação
+        if re.match(r'^[.,;:!?)\\]$', raw_tok):
+            resultado += tok
         elif tok == '<br>' or marcado[i-1] == '<br>' or re.match(r'^[(]$', re.sub(r'<[^>]+>', '', marcado[i-1])):
             resultado += tok
-        else: resultado += " " + tok
-    return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
+        else: 
+            resultado += " " + tok
+            
+    resultado = re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
+    return resultado
 
 # ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
