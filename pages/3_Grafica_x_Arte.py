@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v53 - Híbrido)
-# Base: v21.9 (Visual e Lógica de Seções) + OCR Automático
+# Aplicativo Streamlit: Auditoria de Bulas (v54 - Final)
+# - Interface Visual: v21.9 (Idêntica aos prints)
+# - Motor: Híbrido (Texto Nativo -> Fallback para OCR Automático)
+# - Regra: Validação Rígida (Bloqueia Bula Profissional)
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -17,7 +19,7 @@ import io
 from PIL import Image
 import pytesseract
 
-# ----------------- UI / CSS -----------------
+# ----------------- UI / CSS (Visual v21.9) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
@@ -26,7 +28,7 @@ GLOBAL_CSS = """
 footer { display: none !important; }
 
 .bula-box {
-  height: 420px;
+  height: 450px;
   overflow-y: auto;
   border: 1px solid #dcdcdc;
   border-radius: 6px;
@@ -56,17 +58,18 @@ footer { display: none !important; }
   font-weight: 700;
   color: #222;
   margin: 8px 0 12px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 5px;
 }
 
-mark.diff { background-color: #ffff99; padding:0 2px; }
-mark.ort { background-color: #ffdfd9; padding:0 2px; }
-mark.anvisa { background-color: #cce5ff; padding:0 2px; font-weight:500; }
+mark.diff { background-color: #ffff99; padding:0 2px; border-radius: 2px; }
+mark.ort { background-color: #ffdfd9; padding:0 2px; border-radius: 2px; }
+mark.anvisa { background-color: #cce5ff; padding:0 2px; font-weight:500; border-radius: 2px; }
 
-.stExpander > div[role="button"] { font-weight: 700; color: #333; }
+.stExpander > div[role="button"] { font-weight: 600; color: #333; }
 .ref-title { color: #0b5686; font-weight:700; }
 .bel-title { color: #0b8a3e; font-weight:700; }
 .small-muted { color:#666; font-size:12px; }
-.legend { font-size:13px; margin-bottom:8px; }
 </style>
 """
 st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
@@ -83,10 +86,9 @@ def carregar_modelo_spacy():
 nlp = carregar_modelo_spacy()
 
 
-# ----------------- FUNÇÕES DE OCR E LIMPEZA -----------------
+# ----------------- FUNÇÕES DE LIMPEZA E OCR -----------------
 
 def corrigir_erros_ocr_comuns(texto: str) -> str:
-    """Corrige erros comuns gerados pelo Tesseract em bulas."""
     if not texto: return ""
     correcoes = {
         r"(?i)\binbem\b": "inibem", r"(?i)\b(3|1)lfar\b": "Belfar", r"(?i)\bBeifar\b": "Belfar",
@@ -123,8 +125,6 @@ def limpar_texto_grafica(texto: str) -> str:
     
     linhas = texto.split('\n')
     linhas_limpas = []
-    
-    # Padrões de lixo comuns em provas gráficas
     padroes_lixo = [
         r'^mm\s*$', r'^mma\s*$', r'^Too\s*$', r'^HM\s*$', r'^TR\s*$', r'^BRR\s*$',
         r'^\s*\|\s*$', r'^\s*-{5,}\s*$', r'^\s*\d+\s*$', r'^\s*S\s*$', r'^\s*E\s*$',
@@ -132,7 +132,6 @@ def limpar_texto_grafica(texto: str) -> str:
         r"(?i)BUL\s+.*FRENTE", r"(?i)Tipologia\s+da\s+bul", r"0,\s*00—", 
         r"^\s*\d+\s+\d+-\s+\d+\s*$"
     ]
-    
     for linha in linhas:
         l = linha.strip()
         if not l:
@@ -141,7 +140,6 @@ def limpar_texto_grafica(texto: str) -> str:
         eh_lixo = any(re.search(p, l, re.IGNORECASE) for p in padroes_lixo)
         if not eh_lixo:
             linhas_limpas.append(linha)
-            
     return "\n".join(linhas_limpas).strip()
 
 def executar_ocr(arquivo_bytes):
@@ -158,12 +156,16 @@ def executar_ocr(arquivo_bytes):
                 pass
     return limpar_texto_grafica(texto_ocr)
 
+# ----------------- EXTRAÇÃO INTELIGENTE (HÍBRIDA) -----------------
 
-# ----------------- EXTRAÇÃO INTELIGENTE -----------------
 def extrair_texto_inteligente(arquivo, tipo_arquivo):
+    """
+    Tenta extrair texto nativo. 
+    Se o resultado for muito curto ou vazio, assume que é imagem/curva e roda OCR.
+    """
     if arquivo is None:
         return "", f"Arquivo {tipo_arquivo} não enviado."
-    
+
     try:
         arquivo.seek(0)
         arquivo_bytes = arquivo.read()
@@ -176,11 +178,10 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
                 for page in doc:
                     texto += page.get_text("text", sort=True) + "\n"
             
-            # 2. Verifica se o texto extraído é útil
-            # Se tiver menos de 100 caracteres não-espaço, considera como imagem/curva
+            # 2. Verifica qualidade da extração nativa
             texto_teste = re.sub(r'\s+', '', texto)
+            # Se tiver menos de 100 caracteres úteis, considera como curva/imagem
             if len(texto_teste) < 100:
-                # Ativa OCR
                 usou_ocr = True
                 texto = executar_ocr(arquivo_bytes)
 
@@ -188,17 +189,16 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto = "\n".join([p.text for p in doc.paragraphs])
 
+        # Limpeza Final Comum
         if texto:
-            # Limpeza Padrão (comum para nativo e OCR)
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
-            for c in invis:
-                texto = texto.replace(c, '')
+            for c in invis: texto = texto.replace(c, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             
-            # Se não usou OCR, faz a correção de hifenização padrão
             if not usou_ocr:
+                # Se não usou OCR, faz a junção de hífens padrão
                 texto = re.sub(r'(\w+)-\n(\w+)', r'\1\2', texto, flags=re.IGNORECASE)
-            
+                
             linhas = texto.split('\n')
             padrao_rodape = re.compile(r'bula (?:do|para o) paciente|página \d+\s*de\s*\d+', re.IGNORECASE)
             linhas = [l for l in linhas if not padrao_rodape.search(l.strip())]
@@ -209,7 +209,7 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
             
         return texto, None
     except Exception as e:
-        return "", f"Erro ao ler o arquivo {tipo_arquivo}: {e}"
+        return "", f"Erro ao ler o arquivo: {e}"
 
 
 def truncar_apos_anvisa(texto):
@@ -703,13 +703,14 @@ def detectar_tipo_arquivo_por_score(texto):
 
 
 # ----------------- MAIN APP -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v53)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v54)")
 st.markdown(
-    "Sistema com validação RÍGIDA: Se os títulos indicarem tipo errado (ex: Profissional), a comparação é bloqueada.")
-st.markdown("Suporta extração híbrida: Tenta ler texto nativo; se falhar (curvas), ativa OCR automaticamente.")
+    "Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
+# Restaura a seleção visual, mas com o padrão Paciente
 tipo_bula_selecionado = st.radio("Tipo de Bula:", ("Paciente", "Profissional"), horizontal=True)
+
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("📄 Arte Vigente (Referência)")
@@ -722,8 +723,8 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Analisando arquivos (Extração + OCR se necessário)..."):
-            # 1. Extração Inteligente (verifica necessidade de OCR para CADA arquivo)
+        with st.spinner("Analisando arquivos (Extração Híbrida + OCR se necessário)..."):
+            # 1. Extração Híbrida Inteligente
             texto_ref, erro_ref = extrair_texto_inteligente(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf')
             texto_belfar, erro_belfar = extrair_texto_inteligente(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf')
 
@@ -736,17 +737,23 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
 
                 erro_validacao = False
 
-                # Validação Arte Vigente
-                if detectado_ref != "Indeterminado" and detectado_ref != tipo_bula_selecionado:
-                    st.error(
-                        f"🚨 ERRO DE ARQUIVO (Arte Vigente): Você selecionou '{tipo_bula_selecionado}', mas o arquivo '{pdf_ref.name}' parece ser uma Bula '{detectado_ref}'.")
-                    erro_validacao = True
-
-                # Validação PDF Gráfica
-                if detectado_bel != "Indeterminado" and detectado_bel != tipo_bula_selecionado:
-                    st.error(
-                        f"🚨 ERRO DE ARQUIVO (PDF Gráfica): Você selecionou '{tipo_bula_selecionado}', mas o arquivo '{pdf_belfar.name}' parece ser uma Bula '{detectado_bel}'.")
-                    erro_validacao = True
+                # Regra de Bloqueio: Se selecionou Paciente e veio Profissional -> ERRO
+                if tipo_bula_selecionado == "Paciente":
+                    if detectado_ref == "Profissional":
+                        st.error(f"🚨 ERRO DE ARQUIVO (Arte Vigente): Você selecionou 'Paciente', mas o arquivo '{pdf_ref.name}' parece ser uma Bula 'Profissional'.")
+                        erro_validacao = True
+                    if detectado_bel == "Profissional":
+                        st.error(f"🚨 ERRO DE ARQUIVO (PDF Gráfica): Você selecionou 'Paciente', mas o arquivo '{pdf_belfar.name}' parece ser uma Bula 'Profissional'.")
+                        erro_validacao = True
+                
+                # Regra de Bloqueio: Se selecionou Profissional e veio Paciente -> ERRO
+                elif tipo_bula_selecionado == "Profissional":
+                    if detectado_ref == "Paciente":
+                        st.error(f"🚨 ERRO DE ARQUIVO (Arte Vigente): Você selecionou 'Profissional', mas o arquivo '{pdf_ref.name}' parece ser uma Bula 'Paciente'.")
+                        erro_validacao = True
+                    if detectado_bel == "Paciente":
+                        st.error(f"🚨 ERRO DE ARQUIVO (PDF Gráfica): Você selecionou 'Profissional', mas o arquivo '{pdf_belfar.name}' parece ser uma Bula 'Paciente'.")
+                        erro_validacao = True
 
                 if erro_validacao:
                     st.error(
@@ -759,4 +766,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                                           tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v53 | OCR Automático Integrado")
+st.caption("Sistema de Auditoria v54 | Validação Rígida + OCR Automático")
