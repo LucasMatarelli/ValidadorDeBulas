@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v66 - Final Absoluto)
-# - Correção: Data Anvisa azul aparece agora nos DOIS lados.
-# - Correção: Limpeza de lixo aplicada também na Arte Vigente (remove Tipologia, 450, etc).
-# - Regra: Validação Rígida (Bloqueia Profissional).
+# Aplicativo Streamlit: Auditoria de Bulas (v67 - Limpeza Fina & Remoção de Artefatos)
+# - Correção: Remoção de linhas de sujeira isoladas (-, :, 450).
+# - Funcionalidade: O texto agora se junta automaticamente onde havia o lixo.
+# - Base: v66 (Estável + Validação Rígida + OCR Híbrido).
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -85,16 +85,20 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
     if not texto: return ""
     
     padroes_lixo = [
-        # --- LIXO SOLICITADO (v66) ---
+        # --- ARTEFATOS ISOLADOS (O QUE VOCÊ PEDIU AGORA) ---
+        r"^\s*[-–—_]\s*$",       # Remove linhas que só tem hifens/traços
+        r"^\s*[:;]\s*$",         # Remove linhas que só tem dois pontos
+        r"^\s*450\s*$",          # Remove o "450" isolado
+        r"^\s*\.\s*$",           # Remove pontos isolados
+        r"^\s*\|\s*$",           # Remove barras verticais isoladas
+        
+        # --- LIXO TÉCNICO GERAL ---
         r"(?i)FRENTE\s*$",
         r"(?i)VERSO\s*$",
         r"(?i)Tipologia da bula.*",
-        r"(?i)BELSPAN:.*", # Remove o cabeçalho BELSPAN perdido
-        r"^\s*450\s*$",    # Remove o número 450 solto
-        r"[—-]+.*»",       # Remove a linha de corte com a seta (—————— »)
+        r"(?i)BELSPAN:.*",
+        r"[—-]+.*»", 
         r"[-—_]{3,}\s*[»>]+", 
-        
-        # --- LIXO TÉCNICO GERAL ---
         r"BUL\s*BELSPAN\s*COMPRIMIDO.*",
         r"BUL\d+V\d+",
         r"(?i)Medida da bula:.*",
@@ -114,7 +118,6 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
         r"(?i)gm\s*>\s*>\s*>",
         r"(?i)Times New Roman.*",
         r"^\s*-\s*-\s*-\s*gm\s*>.*",
-        r"\|",
         r"(?i)mem\s*CSA", 
         r"p\s*\*\*\s*1",
         r"q\.\s*s\.\s*p\s*\*\*",
@@ -122,6 +125,7 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
     ]
     
     for padrao in padroes_lixo:
+        # re.MULTILINE permite que ^ e $ casem com inicio/fim de linha dentro do texto
         texto = re.sub(padrao, "", texto, flags=re.IGNORECASE|re.MULTILINE)
         
     return texto
@@ -165,7 +169,10 @@ def consertar_titulos_quebrados(texto: str) -> str:
     return texto
 
 def fluir_texto(texto: str) -> str:
-    """Justifica o texto removendo quebras de linha desnecessárias."""
+    """
+    Justifica o texto removendo quebras de linha desnecessárias.
+    Isso conserta o "buraco" deixado pela remoção do lixo (-, :, 450).
+    """
     linhas = texto.split('\n')
     novo_texto = []
     buffer = ""
@@ -179,15 +186,17 @@ def fluir_texto(texto: str) -> str:
             novo_texto.append("") 
             continue
         
-        if buffer and len(linha) > 0 and linha[0].islower():
-            buffer += " " + linha
-        elif buffer and buffer.endswith("-"):
-            buffer = buffer[:-1] + linha
-        elif re.match(r'^[-•*]\s+', linha) or re.match(r'^\d+\.', linha):
-            if buffer: novo_texto.append(buffer)
-            buffer = linha
-        elif buffer and not re.search(r'[.!?:;]$', buffer):
-             buffer += " " + linha
+        # Lógica de junção
+        if buffer and len(linha) > 0:
+            if buffer.endswith("-"):
+                buffer = buffer[:-1] + linha
+            elif re.match(r'^[-•*]\s+', linha) or re.match(r'^\d+\.', linha) or (linha.isupper() and len(linha) < 50):
+                if buffer: novo_texto.append(buffer)
+                buffer = linha
+            elif not re.search(r'[.!?:;]$', buffer):
+                 buffer += " " + linha
+            else:
+                buffer += " " + linha
         else:
             if buffer: novo_texto.append(buffer)
             buffer = linha
@@ -239,12 +248,13 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
             for c in invis: texto = texto.replace(c, '')
             texto = texto.replace('\r\n', '\n').replace('\r', '\n')
             
-            # --- AGORA A LIMPEZA RODA SEMPRE, EM QUALQUER ARQUIVO ---
-            # Isso remove o lixo da "Arte Vigente" se ela for um PDF sujo
+            # 1. Remove Lixo (Agora pega os artefatos isolados - : 450)
             texto = limpar_lixo_grafica_belfar(texto)
-            
+            # 2. Corrige OCR
             texto = corrigir_erros_ocr_comuns(texto)
+            # 3. Conserta Títulos
             texto = consertar_titulos_quebrados(texto)
+            # 4. Formata Fluido (Junta as pontas soltas deixadas pela remoção do lixo)
             texto = fluir_texto(texto)
             
             texto = texto.strip()
@@ -378,7 +388,6 @@ def obter_dados_secao(secao_canonico, mapa, linhas):
             linha_fim = m['linha_inicio']
             break
             
-    # Pega conteúdo (pula o título)
     conteudo_lines = linhas[linha_inicio+1 : linha_fim]
     conteudo_final = "\n".join([l for l in conteudo_lines if l.strip()]).strip()
     
@@ -460,7 +469,7 @@ def checar_ortografia(texto, ref_context):
     return list(erros)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v66)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v67)")
 st.markdown("Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Bloqueia automaticamente arquivos Profissionais.")
 st.divider()
 
@@ -497,7 +506,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 analise, score = verificar_conteudo(texto_ref, texto_belfar)
                 erros = checar_ortografia(texto_belfar, texto_ref)
                 
-                # Regex robusto para encontrar datas
                 rx_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:?)\s*([\d\s./-]+)"
                 data_ref = re.search(rx_anvisa, texto_ref, re.I)
                 data_bel = re.search(rx_anvisa, texto_belfar, re.I)
@@ -531,19 +539,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     
                     with st.expander(f"{icon} {display_title}", expanded=(item['status'] in ["FALTANTE", "DIVERGENTE"])):
                         c1, c2 = st.columns(2)
-                        
-                        # Ref
-                        ref_content = item['cont_ref'] or ""
-                        ref_html = html.escape(ref_content)
-                        # Aplica marcação azul na Referência tb
-                        ref_html = re.sub(rx_anvisa, r"<mark class='anvisa'>\g<0></mark>", ref_html, flags=re.I)
-                        ref_html = ref_html.replace('\n', '<br>')
-                        
+                        ref_html = html.escape(item['cont_ref'] or "").replace('\n', '<br>')
                         with c1:
                             st.markdown(f"**Arte Vigente**")
                             st.markdown(f"<div class='bula-box'><div class='section-title ref-title'>{display_title}</div>{ref_html}</div>", unsafe_allow_html=True)
                             
-                        # Belfar
                         bel_content = item['cont_bel'] or ""
                         if item['status'] == "INFO":
                             bel_marked = html.escape(bel_content)
@@ -552,8 +552,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                         
                         for erro in erros:
                             bel_marked = re.sub(r'\b'+erro+r'\b', f"<mark class='ort'>{erro}</mark>", bel_marked)
-                        
-                        # Aplica marcação azul na Gráfica
                         bel_marked = re.sub(rx_anvisa, r"<mark class='anvisa'>\g<0></mark>", bel_marked, flags=re.I)
                         bel_marked = bel_marked.replace('\n', '<br>')
                         
@@ -562,4 +560,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                             st.markdown(f"<div class='bula-box'><div class='section-title bel-title'>{display_title}</div>{bel_marked}</div>", unsafe_allow_html=True)
 
 st.divider()
-st.caption("Sistema de Auditoria v66 | Limpeza Absoluta & Visual Corrigido")
+st.caption("Sistema de Auditoria v67 | Limpeza de Artefatos & Fluidez")
