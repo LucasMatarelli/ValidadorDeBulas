@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v64 - Layout Unificado & Limpeza Final)
-# - Limpeza: "FRENTE", "Tipologia...", "450", "—————— »" removidos.
-# - Visual: Texto da Gráfica agora flui igual ao da Arte (sem quebras de OCR).
+# Aplicativo Streamlit: Auditoria de Bulas (v65 - Layout Unificado & Limpeza Específica)
+# - Limpeza: "Times New Roman U)", "450", "—————— »" removidos.
+# - Visual: Texto da Gráfica justificado (fluido) para igualar à Arte.
 # - Regra: Validação Rígida (Bloqueia Profissional).
 
 import streamlit as st
@@ -37,11 +37,10 @@ footer { display: none !important; }
   background: #ffffff;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
-  line-height: 1.8; /* Altura de linha confortável */
+  line-height: 1.8;
   color: #222;
-  text-align: justify; /* Texto justificado e alinhado */
-  white-space: pre-wrap; /* Mantém parágrafos reais */
-  word-wrap: break-word;
+  text-align: justify; /* Garante o layout igual nos dois */
+  white-space: pre-wrap;
 }
 
 .section-title {
@@ -86,13 +85,17 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
     if not texto: return ""
     
     padroes_lixo = [
-        # --- PADRÕES GERAIS ---
+        # --- LIXO SOLICITADO ESPECIFICAMENTE ---
+        r"(?i)Times New Roman.*",  # Remove 'Times New Roman U)' e variações
+        r"^\s*450\s*$",            # Remove '450' se estiver sozinho na linha
+        r"[-—_]{3,}\s*[»>]+",      # Remove '—————— »'
+        
+        # --- LIXO GERAL BELFAR/GRÁFICA ---
         r"BUL\s*BELSPAN\s*COMPRIMIDO.*",
         r"BUL\d+V\d+",
         r"(?i)Medida da bula:.*",
         r"(?i)Impressão:.*",
         r"(?i)Papel: Ap.*",
-        r"(?i)BELSPAN: Times New Roman.*",
         r"(?i)Cor: Preta.*",
         r"(?i)Normal e Negrito.*",
         r"(?i)Negrito\. Corpo \d+",
@@ -106,7 +109,7 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
         r"4\s*[.,]\s*0\s*cm",
         r"(?i)gm\s*>\s*>\s*>",
         r"(?i)FRENTE\s*Tipologia.*",
-        r"^\s*450\s*$",
+        r"(?i)^FRENTE\s*$",
         r"^\s*-\s*-\s*-\s*gm\s*>.*",
         r"^\s*-\s*$",
         r"^\s*:\s*$",
@@ -114,15 +117,6 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
         r"(?i)mem\s*CSA", 
         r"p\s*\*\*\s*1",
         r"q\.\s*s\.\s*p\s*\*\*",
-        
-        # --- NOVAS LIMPEZAS SOLICITADAS (v64) ---
-        r"(?i)^FRENTE\s*$",
-        r"(?i)Tipologia da bula.*",
-        r"[-—_]{4,}\s*[»>]+", # —————— »
-        r"[-—_]{4,}\s*",      # Linhas soltas
-        r"14\s*prova.*", 
-        r"31/\s*10/\s*2025", 
-        r"\bBRR\b",
     ]
     
     for padrao in padroes_lixo:
@@ -160,10 +154,9 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     return texto
 
 def consertar_titulos_quebrados(texto: str) -> str:
-    """Junta títulos que quebraram de linha e remove fragmentos fantasmas."""
+    """Junta títulos que quebraram de linha sem duplicar texto."""
     texto = re.sub(r"(?m)^DEVO USAR ESTE\s*$", "", texto)
     texto = re.sub(r"DEVO USAR ESTE\n", "", texto)
-    
     texto = re.sub(r"(?i)(QUANDO NÃO DEVO USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
     texto = re.sub(r"(?i)(O QUE DEVO SABER ANTES DE USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
     texto = re.sub(r"(?i)(INDICADA)\s*\n\s*(DESTE MEDICAMENTO\?)", r"\1 \2", texto)
@@ -171,8 +164,9 @@ def consertar_titulos_quebrados(texto: str) -> str:
 
 def fluir_texto(texto: str) -> str:
     """
-    Reconstroi o fluxo do texto (layout) para parecer com o documento original,
-    removendo quebras de linha artificiais do OCR.
+    ESSENCIAL: Reconstroi o fluxo do texto do PDF da Gráfica.
+    Remove as quebras de linha artificiais do OCR/PDF para que o texto ocupe
+    toda a largura da caixa (layout igual ao da Arte).
     """
     linhas = texto.split('\n')
     novo_texto = []
@@ -189,19 +183,19 @@ def fluir_texto(texto: str) -> str:
         
         # Lógica de junção: se não parece ser um novo tópico/título, junta com a anterior
         if buffer and len(linha) > 0:
-            # Se a linha anterior terminou com hífen
             if buffer.endswith("-"):
                 buffer = buffer[:-1] + linha
-            # Se a linha atual é um tópico (bullet point) ou título numerado
-            elif re.match(r'^[-•*]\s+', linha) or re.match(r'^\d+\.', linha) or linha.isupper():
+            elif re.match(r'^[-•*]\s+', linha) or re.match(r'^\d+\.', linha) or (linha.isupper() and len(linha) < 50):
+                # Novo tópico ou título curto
                 if buffer: novo_texto.append(buffer)
                 buffer = linha
-            # Se a anterior não terminou com pontuação final (ponto, interrogação, dois pontos)
             elif not re.search(r'[.!?:;]$', buffer):
+                 # Continuação de frase
                  buffer += " " + linha
             else:
-                if buffer: novo_texto.append(buffer)
-                buffer = linha
+                # Fim de frase anterior, mas talvez mesmo parágrafo?
+                # Para garantir visual "Arte", vamos juntar a menos que seja óbvio quebra.
+                buffer += " " + linha
         else:
             if buffer: novo_texto.append(buffer)
             buffer = linha
@@ -259,7 +253,7 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
             texto = corrigir_erros_ocr_comuns(texto)
             # 3. Conserta Títulos
             texto = consertar_titulos_quebrados(texto)
-            # 4. Formata Fluido (Layout Igual ao da Arte)
+            # 4. Formata Fluido (Deixa o layout igual da Arte)
             texto = fluir_texto(texto)
             
             texto = texto.strip()
@@ -471,7 +465,7 @@ def checar_ortografia(texto, ref_context):
     return list(erros)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v64)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v65)")
 st.markdown("Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Bloqueia automaticamente arquivos Profissionais.")
 st.divider()
 
@@ -562,4 +556,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                             st.markdown(f"<div class='bula-box'><div class='section-title bel-title'>{display_title}</div>{bel_marked}</div>", unsafe_allow_html=True)
 
 st.divider()
-st.caption("Sistema de Auditoria v64 | Layout Unificado & Limpeza Final")
+st.caption("Sistema de Auditoria v65 | Layout Unificado & Limpeza Final")
