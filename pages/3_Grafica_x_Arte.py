@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v62 - Dizeres Legais Ajustados)
-# - Ajuste: Regex da Data Anvisa mais robusto (aceita espaços '17 / 04 / 2024').
-# - Visual: Garante o marca-texto AZUL na data.
-# - Corte: Corta o texto exatamente após o ano da data da Anvisa.
+# Aplicativo Streamlit: Auditoria de Bulas (v63 - Final Polido)
+# - Correção: Remoção do fantasma "DEVO USAR ESTE".
+# - Limpeza: "14 prova", "BRR" removidos.
+# - Visual: Data Anvisa azul em AMBOS os lados.
+# - Diff: Melhor sensibilidade para marcar diferenças em amarelo.
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -29,7 +30,7 @@ GLOBAL_CSS = """
 footer { display: none !important; }
 
 .bula-box {
-  height: 550px;
+  height: 600px;
   overflow-y: auto;
   border: 1px solid #dcdcdc;
   border-radius: 8px;
@@ -37,9 +38,9 @@ footer { display: none !important; }
   background: #ffffff;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.8; /* Espaçamento melhor para leitura */
   color: #222;
-  text-align: justify;
+  text-align: justify; /* Texto justificado como pedido */
   white-space: pre-wrap;
 }
 
@@ -55,10 +56,10 @@ footer { display: none !important; }
 }
 
 /* Destaque Amarelo (Divergência) */
-mark.diff { background-color: #ffff99; padding: 2px 4px; border-radius: 3px; font-weight: 600; }
+mark.diff { background-color: #ffff99; padding: 2px 0; font-weight: 600; border: 1px solid #e6e600; }
 
 /* Destaque Rosa (Ortografia) */
-mark.ort { background-color: #ffdfd9; padding: 2px 4px; border-radius: 3px; text-decoration: underline wavy #ff5555; }
+mark.ort { background-color: #ffdfd9; padding: 0 2px; text-decoration: underline wavy #ff5555; }
 
 /* Destaque Azul (Data Anvisa) */
 mark.anvisa { background-color: #cce5ff; color: #004085; padding: 2px 6px; font-weight: 800; border-radius: 4px; border: 1px solid #b8daff; }
@@ -116,6 +117,10 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
         r"(?i)mem\s*CSA", 
         r"p\s*\*\*\s*1",
         r"q\.\s*s\.\s*p\s*\*\*",
+        # --- LIXO ESPECÍFICO RECENTE ---
+        r"14\s*prova.*", # "14 prova..."
+        r"31/\s*10/\s*2025", # Data solta
+        r"\bBRR\b", # BRR solto
     ]
     
     for padrao in padroes_lixo:
@@ -153,8 +158,16 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     return texto
 
 def consertar_titulos_quebrados(texto: str) -> str:
-    """Junta títulos que quebraram de linha sem duplicar texto."""
-    texto = re.sub(r"(?i)(DEVO USAR ESTE)\s*\n\s*\1", r"\1", texto)
+    """Junta títulos que quebraram de linha e remove fragmentos fantasmas."""
+    
+    # --- REMOÇÃO DO FANTASMA ESPECÍFICO ---
+    # Remove "DEVO USAR ESTE" se ele estiver solto no meio do texto (não sendo parte do título real)
+    # O título real é "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?"
+    # Se "DEVO USAR ESTE" aparece sozinho numa linha sem "3. QUANDO", é lixo.
+    texto = re.sub(r"(?m)^DEVO USAR ESTE\s*$", "", texto)
+    texto = re.sub(r"DEVO USAR ESTE\n", "", texto) # Caso esteja colado
+    
+    # Junta quebras reais de títulos
     texto = re.sub(r"(?i)(QUANDO NÃO DEVO USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
     texto = re.sub(r"(?i)(O QUE DEVO SABER ANTES DE USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
     texto = re.sub(r"(?i)(INDICADA)\s*\n\s*(DESTE MEDICAMENTO\?)", r"\1 \2", texto)
@@ -239,7 +252,7 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
             texto = limpar_lixo_grafica_belfar(texto)
             # 2. Corrige OCR
             texto = corrigir_erros_ocr_comuns(texto)
-            # 3. Conserta Títulos
+            # 3. Conserta Títulos (e remove fantasma)
             texto = consertar_titulos_quebrados(texto)
             # 4. Formata Fluido
             texto = fluir_texto(texto)
@@ -251,16 +264,11 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
         return "", f"Erro: {e}"
 
 def truncar_apos_anvisa(texto):
-    """
-    Corta o texto APÓS a data da Anvisa, mantendo a data.
-    Regex mais robusto para aceitar espaços (31 / 10 / 2025).
-    """
     if not isinstance(texto, str): return texto
-    # Regex que aceita espaços entre os números e barras/pontos
+    # Regex robusto para data (aceita espaços)
     rx = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:?)\s*[\d]{1,2}\s*[./-]\s*[\d]{1,2}\s*[./-]\s*[\d]{2,4}"
     m = re.search(rx, texto, re.IGNORECASE)
     if m:
-        # Retorna até o fim da data encontrada
         return texto[:m.end()]
     return texto
 
@@ -390,6 +398,7 @@ def obter_dados_secao(secao_canonico, mapa, linhas):
 # ----------------- VISUALIZAÇÃO -----------------
 
 def marcar_diff(texto_ref, texto_bel):
+    """Compara os textos e marca em amarelo o que está na Belfar (gráfico) diferente da Ref."""
     def tokenizar(t): return re.findall(r'\w+|[^\w\s]', t or "")
     ref_tok = tokenizar(texto_ref)
     bel_tok = tokenizar(texto_bel)
@@ -398,14 +407,17 @@ def marcar_diff(texto_ref, texto_bel):
     out = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'equal':
+            # Texto igual: mostra sem marcação
             out.append("".join([" " + t if t.isalnum() else t for t in bel_tok[j1:j2]]))
         elif tag == 'replace' or tag == 'insert':
+            # Diferente ou inserido na gráfica: MARCA EM AMARELO
             chunk = bel_tok[j1:j2]
-            if len(chunk) == 1 and len(chunk[0]) < 2 and not chunk[0].isalnum():
-                 out.append(chunk[0])
-            else:
-                txt = "".join([" " + t if t.isalnum() else t for t in chunk])
-                out.append(f"<mark class='diff'>{txt}</mark>")
+            # Filtra ruídos muito pequenos se necessário, mas o usuário pediu "tudo que não tem na outra"
+            if not chunk: continue
+            
+            txt = "".join([" " + t if t.isalnum() else t for t in chunk])
+            out.append(f"<mark class='diff'>{txt}</mark>")
+            
     return "".join(out).strip()
 
 def detectar_tipo(texto):
@@ -465,7 +477,7 @@ def checar_ortografia(texto, ref_context):
     return list(erros)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v62)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v63)")
 st.markdown("Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Bloqueia automaticamente arquivos Profissionais.")
 st.divider()
 
@@ -503,8 +515,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 analise, score = verificar_conteudo(texto_ref, texto_belfar)
                 erros = checar_ortografia(texto_belfar, texto_ref)
                 
-                # Extração da data para Header
+                # Regex para Data Anvisa (robusto para espaços)
                 rx_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:?)\s*([\d\s./-]+)"
+                
                 data_ref_match = re.search(rx_anvisa, texto_ref, re.I)
                 data_bel_match = re.search(rx_anvisa, texto_belfar, re.I)
                 
@@ -542,13 +555,19 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     with st.expander(f"{icon} {display_title}", expanded=(item['status'] in ["FALTANTE", "DIVERGENTE"])):
                         c1, c2 = st.columns(2)
                         
-                        # Coluna Referência
-                        ref_html = html.escape(item['cont_ref'] or "").replace('\n', '<br>')
+                        # --- Coluna Referência (Arte) ---
+                        ref_content = item['cont_ref'] or ""
+                        
+                        # Aplica marcação AZUL na data da Anvisa na Referência também
+                        ref_marked = html.escape(ref_content)
+                        ref_marked = re.sub(rx_anvisa, r"<mark class='anvisa'>\g<0></mark>", ref_marked, flags=re.I)
+                        ref_marked = ref_marked.replace('\n', '<br>')
+                        
                         with c1:
                             st.markdown(f"**Arte Vigente**")
-                            st.markdown(f"<div class='bula-box'><div class='section-title ref-title'>{display_title}</div>{ref_html}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='bula-box'><div class='section-title ref-title'>{display_title}</div>{ref_marked}</div>", unsafe_allow_html=True)
                             
-                        # Coluna Belfar (Gráfica)
+                        # --- Coluna Belfar (Gráfica) ---
                         bel_content = item['cont_bel'] or ""
                         
                         if item['status'] == "INFO":
@@ -562,8 +581,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                         for erro in erros:
                             bel_marked = re.sub(r'\b'+erro+r'\b', f"<mark class='ort'>{erro}</mark>", bel_marked)
                         
-                        # Aplica destaque na Data ANVISA (especialmente nos Dizeres Legais)
-                        # Usa o regex robusto para encontrar a data mesmo com espaços
+                        # Aplica destaque na Data ANVISA
                         bel_marked = re.sub(rx_anvisa, r"<mark class='anvisa'>\g<0></mark>", bel_marked, flags=re.I)
                         
                         bel_marked = bel_marked.replace('\n', '<br>')
@@ -573,4 +591,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                             st.markdown(f"<div class='bula-box'><div class='section-title bel-title'>{display_title}</div>{bel_marked}</div>", unsafe_allow_html=True)
 
 st.divider()
-st.caption("Sistema de Auditoria v62 | Dizeres Legais & Data Anvisa Ajustados")
+st.caption("Sistema de Auditoria v63 | Limpeza Avançada & Data Anvisa Dupla")
