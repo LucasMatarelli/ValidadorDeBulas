@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 
-# Aplicativo Streamlit: Auditoria de Bulas (v63 - Final Polido)
-# - Correção: Remoção do fantasma "DEVO USAR ESTE".
-# - Limpeza: "14 prova", "BRR" removidos.
-# - Visual: Data Anvisa azul em AMBOS os lados.
-# - Diff: Melhor sensibilidade para marcar diferenças em amarelo.
+# Aplicativo Streamlit: Auditoria de Bulas (v65 - Layout Unificado & Limpeza Específica)
+# - Limpeza: "Times New Roman U)", "450", "—————— »" removidos.
+# - Visual: Texto da Gráfica justificado (fluido) para igualar à Arte.
+# - Regra: Validação Rígida (Bloqueia Profissional).
 
 import streamlit as st
 import fitz  # PyMuPDF
@@ -38,9 +37,9 @@ footer { display: none !important; }
   background: #ffffff;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
-  line-height: 1.8; /* Espaçamento melhor para leitura */
+  line-height: 1.8;
   color: #222;
-  text-align: justify; /* Texto justificado como pedido */
+  text-align: justify; /* Garante o layout igual nos dois */
   white-space: pre-wrap;
 }
 
@@ -55,13 +54,9 @@ footer { display: none !important; }
   letter-spacing: 0.5px;
 }
 
-/* Destaque Amarelo (Divergência) */
-mark.diff { background-color: #ffff99; padding: 2px 0; font-weight: 600; border: 1px solid #e6e600; }
-
-/* Destaque Rosa (Ortografia) */
+/* Destaques */
+mark.diff { background-color: #ffff99; padding: 2px 0; border-radius: 2px; font-weight: 600; }
 mark.ort { background-color: #ffdfd9; padding: 0 2px; text-decoration: underline wavy #ff5555; }
-
-/* Destaque Azul (Data Anvisa) */
 mark.anvisa { background-color: #cce5ff; color: #004085; padding: 2px 6px; font-weight: 800; border-radius: 4px; border: 1px solid #b8daff; }
 
 .stExpander > div[role="button"] { font-weight: 600; color: #333; font-size: 15px; }
@@ -90,12 +85,17 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
     if not texto: return ""
     
     padroes_lixo = [
+        # --- LIXO SOLICITADO ESPECIFICAMENTE ---
+        r"(?i)Times New Roman.*",  # Remove 'Times New Roman U)' e variações
+        r"^\s*450\s*$",            # Remove '450' se estiver sozinho na linha
+        r"[-—_]{3,}\s*[»>]+",      # Remove '—————— »'
+        
+        # --- LIXO GERAL BELFAR/GRÁFICA ---
         r"BUL\s*BELSPAN\s*COMPRIMIDO.*",
         r"BUL\d+V\d+",
         r"(?i)Medida da bula:.*",
         r"(?i)Impressão:.*",
         r"(?i)Papel: Ap.*",
-        r"(?i)BELSPAN: Times New Roman.*",
         r"(?i)Cor: Preta.*",
         r"(?i)Normal e Negrito.*",
         r"(?i)Negrito\. Corpo \d+",
@@ -109,7 +109,7 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
         r"4\s*[.,]\s*0\s*cm",
         r"(?i)gm\s*>\s*>\s*>",
         r"(?i)FRENTE\s*Tipologia.*",
-        r"^\s*450\s*$",
+        r"(?i)^FRENTE\s*$",
         r"^\s*-\s*-\s*-\s*gm\s*>.*",
         r"^\s*-\s*$",
         r"^\s*:\s*$",
@@ -117,10 +117,6 @@ def limpar_lixo_grafica_belfar(texto: str) -> str:
         r"(?i)mem\s*CSA", 
         r"p\s*\*\*\s*1",
         r"q\.\s*s\.\s*p\s*\*\*",
-        # --- LIXO ESPECÍFICO RECENTE ---
-        r"14\s*prova.*", # "14 prova..."
-        r"31/\s*10/\s*2025", # Data solta
-        r"\bBRR\b", # BRR solto
     ]
     
     for padrao in padroes_lixo:
@@ -158,23 +154,20 @@ def corrigir_erros_ocr_comuns(texto: str) -> str:
     return texto
 
 def consertar_titulos_quebrados(texto: str) -> str:
-    """Junta títulos que quebraram de linha e remove fragmentos fantasmas."""
-    
-    # --- REMOÇÃO DO FANTASMA ESPECÍFICO ---
-    # Remove "DEVO USAR ESTE" se ele estiver solto no meio do texto (não sendo parte do título real)
-    # O título real é "3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?"
-    # Se "DEVO USAR ESTE" aparece sozinho numa linha sem "3. QUANDO", é lixo.
+    """Junta títulos que quebraram de linha sem duplicar texto."""
     texto = re.sub(r"(?m)^DEVO USAR ESTE\s*$", "", texto)
-    texto = re.sub(r"DEVO USAR ESTE\n", "", texto) # Caso esteja colado
-    
-    # Junta quebras reais de títulos
+    texto = re.sub(r"DEVO USAR ESTE\n", "", texto)
     texto = re.sub(r"(?i)(QUANDO NÃO DEVO USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
     texto = re.sub(r"(?i)(O QUE DEVO SABER ANTES DE USAR ESTE)\s*\n\s*(MEDICAMENTO\?)", r"\1 \2", texto)
     texto = re.sub(r"(?i)(INDICADA)\s*\n\s*(DESTE MEDICAMENTO\?)", r"\1 \2", texto)
     return texto
 
 def fluir_texto(texto: str) -> str:
-    """Justifica o texto removendo quebras de linha desnecessárias."""
+    """
+    ESSENCIAL: Reconstroi o fluxo do texto do PDF da Gráfica.
+    Remove as quebras de linha artificiais do OCR/PDF para que o texto ocupe
+    toda a largura da caixa (layout igual ao da Arte).
+    """
     linhas = texto.split('\n')
     novo_texto = []
     buffer = ""
@@ -188,15 +181,21 @@ def fluir_texto(texto: str) -> str:
             novo_texto.append("") 
             continue
         
-        if buffer and len(linha) > 0 and linha[0].islower():
-            buffer += " " + linha
-        elif buffer and buffer.endswith("-"):
-            buffer = buffer[:-1] + linha
-        elif re.match(r'^[-•*]\s+', linha) or re.match(r'^\d+\.', linha):
-            if buffer: novo_texto.append(buffer)
-            buffer = linha
-        elif buffer and not re.search(r'[.!?:;]$', buffer):
-             buffer += " " + linha
+        # Lógica de junção: se não parece ser um novo tópico/título, junta com a anterior
+        if buffer and len(linha) > 0:
+            if buffer.endswith("-"):
+                buffer = buffer[:-1] + linha
+            elif re.match(r'^[-•*]\s+', linha) or re.match(r'^\d+\.', linha) or (linha.isupper() and len(linha) < 50):
+                # Novo tópico ou título curto
+                if buffer: novo_texto.append(buffer)
+                buffer = linha
+            elif not re.search(r'[.!?:;]$', buffer):
+                 # Continuação de frase
+                 buffer += " " + linha
+            else:
+                # Fim de frase anterior, mas talvez mesmo parágrafo?
+                # Para garantir visual "Arte", vamos juntar a menos que seja óbvio quebra.
+                buffer += " " + linha
         else:
             if buffer: novo_texto.append(buffer)
             buffer = linha
@@ -252,9 +251,9 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
             texto = limpar_lixo_grafica_belfar(texto)
             # 2. Corrige OCR
             texto = corrigir_erros_ocr_comuns(texto)
-            # 3. Conserta Títulos (e remove fantasma)
+            # 3. Conserta Títulos
             texto = consertar_titulos_quebrados(texto)
-            # 4. Formata Fluido
+            # 4. Formata Fluido (Layout Igual ao da Arte)
             texto = fluir_texto(texto)
             
             texto = texto.strip()
@@ -265,7 +264,6 @@ def extrair_texto_inteligente(arquivo, tipo_arquivo):
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str): return texto
-    # Regex robusto para data (aceita espaços)
     rx = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:?)\s*[\d]{1,2}\s*[./-]\s*[\d]{1,2}\s*[./-]\s*[\d]{2,4}"
     m = re.search(rx, texto, re.IGNORECASE)
     if m:
@@ -389,7 +387,6 @@ def obter_dados_secao(secao_canonico, mapa, linhas):
             linha_fim = m['linha_inicio']
             break
             
-    # Pega conteúdo (pula o título)
     conteudo_lines = linhas[linha_inicio+1 : linha_fim]
     conteudo_final = "\n".join([l for l in conteudo_lines if l.strip()]).strip()
     
@@ -398,7 +395,6 @@ def obter_dados_secao(secao_canonico, mapa, linhas):
 # ----------------- VISUALIZAÇÃO -----------------
 
 def marcar_diff(texto_ref, texto_bel):
-    """Compara os textos e marca em amarelo o que está na Belfar (gráfico) diferente da Ref."""
     def tokenizar(t): return re.findall(r'\w+|[^\w\s]', t or "")
     ref_tok = tokenizar(texto_ref)
     bel_tok = tokenizar(texto_bel)
@@ -407,17 +403,14 @@ def marcar_diff(texto_ref, texto_bel):
     out = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'equal':
-            # Texto igual: mostra sem marcação
             out.append("".join([" " + t if t.isalnum() else t for t in bel_tok[j1:j2]]))
         elif tag == 'replace' or tag == 'insert':
-            # Diferente ou inserido na gráfica: MARCA EM AMARELO
             chunk = bel_tok[j1:j2]
-            # Filtra ruídos muito pequenos se necessário, mas o usuário pediu "tudo que não tem na outra"
-            if not chunk: continue
-            
-            txt = "".join([" " + t if t.isalnum() else t for t in chunk])
-            out.append(f"<mark class='diff'>{txt}</mark>")
-            
+            if len(chunk) == 1 and len(chunk[0]) < 2 and not chunk[0].isalnum():
+                 out.append(chunk[0])
+            else:
+                txt = "".join([" " + t if t.isalnum() else t for t in chunk])
+                out.append(f"<mark class='diff'>{txt}</mark>")
     return "".join(out).strip()
 
 def detectar_tipo(texto):
@@ -436,7 +429,6 @@ def verificar_conteudo(texto_ref, texto_bel):
     analise = []
     similaridades = []
     
-    # Seções que NÃO devem mostrar divergência (apenas texto puro)
     SECOES_IGNORAR_DIFF = ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
     
     for sec in secoes:
@@ -471,13 +463,12 @@ def checar_ortografia(texto, ref_context):
     vocab = set(re.findall(r'\w+', ref_context.lower()))
     spell.word_frequency.load_words(vocab)
     spell.word_frequency.load_words(['belfar', 'belspan', 'anvisa', 'mg', 'ml', 'fr', 'drageas'])
-    
     palavras = re.findall(r'[a-zA-ZáéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ]{4,}', texto)
     erros = spell.unknown(palavras)
     return list(erros)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v63)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v65)")
 st.markdown("Sistema com validação RÍGIDA: Auditoria exclusiva para **Bula do Paciente**. Bloqueia automaticamente arquivos Profissionais.")
 st.divider()
 
@@ -500,10 +491,9 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
             if erro_ref or erro_belfar:
                 st.error(f"Erro: {erro_ref or erro_belfar}")
             else:
-                # Validação Segura
+                # Validação
                 type_ref = detectar_tipo(texto_ref)
                 type_bel = detectar_tipo(texto_belfar)
-                
                 if type_ref == "Profissional" or type_bel == "Profissional":
                     st.error("🚨 BLOQUEIO: Arquivo de Bula Profissional detectado. Este sistema valida apenas Bula do Paciente.")
                     st.stop()
@@ -515,20 +505,15 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 analise, score = verificar_conteudo(texto_ref, texto_belfar)
                 erros = checar_ortografia(texto_belfar, texto_ref)
                 
-                # Regex para Data Anvisa (robusto para espaços)
                 rx_anvisa = r"(?:aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:?)\s*([\d\s./-]+)"
-                
-                data_ref_match = re.search(rx_anvisa, texto_ref, re.I)
-                data_bel_match = re.search(rx_anvisa, texto_belfar, re.I)
-                
-                data_ref_str = data_ref_match.group(1).strip() if data_ref_match else "N/A"
-                data_bel_str = data_bel_match.group(1).strip() if data_bel_match else "N/A"
+                data_ref = re.search(rx_anvisa, texto_ref, re.I)
+                data_bel = re.search(rx_anvisa, texto_belfar, re.I)
                 
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Conformidade", f"{score:.0f}%")
                 c2.metric("Erros Ortográficos", len(erros))
-                c3.metric("Data Ref", data_ref_str)
-                c4.metric("Data Bel", data_bel_str)
+                c3.metric("Data Ref", data_ref.group(1).strip() if data_ref else "N/A")
+                c4.metric("Data Bel", data_bel.group(1).strip() if data_bel else "N/A")
                 
                 st.divider()
                 
@@ -551,39 +536,22 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     elif item['status'] == "DIVERGENTE": icon = "❌"
                     elif item['status'] == "INFO": icon = "ℹ️"
                     
-                    # Abre expander se houver problema
                     with st.expander(f"{icon} {display_title}", expanded=(item['status'] in ["FALTANTE", "DIVERGENTE"])):
                         c1, c2 = st.columns(2)
-                        
-                        # --- Coluna Referência (Arte) ---
-                        ref_content = item['cont_ref'] or ""
-                        
-                        # Aplica marcação AZUL na data da Anvisa na Referência também
-                        ref_marked = html.escape(ref_content)
-                        ref_marked = re.sub(rx_anvisa, r"<mark class='anvisa'>\g<0></mark>", ref_marked, flags=re.I)
-                        ref_marked = ref_marked.replace('\n', '<br>')
-                        
+                        ref_html = html.escape(item['cont_ref'] or "").replace('\n', '<br>')
                         with c1:
                             st.markdown(f"**Arte Vigente**")
-                            st.markdown(f"<div class='bula-box'><div class='section-title ref-title'>{display_title}</div>{ref_marked}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='bula-box'><div class='section-title ref-title'>{display_title}</div>{ref_html}</div>", unsafe_allow_html=True)
                             
-                        # --- Coluna Belfar (Gráfica) ---
                         bel_content = item['cont_bel'] or ""
-                        
                         if item['status'] == "INFO":
-                            # Seção INFO: apenas texto puro + destaques especiais (Anvisa)
                             bel_marked = html.escape(bel_content)
                         else:
-                            # Outras seções: diff amarelo
                             bel_marked = marcar_diff(item['cont_ref'], bel_content)
                         
-                        # Aplica destaque Ortográfico
                         for erro in erros:
                             bel_marked = re.sub(r'\b'+erro+r'\b', f"<mark class='ort'>{erro}</mark>", bel_marked)
-                        
-                        # Aplica destaque na Data ANVISA
                         bel_marked = re.sub(rx_anvisa, r"<mark class='anvisa'>\g<0></mark>", bel_marked, flags=re.I)
-                        
                         bel_marked = bel_marked.replace('\n', '<br>')
                         
                         with c2:
@@ -591,4 +559,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                             st.markdown(f"<div class='bula-box'><div class='section-title bel-title'>{display_title}</div>{bel_marked}</div>", unsafe_allow_html=True)
 
 st.divider()
-st.caption("Sistema de Auditoria v63 | Limpeza Avançada & Data Anvisa Dupla")
+st.caption("Sistema de Auditoria v65 | Layout Unificado & Limpeza Final")
