@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v79 - Correção Definitiva de Palavras Cortadas
-# - CORREÇÃO CRÍTICA: Removida a divisão geométrica de colunas (que cortava palavras ao meio em layouts de 3+ colunas).
-# - NOVO MÉTODO: Agora utiliza detecção de BLOCOS DE TEXTO (sort=True) para todos os arquivos. Isso respeita os limites reais das colunas.
-# - LIMPEZA: Mantém as limpezas de lixo gráfico anteriores.
+# Versão v80 - Correção de Seções Perdidas e Palavras Cortadas
+# - CORREÇÃO DE MAPEAMENTO: Regex de títulos agora exige início de linha ((?m)^) para evitar capturar referências no meio do texto (ex: "vide item 4...").
+# - CORREÇÃO DE CORTE: Uso estrito de 'blocks' do PyMuPDF para não cortar palavras em layouts de múltiplas colunas.
+# - IGNORAR CITAÇÕES: Títulos começando com aspas (") são ignorados para não confundir com referências cruzadas.
 
 import re
 import difflib
@@ -158,35 +158,38 @@ def forcar_titulos_bula(texto):
     """
     Encontra títulos quebrados (com ou SEM número) e força a inserção
     da numeração correta e a junção em uma linha.
+    
+    v80: Usa (?m)^\s* para garantir que só substitui se for início de linha,
+    evitando pegar referências no meio do texto.
     """
     substituicoes = [
         # --- NOVOS TÍTULOS ADICIONADOS (1, 2, 3) ---
-        (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
+        (r"(?m)^\s*(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
          r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
 
-        (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
+        (r"(?m)^\s*(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
          r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
 
-        (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
+        (r"(?m)^\s*(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
 
         # --- Títulos da v75 ---
-        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
+        (r"(?m)^\s*(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
 
-        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
+        (r"(?m)^\s*(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
           
-        (r"(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
+        (r"(?m)^\s*(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
 
-        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
+        (r"(?m)^\s*(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
           
-        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
+        (r"(?m)^\s*(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
           
-        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,200}?MEDICAMENTO\??", 
+        (r"(?m)^\s*(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
     
@@ -209,12 +212,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     rect = page.rect
                     margem_y = rect.height * 0.01 
                     
-                    # [CORREÇÃO v79]
-                    # Removida a lógica de "cortar ao meio" (meio_x).
-                    # Agora usamos 'blocks' para TODOS os arquivos. 
-                    # 'sort=True' organiza automaticamente as colunas (leitura natural).
-                    # Isso impede que o sistema corte palavras ao meio se houver 3 ou 4 colunas.
-                    
+                    # [CORREÇÃO v80]
+                    # Uso exclusivo de blocks com sort=True para respeitar layout de colunas
+                    # sem cortar palavras. Nenhuma lógica de crop manual é usada.
                     blocks = page.get_text("blocks", sort=True)
                     for b in blocks:
                         # b[6] == 0 significa bloco de texto (não imagem)
@@ -250,6 +250,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4: return False
+    # [CORREÇÃO v80]: Ignora linhas que começam com aspas (citações)
+    if ln.startswith('"') or ln.startswith('“') or ln.startswith('”'): return False
+    
     first = ln.split('\n')[0]
     if re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', first): return True
     if first.isupper() and not first.endswith('.') and len(first) > 4: return True
