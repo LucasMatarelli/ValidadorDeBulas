@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v101 - Limpeza Agressiva de Lixo Gráfico (Telefone e Códigos)
-# - NOVO: Remove telefone específico "(31) 3514 - 2900" e "contato ...".
-# - NOVO: Remove tokens soltos de sujeira: "MM", "mm", "pe", "BRR".
-# - MANTIDO: Todas as correções anteriores (medidas, marcas de corte, etc).
+# Versão v102 - Limpeza Cirúrgica de Tokens Soltos (EE, Contato, Aspas)
+# - NOVO: Remove "EE" (sujeira de OCR identificada na imagem).
+# - NOVO: Remove "contato" quando aparece solto na linha.
+# - NOVO: Remove aspas simples soltas (') que apareciam antes de palavras.
+# - MELHORIA: Usa regex seguro (\b) para remover siglas curtas (mm, pe, BRR, EE) sem estragar palavras normais.
 
 import re
 import difflib
@@ -118,52 +119,56 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v101) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v102) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos."""
+    texto_limpo = texto
     
-    # Lista de termos exatos para remover (limpeza pré-regex)
-    lixo_especifico = [
+    # 1. Frases/Padrões Literais Longos (Seguros para replace simples)
+    lixo_frases = [
         "MEDICAMENTO ?", 
         "DEVO USAR ESTE", 
         "mma USO ORAL mm USO ADULTO",
         "mem CSA comprimido",
         "MMA 1250 - 12/25",
-        "10 mm", 
-        "7 mm", 
-        "MM", "mm", "pe", "BRR" # Adicionado tokens soltos
+        "Medida da bula",
+        "19 , 0 cm x 45 , 0 cm"
     ]
-    
-    texto_limpo = texto
-    # 1. Remove termos específicos literais antes de qualquer regex complexo
-    for item in lixo_especifico:
+    for item in lixo_frases:
         texto_limpo = texto_limpo.replace(item, "")
+
+    # 2. Tokens curtos/soltos (Usar Regex \b para evitar quebrar palavras)
+    # Ex: Remove 'EE' mas não 'LEE', remove 'mm' mas não 'comum'
+    tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm"]
+    pattern_tokens = r'\b(' + '|'.join(tokens_lixo) + r')\b'
+    texto_limpo = re.sub(pattern_tokens, '', texto_limpo, flags=re.IGNORECASE)
+
+    # 3. Limpezas Específicas (Regex)
+    padroes_especificos = [
+        # Remove aspas simples soltas (ex: ' metotrexato)
+        r"\s+'\s+", 
         
-    padroes_linha_inteira = [
-        # --- NOVOS LIXOS (v101 - Solicitado pelo usuario) ---
-        r'.*\(?\s*31\s*\)?\s*3514\s*-\s*2900.*', # Remove telefone (31) 3514 - 2900 com ou sem 'contato'
-        r'^\s*(MM|mm|pe|BRR)\s*$',               # Remove linhas que são apenas esses códigos
-        r'\bBRR\b',                               # Remove código BRR solto no texto
-        r'\bpe\b',                                # Remove 'pe' solto (provável lixo de corte)
+        # Remove telefone (31) 3514 - 2900 (com ou sem contato)
+        r'.*\(?\s*31\s*\)?\s*3514\s*-\s*2900.*',
+        
+        # Remove palavra "contato" se estiver solta na linha (ex: no fim do arquivo)
+        r'(?m)^\s*contato\s*$',
+        
+        # Medidas soltas numéricas
+        r'\b\d{1,3}\s*mm\b',  # 10 mm, 450 mm
+        r'\b\d{1,3}\s*cm\b',  # 19 cm
 
-        # --- LIXOS ANTERIORES (v100/v99) ---
+        # Marcas de corte
         r'.*gm\s*>\s*>\s*>.*',              
-        r'.*_{3,}.*gm.*',                   
-        r'.*MMA\s+\d{4}\s*-\s*\d{1,2}/\d{2,4}.*', 
-        r'.*\d{1,3}\s*mm.*', 
+        r'.*_{3,}.*gm.*', 
+        r'.*MMA\s+\d{4}\s*-\s*\d{1,2}/\d{2,4}.*',
 
-        # --- FANTASMAS DE EXTRAÇÃO e MEDIDAS ---
-        r'.*Medida\s+da\s+bula.*',          
-        r'.*\d+\s*,\s*\d+\s*cm\s*x\s*\d+\s*,\s*\d+\s*cm.*', 
+        # Títulos quebrados/fantasmas antigos
         r'^\s*MEDICAMENTO\s*\?\s*$',
         r'^\s*DEVO\s*USAR\s*ESTE\s*$',
-        r'.*mma\s*USO\s*ORAL.*',
-        r'.*mem\s*CSA\s*comprimido.*',
-        r'.*\d{2,3}\s*,\s*00\s*mm.*',      
-        r'.*\d{1,3}\s*mm\s*x\s*\d{1,3}\s*mm.*',
         
-        # --- LIXOS DIVERSOS ---
+        # Lixos diversos anteriores
         r'.*PROVA\s*-\s*[\d\s/]+.*',       
         r'.*Tipologia.*',                  
         r'.*Normal\s+e.*',                 
@@ -171,7 +176,6 @@ def limpar_lixo_grafico(texto):
         r'^\s*Belcomplex:\s*$',
         r'.*Impress[ãa]o:.*',
         r'.*Negrito\s*[\.,]?\s*Corpo\s*\d+.*',
-        r'.*31\s*3514\s*-\s*2900.*', # Reforço do telefone
         r'.*artes.*belfar.*',
         r'^contato:.*',                    
         r'.*BUL\d+[A-Z0-9]*.*',
@@ -189,15 +193,21 @@ def limpar_lixo_grafico(texto):
         r'^\s*450\s*$'
     ]
     
-    for p in padroes_linha_inteira:
-        # Remove a linha inteira se der match
+    for p in padroes_especificos:
+        # Tenta remover linha inteira primeiro
         texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
-        # Backup: remove trechos soltos
-        texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
+        # Se sobrar, remove inline
+        if p not in [r"\s+'\s+"]: # Pula o da aspa simples pq é inline por natureza
+            texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
+        else:
+             texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE)
 
     # Limpa linhas vazias ou com pontuação que sobraram
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
     
+    # Corrige "se a administrado" se for um erro recorrente da extração dessa bula
+    texto_limpo = texto_limpo.replace(" se a administrado ", " se administrado ")
+
     return texto_limpo
 
 def corrigir_padroes_bula(texto):
@@ -647,7 +657,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v101)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v102)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -691,4 +701,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v101 | Correção de Frases Quebradas & Fantasmas de Extração & Marcas de Corte & Medidas.")
+st.caption("Sistema de Auditoria v102 | Limpeza Cirúrgica de EE, Contato e Tokens Soltos.")
