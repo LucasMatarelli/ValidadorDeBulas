@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v100 - Limpeza de Mais Lixo Gráfico e Medidas
-# - NOVO: Remove "MMA 1250 - 12/25" e variações.
-# - NOVO: Remove marcações técnicas como "_ _ _ _ _ gm > > >".
-# - NOVO: Remove medidas soltas em mm ("10 mm", "7 mm").
-# - MANTIDO: Todas as correções anteriores da v99.
+# Versão v101 - Limpeza Agressiva de Lixo Gráfico (Telefone e Códigos)
+# - NOVO: Remove telefone específico "(31) 3514 - 2900" e "contato ...".
+# - NOVO: Remove tokens soltos de sujeira: "MM", "mm", "pe", "BRR".
+# - MANTIDO: Todas as correções anteriores (medidas, marcas de corte, etc).
 
 import re
 import difflib
@@ -119,7 +118,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v100) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v101) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos."""
@@ -130,9 +129,10 @@ def limpar_lixo_grafico(texto):
         "DEVO USAR ESTE", 
         "mma USO ORAL mm USO ADULTO",
         "mem CSA comprimido",
-        "MMA 1250 - 12/25", # Novo da v100
-        "10 mm", # Novo da v100
-        "7 mm", # Novo da v100
+        "MMA 1250 - 12/25",
+        "10 mm", 
+        "7 mm", 
+        "MM", "mm", "pe", "BRR" # Adicionado tokens soltos
     ]
     
     texto_limpo = texto
@@ -141,33 +141,37 @@ def limpar_lixo_grafico(texto):
         texto_limpo = texto_limpo.replace(item, "")
         
     padroes_linha_inteira = [
-        # --- NOVOS LIXOS (v100 - Solicitado pelo usuario) ---
-        r'.*gm\s*>\s*>\s*>.*',              # Remove "_ _ _ _ _ _ gm > > > »"
-        r'.*_{3,}.*gm.*',                   # Variação com underlines e gm
-        r'.*MMA\s+\d{4}\s*-\s*\d{1,2}/\d{2,4}.*', # Remove "MMA 1250 - 12/25" e similares
-        r'.*\d{1,3}\s*mm.*', # Remove medidas soltas como "10 mm", "7 mm"
+        # --- NOVOS LIXOS (v101 - Solicitado pelo usuario) ---
+        r'.*\(?\s*31\s*\)?\s*3514\s*-\s*2900.*', # Remove telefone (31) 3514 - 2900 com ou sem 'contato'
+        r'^\s*(MM|mm|pe|BRR)\s*$',               # Remove linhas que são apenas esses códigos
+        r'\bBRR\b',                               # Remove código BRR solto no texto
+        r'\bpe\b',                                # Remove 'pe' solto (provável lixo de corte)
 
-        # --- FANTASMAS DE EXTRAÇÃO e MEDIDAS (v99/v98) ---
-        r'.*Medida\s+da\s+bula.*',          # Remove "Medida da bula : 19 , 0 cm x 45 , 0 cm"
-        r'.*\d+\s*,\s*\d+\s*cm\s*x\s*\d+\s*,\s*\d+\s*cm.*', # Remove medidas em CM genéricas
+        # --- LIXOS ANTERIORES (v100/v99) ---
+        r'.*gm\s*>\s*>\s*>.*',              
+        r'.*_{3,}.*gm.*',                   
+        r'.*MMA\s+\d{4}\s*-\s*\d{1,2}/\d{2,4}.*', 
+        r'.*\d{1,3}\s*mm.*', 
+
+        # --- FANTASMAS DE EXTRAÇÃO e MEDIDAS ---
+        r'.*Medida\s+da\s+bula.*',          
+        r'.*\d+\s*,\s*\d+\s*cm\s*x\s*\d+\s*,\s*\d+\s*cm.*', 
         r'^\s*MEDICAMENTO\s*\?\s*$',
         r'^\s*DEVO\s*USAR\s*ESTE\s*$',
         r'.*mma\s*USO\s*ORAL.*',
         r'.*mem\s*CSA\s*comprimido.*',
-        r'.*\d{2,3}\s*,\s*00\s*mm.*',      # O MATADOR DE MEDIDAS
+        r'.*\d{2,3}\s*,\s*00\s*mm.*',      
         r'.*\d{1,3}\s*mm\s*x\s*\d{1,3}\s*mm.*',
         
-        # --- LIXOS QUE VOCÊ PEDIU ---
-        r'.*PROVA\s*-\s*[\d\s/]+.*',       # 1 PROVA - 11 / 11 / 2025
-        r'.*Tipologia.*',                  # Tipologia da bula
-        r'.*Normal\s+e.*',                 # - Normal e
+        # --- LIXOS DIVERSOS ---
+        r'.*PROVA\s*-\s*[\d\s/]+.*',       
+        r'.*Tipologia.*',                  
+        r'.*Normal\s+e.*',                 
         r'^\s*Belcomplex\s+B\s+comprimido\s*$',
         r'^\s*Belcomplex:\s*$',
-        
-        # --- LIXO GENÉRICO ---
         r'.*Impress[ãa]o:.*',
         r'.*Negrito\s*[\.,]?\s*Corpo\s*\d+.*',
-        r'.*31\s*3514\s*-\s*2900.*',
+        r'.*31\s*3514\s*-\s*2900.*', # Reforço do telefone
         r'.*artes.*belfar.*',
         r'^contato:.*',                    
         r'.*BUL\d+[A-Z0-9]*.*',
@@ -643,7 +647,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v100)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v101)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -687,4 +691,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v100 | Correção de Frases Quebradas & Fantasmas de Extração & Marcas de Corte & Medidas.")
+st.caption("Sistema de Auditoria v101 | Correção de Frases Quebradas & Fantasmas de Extração & Marcas de Corte & Medidas.")
