@@ -639,16 +639,24 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=F
 
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
+    
+    # Extrai data ANVISA
     rx_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     m_ref = re.search(rx_anvisa, texto_ref or "", re.IGNORECASE)
     m_bel = re.search(rx_anvisa, texto_belfar or "", re.IGNORECASE)
     data_ref = m_ref.group(2).strip() if m_ref else "Não encontrada"
     data_bel = m_bel.group(2).strip() if m_bel else "Não encontrada"
 
+    # Verifica seções e conteúdo
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos, secoes_analisadas = verificar_secoes_e_conteudo(texto_ref, texto_belfar)
+    
+    # Checa ortografia
     erros = checar_ortografia_inteligente(texto_belfar, texto_ref)
+    
+    # Calcula score
     score = sum(similaridades)/len(similaridades) if similaridades else 100.0
 
+    # Métricas
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Conformidade", f"{score:.0f}%")
     c2.metric("Erros Ortográficos", len(erros))
@@ -658,26 +666,37 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("Seções (clique para expandir)")
     
+    # Prefixos das seções
     prefixos_paciente = {
-        "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
-        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", "COMO DEVO USAR ESTE MEDICAMENTO?": "6.",
-        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
+        "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", 
+        "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", 
+        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", 
+        "COMO DEVO USAR ESTE MEDICAMENTO?": "6.",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", 
+        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
     prefixos_map = prefixos_paciente
 
+    # Constrói HTML
     html_ref = construir_html_secoes(secoes_analisadas, [], True)
     html_bel = construir_html_secoes(secoes_analisadas, erros, False)
 
+    # Exibe seções
     for diff in secoes_analisadas:
         sec = diff['secao']
         pref = prefixos_map.get(sec, "")
         tit = f"{pref} {sec}" if pref else sec
+        
         status = "✅ Idêntico"
-        if diff.get('faltante'): status = "🚨 FALTANTE"
-        elif diff.get('ignorada'): status = "⚠️ Ignorada"
-        elif diff.get('tem_diferenca'): status = "❌ Divergente"
+        if diff.get('faltante'): 
+            status = "🚨 FALTANTE"
+        elif diff.get('ignorada'): 
+            status = "⚠️ Ignorada"
+        elif diff.get('tem_diferenca'): 
+            status = "❌ Divergente"
 
         with st.expander(f"{tit} — {status}", expanded=(diff.get('tem_diferenca') or diff.get('faltante'))):
             c1, c2 = st.columns([1,1], gap="large")
@@ -690,13 +709,16 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("🎨 Visualização Completa")
+    
     full_order = [s['secao'] for s in secoes_analisadas]
     h_r = "".join([html_ref.get(s, "") for s in full_order])
     h_b = "".join([html_bel.get(s, "") for s in full_order])
     
     cr, cb = st.columns(2, gap="large")
-    with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
-    with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
+    with cr: 
+        st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
+    with cb: 
+        st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- VALIDAÇÃO DE TIPO -----------------
 def detectar_tipo_arquivo_por_score(texto):
