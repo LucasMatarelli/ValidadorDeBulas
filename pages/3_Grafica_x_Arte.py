@@ -1,8 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v96 - Remoção Definitiva de 'PROVA' e Datas
-# - CORREÇÃO: Regex blindado para remover '1 PROVA - 11 / 11 / 2025' e variações.
-# - MANTIDO: Limpeza de Tipologia, Medidas, Correção de Símbolos e Visualização Lado a Lado.
+# Versão v97 - Correção de Frases Quebradas por Medidas
+# - CORREÇÃO CRÍTICA: Remove medidas (210, 00 mm) que cortavam frases ao meio.
+# - RESULTADO: A frase das "mulheres grávidas" voltará a ser uma linha única e será identificada.
+# - MANTIDO: Todas as limpezas anteriores.
 
 import re
 import difflib
@@ -117,36 +118,29 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v96) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v97) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos."""
     padroes_linha_inteira = [
-        # --- O LIXO QUE VOCÊ PEDIU PARA REMOVER ---
-        # Pega "1 PROVA - 11 / 11 / 2025", "PROVA - 11/11", etc.
-        r'.*\bPROVA\b\s*[-–—]\s*[\d\s/]+.*', 
-        r'^\s*\d+\s*PROVA\s*.*',
+        # --- O MATADOR DE MEDIDAS (Corrige a frase cortada) ---
+        # Remove "210, 00 mm", "30, 00 mm" e variações
+        r'.*\d{2,3}\s*,\s*00\s*mm.*',     
+        r'.*\d{1,3}\s*mm\s*x\s*\d{1,3}\s*mm.*',
         
-        # --- OUTROS LIXOS JÁ SOLICITADOS ---
-        r'.*Tipologia.*',                  
-        r'.*Normal\s+e.*',                 
-        
-        r'.*210\s*,\s*00\s*mm.*',          
-        r'.*30\s*,\s*00\s*mm.*',           
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',
-        r'^\s*450\s*$',
-        r'.*cm\s*x\s*.*cm.*',
-        
+        # --- LIXOS QUE VOCÊ PEDIU ---
+        r'.*PROVA\s*-\s*[\d\s/]+.*',       # 1 PROVA - 11 / 11 / 2025
+        r'.*Tipologia.*',                  # Tipologia da bula
+        r'.*Normal\s+e.*',                 # - Normal e
         r'^\s*Belcomplex\s+B\s+comprimido\s*$',
         r'^\s*Belcomplex:\s*$',
+        
+        # --- LIXO GENÉRICO ---
         r'.*Impress[ãa]o:.*',
         r'.*Negrito\s*[\.,]?\s*Corpo\s*\d+.*',
-        
         r'.*31\s*3514\s*-\s*2900.*',
         r'.*artes.*belfar.*',
         r'^contato:.*',                    
-        
         r'.*BUL\d+[A-Z0-9]*.*',
         r'.*\(\s*\d+\s*\)\s*BELFAR.*',
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
@@ -158,17 +152,18 @@ def limpar_lixo_grafico(texto):
         r'.*CNPJ:.*', r'.*SAC:.*', r'.*Farm\. Resp\..*', 
         r'.*Laetus.*', r'.*Pharmacode.*', 
         r'.*\b\d{6,}\s*-\s*\d{2}/\d{2}\b.*', 
-        r'.*BUL_CLORIDRATO.*'
+        r'.*BUL_CLORIDRATO.*',
+        r'^\s*450\s*$'
     ]
     
     texto_limpo = texto
     for p in padroes_linha_inteira:
-        # Remove linha inteira se der match
+        # Remove a linha inteira se der match
         texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
-        # Backup: Remove trechos soltos que sobraram
+        # Backup: remove trechos soltos
         texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
 
-    # Limpa linhas vazias ou com pontuação
+    # Limpa linhas vazias ou com pontuação que sobraram
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
     
     return texto_limpo
@@ -264,7 +259,7 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             
-            # 1. LIMPEZA CIRÚRGICA
+            # 1. LIMPEZA CIRÚRGICA (IMPORTANTE: Antes de tudo para juntar frases)
             texto_completo = limpar_lixo_grafico(texto_completo)
             # 2. CORREÇÃO
             texto_completo = corrigir_padroes_bula(texto_completo)
@@ -620,7 +615,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v96)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v97)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -664,4 +659,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v96 | Limpeza Definitiva de PROVA.")
+st.caption("Sistema de Auditoria v97 | Correção de Quebras de Texto por Medidas.")
