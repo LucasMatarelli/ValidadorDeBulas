@@ -1,10 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v102 - Limpeza Cirúrgica de Tokens Soltos (EE, Contato, Aspas)
-# - NOVO: Remove "EE" (sujeira de OCR identificada na imagem).
-# - NOVO: Remove "contato" quando aparece solto na linha.
-# - NOVO: Remove aspas simples soltas (') que apareciam antes de palavras.
-# - MELHORIA: Usa regex seguro (\b) para remover siglas curtas (mm, pe, BRR, EE) sem estragar palavras normais.
+# Versão v103 - Correção de Erro de Regex (Global Flags)
+# - CORREÇÃO DE BUG: Remove o erro "global flags not at the start" causado pela duplicidade de flags na limpeza de "contato".
+# - MANTIDO: Toda a limpeza agressiva da v102 (EE, mm, telefones, etc.).
 
 import re
 import difflib
@@ -119,7 +117,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v102) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v103) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos."""
@@ -139,25 +137,24 @@ def limpar_lixo_grafico(texto):
         texto_limpo = texto_limpo.replace(item, "")
 
     # 2. Tokens curtos/soltos (Usar Regex \b para evitar quebrar palavras)
-    # Ex: Remove 'EE' mas não 'LEE', remove 'mm' mas não 'comum'
     tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm"]
     pattern_tokens = r'\b(' + '|'.join(tokens_lixo) + r')\b'
     texto_limpo = re.sub(pattern_tokens, '', texto_limpo, flags=re.IGNORECASE)
 
     # 3. Limpezas Específicas (Regex)
     padroes_especificos = [
-        # Remove aspas simples soltas (ex: ' metotrexato)
+        # Remove aspas simples soltas
         r"\s+'\s+", 
         
-        # Remove telefone (31) 3514 - 2900 (com ou sem contato)
+        # Remove telefone (31) 3514 - 2900
         r'.*\(?\s*31\s*\)?\s*3514\s*-\s*2900.*',
         
-        # Remove palavra "contato" se estiver solta na linha (ex: no fim do arquivo)
-        r'(?m)^\s*contato\s*$',
+        # Remove palavra "contato" se estiver solta na linha (CORRIGIDO: sem flag (?m) aqui dentro)
+        r'^\s*contato\s*$',
         
         # Medidas soltas numéricas
-        r'\b\d{1,3}\s*mm\b',  # 10 mm, 450 mm
-        r'\b\d{1,3}\s*cm\b',  # 19 cm
+        r'\b\d{1,3}\s*mm\b',
+        r'\b\d{1,3}\s*cm\b',
 
         # Marcas de corte
         r'.*gm\s*>\s*>\s*>.*',              
@@ -168,7 +165,7 @@ def limpar_lixo_grafico(texto):
         r'^\s*MEDICAMENTO\s*\?\s*$',
         r'^\s*DEVO\s*USAR\s*ESTE\s*$',
         
-        # Lixos diversos anteriores
+        # Lixos diversos
         r'.*PROVA\s*-\s*[\d\s/]+.*',       
         r'.*Tipologia.*',                  
         r'.*Normal\s+e.*',                 
@@ -194,18 +191,26 @@ def limpar_lixo_grafico(texto):
     ]
     
     for p in padroes_especificos:
-        # Tenta remover linha inteira primeiro
-        texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
-        # Se sobrar, remove inline
-        if p not in [r"\s+'\s+"]: # Pula o da aspa simples pq é inline por natureza
-            texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
-        else:
+        # Tenta remover linha inteira primeiro (o loop adiciona (?m)^ automaticamente)
+        try:
+            texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
+        except Exception:
+            # Fallback seguro caso algum regex esteja malformado
+            pass
+            
+        # Se sobrar, remove inline (exceto aspas que precisam ser substituidas por espaço)
+        if p == r"\s+'\s+":
              texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE)
+        else:
+             # Remove inline apenas se não for um padrão de linha inteira com ancoras restritivas
+             # No caso do "contato", sem ancoras, ele removeria "contato" de frases.
+             # Como agora p tem ^ e $, o inline match só pega se for a string exata, o que é seguro.
+             texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
 
     # Limpa linhas vazias ou com pontuação que sobraram
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
     
-    # Corrige "se a administrado" se for um erro recorrente da extração dessa bula
+    # Corrige "se a administrado"
     texto_limpo = texto_limpo.replace(" se a administrado ", " se administrado ")
 
     return texto_limpo
@@ -657,7 +662,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v102)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v103)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -701,4 +706,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v102 | Limpeza Cirúrgica de EE, Contato e Tokens Soltos.")
+st.caption("Sistema de Auditoria v103 | Correção de Erro de Regex (Flags).")
