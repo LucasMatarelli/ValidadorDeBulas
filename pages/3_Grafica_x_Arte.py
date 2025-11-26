@@ -1,9 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v97 - Correção de Frases Quebradas por Medidas
-# - CORREÇÃO CRÍTICA: Remove medidas (210, 00 mm) que cortavam frases ao meio.
-# - RESULTADO: A frase das "mulheres grávidas" voltará a ser uma linha única e será identificada.
-# - MANTIDO: Todas as limpezas anteriores.
+# Versão v98 - Correção de Fantasmas de Extração
+# - CORREÇÃO CRÍTICA: Remove palavras repetidas ("MEDICAMENTO ?", "DEVO USAR ESTE") que apareciam em amarelo.
+# - MANTIDO: Correção de medidas (210, 00 mm) da v97.
 
 import re
 import difflib
@@ -118,14 +117,33 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v97) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v98) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos."""
+    
+    # Lista de termos exatos para remover (limpeza pré-regex)
+    lixo_especifico = [
+        "MEDICAMENTO ?", 
+        "DEVO USAR ESTE", 
+        "mma USO ORAL mm USO ADULTO",
+        "mem CSA comprimido"
+    ]
+    
+    texto_limpo = texto
+    # 1. Remove termos específicos literais antes de qualquer regex complexo
+    for item in lixo_especifico:
+        texto_limpo = texto_limpo.replace(item, "")
+        
     padroes_linha_inteira = [
+        # --- FANTASMAS DE EXTRAÇÃO (NOVO v98) ---
+        r'^\s*MEDICAMENTO\s*\?\s*$',
+        r'^\s*DEVO\s*USAR\s*ESTE\s*$',
+        r'.*mma\s*USO\s*ORAL.*',
+        r'.*mem\s*CSA\s*comprimido.*',
+
         # --- O MATADOR DE MEDIDAS (Corrige a frase cortada) ---
-        # Remove "210, 00 mm", "30, 00 mm" e variações
-        r'.*\d{2,3}\s*,\s*00\s*mm.*',     
+        r'.*\d{2,3}\s*,\s*00\s*mm.*',      
         r'.*\d{1,3}\s*mm\s*x\s*\d{1,3}\s*mm.*',
         
         # --- LIXOS QUE VOCÊ PEDIU ---
@@ -156,7 +174,6 @@ def limpar_lixo_grafico(texto):
         r'^\s*450\s*$'
     ]
     
-    texto_limpo = texto
     for p in padroes_linha_inteira:
         # Remove a linha inteira se der match
         texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
@@ -615,7 +632,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v97)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v98)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -659,4 +676,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v97 | Correção de Quebras de Texto por Medidas.")
+st.caption("Sistema de Auditoria v98 | Correção de Frases Quebradas & Fantasmas de Extração.")
