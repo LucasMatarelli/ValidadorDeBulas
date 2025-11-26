@@ -623,7 +623,7 @@ tipo_bula_selecionado = "Paciente" # Fixo
 
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arquivo ANVISA")
+    st.subheader("📄 Arte Vigente")
     pdf_ref = st.file_uploader("PDF/DOCX Referência", type=["pdf", "docx"], key="ref")
 with col2:
     st.subheader("📄 PDF da Gráfica")
