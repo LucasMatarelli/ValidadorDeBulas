@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v77 - Base v75 (Estável) + Correções Pontuais Solicitadas
-# - BASE: Retorna ao código da v75 que estava funcionando bem.
-# - LIMPEZA: Adicionado "31 2105" e "w Roman".
-# - TÍTULOS: Adicionados títulos 1, 2 e 3 na lista de correção forçada (estavam faltando).
+# Versão v77 (CORRIGIDA) - Base v75 (Estável) + Correções Pontuais
+# - CORREÇÃO CRÍTICA: Removido o corte geométrico de colunas que embaralhava palavras.
+# - Agora usa detecção de blocos (sort=True) para ler colunas corretamente sem quebrar texto.
+# - MANTIDO: Limpeza de "31 2105" e "w Roman".
+# - MANTIDO: Títulos 1, 2 e 3 na correção forçada.
 
 import re
 import difflib
@@ -184,7 +185,7 @@ def forcar_titulos_bula(texto):
          r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
          
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
-         r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
+         r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?\n"),
          
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
@@ -196,7 +197,7 @@ def forcar_titulos_bula(texto):
         
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO (SPLIT COLUMN) -----------------
+# ----------------- EXTRAÇÃO (CORRIGIDA - SEM CORTE MANUAL) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -204,27 +205,19 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         texto_completo = ""
 
         if tipo_arquivo == 'pdf':
+            # PyMuPDF (fitz) abre o PDF
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    rect = page.rect
-                    margem_y = rect.height * 0.01 
+                    # [CORREÇÃO CRÍTICA]: 
+                    # Substituímos o corte manual (width/2) pelo método nativo 'sort=True'.
+                    # Isso faz o PyMuPDF detectar colunas automaticamente e extrair
+                    # o texto na ordem correta, sem cortar palavras que cruzam o meio.
+                    blocks = page.get_text("blocks", sort=True)
                     
-                    if is_marketing_pdf:
-                        meio_x = rect.width / 2
-                        
-                        clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
-                        texto_esq = page.get_textpage(clip=clip_esq).extractText()
-                        
-                        clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
-                        texto_dir = page.get_textpage(clip=clip_dir).extractText()
-                        
-                        texto_completo += texto_esq + "\n" + texto_dir + "\n"
-                    else:
-                        blocks = page.get_text("blocks", sort=True)
-                        for b in blocks:
-                            if b[6] == 0:
-                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    texto_completo += b[4] + "\n"
+                    for b in blocks:
+                        # b[6] == 0 garante que é texto (não imagem)
+                        if b[6] == 0:
+                            texto_completo += b[4] + "\n"
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -710,4 +703,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v77 | Base v75 + Correção Pontual de Lixo e Títulos.")
+st.caption("Sistema de Auditoria de Bulas v77 | Base v75 + Correção Pontual de Lixo e Títulos + Correção de Quebra de Palavras.")
