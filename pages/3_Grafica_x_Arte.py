@@ -1,8 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v98 - Correção de Fantasmas de Extração
-# - CORREÇÃO CRÍTICA: Remove palavras repetidas ("MEDICAMENTO ?", "DEVO USAR ESTE") que apareciam em amarelo.
-# - MANTIDO: Correção de medidas (210, 00 mm) da v97.
+# Versão v99 - Limpeza de Medidas CM e Marcas de Corte
+# - NOVO: Remove "Medida da bula : 19 , 0 cm..." que estava passando.
+# - NOVO: Remove linhas de marcação técnica como "_ _ _ _ gm > > >".
+# - MANTIDO: Todas as correções da v98.
 
 import re
 import difflib
@@ -117,7 +118,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v98) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v99) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos."""
@@ -136,7 +137,13 @@ def limpar_lixo_grafico(texto):
         texto_limpo = texto_limpo.replace(item, "")
         
     padroes_linha_inteira = [
-        # --- FANTASMAS DE EXTRAÇÃO (NOVO v98) ---
+        # --- NOVOS LIXOS (v99 - Solicitado pelo usuario) ---
+        r'.*Medida\s+da\s+bula.*',          # Remove "Medida da bula : 19 , 0 cm x 45 , 0 cm"
+        r'.*\d+\s*,\s*\d+\s*cm\s*x\s*\d+\s*,\s*\d+\s*cm.*', # Remove medidas em CM genéricas
+        r'.*gm\s*>\s*>\s*>.*',              # Remove "_ _ _ _ _ _ gm > > > »"
+        r'.*_{3,}.*gm.*',                   # Variação com underlines e gm
+
+        # --- FANTASMAS DE EXTRAÇÃO (v98) ---
         r'^\s*MEDICAMENTO\s*\?\s*$',
         r'^\s*DEVO\s*USAR\s*ESTE\s*$',
         r'.*mma\s*USO\s*ORAL.*',
@@ -632,7 +639,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v98)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v99)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -676,4 +683,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v98 | Correção de Frases Quebradas & Fantasmas de Extração.")
+st.caption("Sistema de Auditoria v99 | Correção de Frases Quebradas & Fantasmas de Extração & Marcas de Corte.")
