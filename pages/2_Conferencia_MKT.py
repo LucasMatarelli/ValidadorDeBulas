@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v80 - Correção de Seções Perdidas e Palavras Cortadas
-# - CORREÇÃO DE MAPEAMENTO: Regex de títulos agora exige início de linha ((?m)^) para evitar capturar referências no meio do texto (ex: "vide item 4...").
-# - CORREÇÃO DE CORTE: Uso estrito de 'blocks' do PyMuPDF para não cortar palavras em layouts de múltiplas colunas.
-# - IGNORAR CITAÇÕES: Títulos começando com aspas (") são ignorados para não confundir com referências cruzadas.
+# Versão v81 - Base v77 (Estável) + Correção Definitiva de Quebra de Palavras
+# - PROBLEMA CORRIGIDO: Removida a divisão geométrica (corte 50/50) que serrava palavras ao meio.
+# - SOLUÇÃO: Implementada leitura por BLOCOS (sort=True) que respeita as colunas originais do layout.
+# - MANTIDO: Toda a lógica de títulos e limpeza da v77 original.
 
 import re
 import difflib
@@ -158,38 +158,35 @@ def forcar_titulos_bula(texto):
     """
     Encontra títulos quebrados (com ou SEM número) e força a inserção
     da numeração correta e a junção em uma linha.
-    
-    v80: Usa (?m)^\s* para garantir que só substitui se for início de linha,
-    evitando pegar referências no meio do texto.
     """
     substituicoes = [
         # --- NOVOS TÍTULOS ADICIONADOS (1, 2, 3) ---
-        (r"(?m)^\s*(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
+        (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
          r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
 
-        (r"(?m)^\s*(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
+        (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
          r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
 
-        (r"(?m)^\s*(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
+        (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
 
         # --- Títulos da v75 ---
-        (r"(?m)^\s*(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
+        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
 
-        (r"(?m)^\s*(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
+        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
           
-        (r"(?m)^\s*(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
+        (r"(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
 
-        (r"(?m)^\s*(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
+        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
           
-        (r"(?m)^\s*(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
+        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
           
-        (r"(?m)^\s*(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,200}?MEDICAMENTO\??", 
+        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
     
@@ -212,14 +209,15 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     rect = page.rect
                     margem_y = rect.height * 0.01 
                     
-                    # [CORREÇÃO v80]
-                    # Uso exclusivo de blocks com sort=True para respeitar layout de colunas
-                    # sem cortar palavras. Nenhuma lógica de crop manual é usada.
+                    # [CORREÇÃO CRÍTICA v81]
+                    # Substituímos a divisão manual (esquerda/direita) por 'blocks' com sort=True.
+                    # Isso evita cortar palavras ao meio em layouts de colunas apertadas.
                     blocks = page.get_text("blocks", sort=True)
+                    
                     for b in blocks:
-                        # b[6] == 0 significa bloco de texto (não imagem)
-                        # Verifica margens (cabeçalho/rodapé)
-                        if b[6] == 0:
+                        # b[4] é o texto, b[6] é o tipo (0 = texto, 1 = imagem)
+                        if b[6] == 0: 
+                            # Verifica se está dentro da margem útil (ignora cabeçalhos extremos se necessário)
                             if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
                                 texto_completo += b[4] + "\n"
 
@@ -250,9 +248,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 def is_titulo_secao(linha):
     ln = linha.strip()
     if len(ln) < 4: return False
-    # [CORREÇÃO v80]: Ignora linhas que começam com aspas (citações)
-    if ln.startswith('"') or ln.startswith('“') or ln.startswith('”'): return False
-    
     first = ln.split('\n')[0]
     if re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', first): return True
     if first.isupper() and not first.endswith('.') and len(first) > 4: return True
@@ -453,26 +448,14 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # [CORREÇÃO ANTI-AMARELO - DEFINITIVA]
-        def limpar_para_comparacao(txt):
-            if not txt:
-                return ""
-            # Remove espaços invisíveis
-            txt = txt.replace('\u00A0', ' ').replace('\u202F', ' ').replace('\u200B', '')
-            txt = txt.replace('\u2009', ' ').replace('\uFEFF', '').replace('\u00AD', '')
-            # Normaliza unicode
-            txt = unicodedata.normalize('NFKD', txt)
-            txt = ''.join(c for c in txt if not unicodedata.combining(c))
-            # Remove TODA pontuação e espaços extras
-            txt = re.sub(r'[^\w\s]', '', txt)
-            txt = re.sub(r'\s+', ' ', txt)
-            return txt.lower().strip()
-        
-        texto_ref_limpo = limpar_para_comparacao(conteudo_ref)
-        texto_bel_limpo = limpar_para_comparacao(conteudo_belfar)
+        # [CORREÇÃO ANTI-AMARELO]
+        norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
+        norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
+        norm_ref = normalizar_texto(norm_ref)
+        norm_bel = normalizar_texto(norm_bel)
 
         tem_diferenca = False
-        if texto_ref_limpo != texto_bel_limpo:
+        if norm_ref != norm_bel:
             tem_diferenca = True
             diferencas_conteudo.append({'secao': sec, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar})
             similaridades_secoes.append(0)
@@ -523,79 +506,37 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     except: return []
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
-    """Marca diferenças apenas se os textos forem REALMENTE diferentes"""
-    
-    # Função de limpeza agressiva
-    def limpar_para_comparacao(txt):
-        if not txt:
-            return ""
-        txt = txt.replace('\u00A0', ' ').replace('\u202F', ' ').replace('\u200B', '')
-        txt = txt.replace('\u2009', ' ').replace('\uFEFF', '').replace('\u00AD', '')
-        txt = unicodedata.normalize('NFKD', txt)
-        txt = ''.join(c for c in txt if not unicodedata.combining(c))
-        txt = re.sub(r'[^\w\s]', '', txt)
-        txt = re.sub(r'\s+', ' ', txt)
-        return txt.lower().strip()
-    
-    # Verifica se são idênticos após limpeza
-    ref_limpo = limpar_para_comparacao(texto_ref or "")
-    bel_limpo = limpar_para_comparacao(texto_belfar or "")
-    
-    # Se são iguais, retorna sem marcações
-    if ref_limpo == bel_limpo:
-        texto = (texto_ref if eh_referencia else texto_belfar) or ""
-        return texto.replace('\n', '<br>')
-    
-    # Se são diferentes, faz diff palavra por palavra
-    def tokenizar(txt):
-        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', txt or "", re.UNICODE)
-    
-    def norm_token(tok):
-        if tok == '\n':
-            return '\n'
-        return limpar_para_comparacao(tok)
-    
+    def pre_norm(txt): return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt or "")
+    def tokenizar(txt): return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
+    def norm(tok):
+        if tok == '\n': return ' '
+        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): return normalizar_texto(tok)
+        return tok.strip()
+
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
-    ref_norm = [norm_token(t) for t in ref_tokens]
-    bel_norm = [norm_token(t) for t in bel_tokens]
-    
+    ref_norm = [norm(t) for t in ref_tokens]
+    bel_norm = [norm(t) for t in bel_tokens]
     matcher = difflib.SequenceMatcher(None, ref_norm, bel_norm, autojunk=False)
     indices = set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag != 'equal':
-            indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
-    
+        if tag != 'equal': indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
     tokens = ref_tokens if eh_referencia else bel_tokens
     marcado = []
     for idx, tok in enumerate(tokens):
-        if tok == '\n':
-            marcado.append('<br>')
-        elif idx in indices and tok.strip():
-            marcado.append(f"<mark class='diff'>{tok}</mark>")
-        else:
-            marcado.append(tok)
-    
-    # Reconstrói com espaçamento
+        if tok == '\n': marcado.append('<br>'); continue
+        if idx in indices and tok.strip() != '': marcado.append(f"<mark class='diff'>{tok}</mark>")
+        else: marcado.append(tok)
     resultado = ""
     for i, tok in enumerate(marcado):
-        if i == 0:
+        if i == 0: resultado += tok; continue
+        raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
+        if re.match(r'^[.,;:!?)\\]$', raw_tok): resultado += tok
+        elif tok == '<br>' or marcado[i-1] == '<br>' or re.match(r'^[(]$', re.sub(r'<[^>]+>', '', marcado[i-1])):
             resultado += tok
-            continue
-        raw_tok = re.sub(r'<[^>]+>', '', tok)
-        raw_prev = re.sub(r'<[^>]+>', '', marcado[i-1]) if i > 0 else ""
-        
-        if tok == '<br>' or marcado[i-1] == '<br>':
-            resultado += tok
-        elif re.match(r'^[.,;:!?)\]]$', raw_tok):
-            resultado += tok
-        elif re.match(r'^[(\[]$', raw_prev):
-            resultado += tok
-        else:
-            resultado += " " + tok
-    
-    return resultado
-    
+        else: resultado += " " + tok
+    return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
+
 # ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
     html_map = {}
@@ -646,24 +587,16 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=F
 
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
-    
-    # Extrai data ANVISA
     rx_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
     m_ref = re.search(rx_anvisa, texto_ref or "", re.IGNORECASE)
     m_bel = re.search(rx_anvisa, texto_belfar or "", re.IGNORECASE)
     data_ref = m_ref.group(2).strip() if m_ref else "Não encontrada"
     data_bel = m_bel.group(2).strip() if m_bel else "Não encontrada"
 
-    # Verifica seções e conteúdo
     secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos, secoes_analisadas = verificar_secoes_e_conteudo(texto_ref, texto_belfar)
-    
-    # Checa ortografia
     erros = checar_ortografia_inteligente(texto_belfar, texto_ref)
-    
-    # Calcula score
     score = sum(similaridades)/len(similaridades) if similaridades else 100.0
 
-    # Métricas
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Conformidade", f"{score:.0f}%")
     c2.metric("Erros Ortográficos", len(erros))
@@ -673,37 +606,26 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     st.divider()
     st.subheader("Seções (clique para expandir)")
     
-    # Prefixos das seções
     prefixos_paciente = {
-        "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", 
-        "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
-        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", 
-        "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
-        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", 
-        "COMO DEVO USAR ESTE MEDICAMENTO?": "6.",
-        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", 
-        "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
+        "PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.",
+        "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.",
+        "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", "COMO DEVO USAR ESTE MEDICAMENTO?": "6.",
+        "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.",
         "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."
     }
     prefixos_map = prefixos_paciente
 
-    # Constrói HTML
     html_ref = construir_html_secoes(secoes_analisadas, [], True)
     html_bel = construir_html_secoes(secoes_analisadas, erros, False)
 
-    # Exibe seções
     for diff in secoes_analisadas:
         sec = diff['secao']
         pref = prefixos_map.get(sec, "")
         tit = f"{pref} {sec}" if pref else sec
-        
         status = "✅ Idêntico"
-        if diff.get('faltante'): 
-            status = "🚨 FALTANTE"
-        elif diff.get('ignorada'): 
-            status = "⚠️ Ignorada"
-        elif diff.get('tem_diferenca'): 
-            status = "❌ Divergente"
+        if diff.get('faltante'): status = "🚨 FALTANTE"
+        elif diff.get('ignorada'): status = "⚠️ Ignorada"
+        elif diff.get('tem_diferenca'): status = "❌ Divergente"
 
         with st.expander(f"{tit} — {status}", expanded=(diff.get('tem_diferenca') or diff.get('faltante'))):
             c1, c2 = st.columns([1,1], gap="large")
@@ -716,16 +638,13 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
 
     st.divider()
     st.subheader("🎨 Visualização Completa")
-    
     full_order = [s['secao'] for s in secoes_analisadas]
     h_r = "".join([html_ref.get(s, "") for s in full_order])
     h_b = "".join([html_bel.get(s, "") for s in full_order])
     
     cr, cb = st.columns(2, gap="large")
-    with cr: 
-        st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
-    with cb: 
-        st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
+    with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
+    with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- VALIDAÇÃO DE TIPO -----------------
 def detectar_tipo_arquivo_por_score(texto):
