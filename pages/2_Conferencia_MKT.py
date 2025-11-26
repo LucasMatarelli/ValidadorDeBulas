@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v82 - Base v77 (Estável) + Correção Cirúrgica de Palavras Quebradas
-# - MANTIDO: Estrutura exata da v77 (títulos, regex, limpeza) que organizava bem as seções.
-# - CORRIGIDO: A extração de PDF MKT agora usa "Classificação de Blocos" em vez de "Corte Geométrico".
-#   Isso impede que palavras sejam cortadas ao meio, mas preserva a ordem de coluna Esquerda -> Direita.
+# Versão v83 - Base v82 + Correções Finais (Lixo "19,00 cm" e Seção 9)
+# - LIMPEZA: Adicionado regex para remover medidas soltas como "19, 00 cm".
+# - BUSCA ROBUSTA: Seção 9 (e outras) agora têm uma "busca de resgate" global se não forem encontradas na ordem sequencial.
+# - MANTIDO: Extração por blocos (v82) que evita palavras quebradas.
 
 import re
 import difflib
@@ -121,7 +121,11 @@ def _create_anchor_id(secao_nome, prefix):
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos de texto de borda."""
     padroes_lixo = [
-        # --- NOVOS LIXOS SOLICITADOS ---
+        # --- REMOÇÃO ESPECÍFICA DE DIMENSÕES (19, 00 cm) ---
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',  # Remove "19, 00 cm", "30,00 cm"
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',  # Remove milímetros também
+        
+        # --- LIXOS SOLICITADOS ANTERIORMENTE ---
         r'.*31\s*2105.*',        # Remove telefones quebrados (31 2105 - 1123)
         r'.*w\s*Roman.*',        # Remove "w Roman", "New Roman"
         
@@ -186,7 +190,8 @@ def forcar_titulos_bula(texto):
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
           
-        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,200}?MEDICAMENTO\??", 
+        # Seção 9 com margem maior para garantir captura
+        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
     
@@ -389,9 +394,12 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     candidates = construir_heading_candidates(linhas, secoes_esperadas, aliases)
     mapa = []
     last_idx = -1
+    
     for sec_idx, sec in enumerate(secoes_esperadas):
         sec_norm = normalizar_titulo_para_comparacao(sec)
         found = None
+        
+        # Tentativa 1: Busca Sequencial (Respeita last_idx)
         for c in candidates:
             if c.index <= last_idx: continue
             if c.matched_canon == sec: found = c; break
@@ -407,9 +415,24 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
             for c in candidates:
                 if c.index <= last_idx: continue
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92: found = c; break
+        
+        # Tentativa 2: Busca Global de Resgate (Ignora last_idx se não encontrou)
+        if not found:
+            # Procura em TODO o documento (útil se a seção 9 apareceu "antes" da 8 no layout)
+            for c in candidates:
+                # Verifica match exato ou muito forte
+                if c.matched_canon == sec or (c.numeric == (sec_idx + 1)) or (sec_norm and sec_norm in c.norm):
+                    # Só aceita se tiver certeza (score alto ou numérico exato)
+                    if c.numeric == (sec_idx + 1) or c.score > 95:
+                        found = c
+                        break
+
         if found:
             mapa.append({'canonico': sec, 'titulo_encontrado': found.raw, 'linha_inicio': found.index, 'score': found.score})
-            last_idx = found.index
+            # Só atualiza last_idx se a seção encontrada estiver DEPOIS da última
+            if found.index > last_idx:
+                last_idx = found.index
+                
     mapa = sorted(mapa, key=lambda x: x['linha_inicio'])
     return mapa, candidates, linhas
 
