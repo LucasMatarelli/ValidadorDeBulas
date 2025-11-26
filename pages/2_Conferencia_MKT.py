@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v81 - Base v77 (Estável) + Correção Definitiva de Quebra de Palavras
-# - PROBLEMA CORRIGIDO: Removida a divisão geométrica (corte 50/50) que serrava palavras ao meio.
-# - SOLUÇÃO: Implementada leitura por BLOCOS (sort=True) que respeita as colunas originais do layout.
-# - MANTIDO: Toda a lógica de títulos e limpeza da v77 original.
+# Versão v77 - Base v75 (Estável) + Correções Pontuais Solicitadas
+# - BASE: Retorna ao código da v75 que estava funcionando bem.
+# - LIMPEZA: Adicionado "31 2105" e "w Roman".
+# - TÍTULOS: Adicionados títulos 1, 2 e 3 na lista de correção forçada (estavam faltando).
 
 import re
 import difflib
@@ -209,17 +209,22 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     rect = page.rect
                     margem_y = rect.height * 0.01 
                     
-                    # [CORREÇÃO CRÍTICA v81]
-                    # Substituímos a divisão manual (esquerda/direita) por 'blocks' com sort=True.
-                    # Isso evita cortar palavras ao meio em layouts de colunas apertadas.
-                    blocks = page.get_text("blocks", sort=True)
-                    
-                    for b in blocks:
-                        # b[4] é o texto, b[6] é o tipo (0 = texto, 1 = imagem)
-                        if b[6] == 0: 
-                            # Verifica se está dentro da margem útil (ignora cabeçalhos extremos se necessário)
-                            if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                texto_completo += b[4] + "\n"
+                    if is_marketing_pdf:
+                        meio_x = rect.width / 2
+                        
+                        clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
+                        texto_esq = page.get_textpage(clip=clip_esq).extractText()
+                        
+                        clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
+                        texto_dir = page.get_textpage(clip=clip_dir).extractText()
+                        
+                        texto_completo += texto_esq + "\n" + texto_dir + "\n"
+                    else:
+                        blocks = page.get_text("blocks", sort=True)
+                        for b in blocks:
+                            if b[6] == 0:
+                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                                    texto_completo += b[4] + "\n"
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
