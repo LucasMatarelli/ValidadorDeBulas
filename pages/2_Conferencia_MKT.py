@@ -479,6 +479,13 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         else:
             similaridades_secoes.append(100)
 
+        secoes_analisadas.append({
+            'secao': sec, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar,
+            'titulo_encontrado_ref': titulo_ref, 'titulo_encontrado_belfar': titulo_belfar,
+            'tem_diferenca': tem_diferenca, 'ignorada': False, 'faltante': False
+        })
+    return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos, secoes_analisadas
+
 # ----------------- ORTOGRAFIA & DIFF -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     if not texto_para_checar: return []
