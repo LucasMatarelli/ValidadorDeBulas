@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v92 - Limpeza Cirúrgica de Fragmentos (Normal e, Prova, Títulos Soltos)
-# - LIMPEZA: Adicionado regex para remover 'Belcomplex:', '- Normal e', '1 PROVA' com espaços.
-# - MANTIDO: Interface Lado a Lado, Correção de OCR e Lógica Híbrida.
+# Versão v93 - Limpeza Agressiva de Linha Inteira (Lixo de Gráfica)
+# - CORREÇÃO CRÍTICA: Remove linhas inteiras que contenham 'Medida', 'Tipologia', 'Prova', 'Normal e'.
+# - MANTIDO: Todas as funcionalidades anteriores (OCR, Lado a Lado).
 
 import re
 import difflib
@@ -32,7 +32,7 @@ GLOBAL_CSS = """
 footer { display: none !important; }
 
 .bula-box {
-  height: 350px;
+  height: 400px;
   overflow-y: auto;
   border: 1px solid #dcdcdc;
   border-radius: 6px;
@@ -117,62 +117,54 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (O SEU PEDIDO) -----------------
+# ----------------- [ATUALIZADO] LIMPEZA DE LIXO AGRESSIVA -----------------
 
 def limpar_lixo_grafico(texto):
-    """Remove lixo técnico e fragmentos específicos da gráfica."""
-    padroes_lixo = [
-        # --- LIXOS ESPECÍFICOS REPORTADOS ---
-        # 1 PROVA - 11 / 11 / 2025 (Com espaços variados)
-        r'^\s*\d+\s*PROVA\s*-\s*[\d\s/]+', 
+    """
+    Remove linhas inteiras que contenham lixo técnico da gráfica.
+    """
+    # Lista de padrões que indicam que a LINHA INTEIRA é lixo
+    padroes_linha_inteira = [
+        # LIXOS QUE VOCÊ PEDIU AGORA:
+        r'.*PROVA\s*-\s*[\d\s/]+.*',       # 1 PROVA - 11 / 11 / 2025
+        r'.*Medida\s+da\s+bula.*',         # Medida da bula: ...
+        r'.*Tipologia.*',                  # Tipologia da bula...
+        r'.*Normal\s+e.*',                 # - Normal e... / Normal e Negrito
+        r'.*Negrito\.\s*Corpo.*',          # - Negrito . Corpo 14
+        r'.*cm\s*x\s*.*cm.*',              # 15 cm x 21 cm
+        r'.*mm\s*x\s*.*mm.*',              # medidas em mm
         
-        # Belcomplex B comprimido (Apenas quando é linha isolada/cabeçalho)
-        r'^\s*Belcomplex\s+B\s+comprimido\s*$',
+        # Fragmentos e Títulos Soltos
+        r'^\s*Belcomplex\s*B\s*comprimido\s*$', 
+        r'^\s*Belcomplex:?\s*$',
         
-        # - Normal e (Fragmento quebrado)
-        r'^\s*[-•]?\s*Normal\s+e\s*$',
-        
-        # Belcomplex: (Rótulo isolado)
-        r'^\s*Belcomplex:\s*$',
-        
-        # Impressão: Frente / Verso
-        r'Impress[ãa]o:.*',
-        
-        # - Negrito . Corpo 14 (Várias formas)
-        r'[-•]?\s*Negrito\s*[\.,]?\s*Corpo\s*\d+',
-        r'[-•]?\s*Normal\s*e\s*Negrito.*',
-        
-        # Telefones e e-mails
-        r'31\s*3514\s*-\s*2900',
-        r'artes[O0o]belfar\.\s*com\.\s*br',
-        r'artes\s*@\s*belfar\.com\.br',
-        r'contato:',
-        
-        # Códigos
-        r'BUL\d+[A-Z0-9]*',
-        r'\(\s*\d+\s*\)\s*BELFAR',
-        
-        # --- LIXOS GENÉRICOS ---
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',
-        r'^\s*450\s*$',
+        # Outros Lixos Técnicos
+        r'.*Impress[ãa]o.*',               # Impressão: Frente/Verso
+        r'.*Cor:\s*Preta.*', r'.*Papel:.*', r'.*Ap\s*\d+gr.*',
+        r'.*31\s*3514\s*-\s*2900.*',       # Telefone
+        r'.*artes.*belfar.*',              # Email
+        r'.*BUL\d+V\d+.*',                 # Código Bula
+        r'.*450.*',                        # 450 solto
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
-        r'.*Cor:\s*Preta.*', r'.*Papel:.*', r'.*Ap\s*\d+gr.*', 
-        r'bula do paciente', r'página \d+\s*de\s*\d+', 
-        r'Times New Roman', r'Arial', r'Helvética', 
-        r'Cores?:', r'Preto', r'Pantone', 
-        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
-        r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', 
-        r'Laetus', r'Pharmacode', 
-        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
-        r'.*BUL_CLORIDRATO.*'
+        r'.*bula do paciente.*',
+        r'.*página \d+ de \d+.*',
+        r'.*Times New Roman.*', 
+        r'.*BELFAR.*',                     # ( 1) BELFAR
+        r'.*CNPJ:.*', r'.*SAC:.*', 
+        r'.*Farm\. Resp\..*',
+        r'.*Laetus.*', r'.*Pharmacode.*'
     ]
     
     texto_limpo = texto
-    for p in padroes_lixo:
-        texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     
-    # Remove linhas que sobraram só com pontuação ou vazias
+    # 1. Remove linhas inteiras que batem com os padrões
+    for p in padroes_linha_inteira:
+        # ^ e $ com re.MULTILINE garantem que removemos a linha toda
+        texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
+        # Backup: remove ocorrências parciais que sobraram
+        texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
+
+    # 2. Limpeza fina de caracteres soltos que sobram
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
     
     return texto_limpo
@@ -197,7 +189,7 @@ def corrigir_padroes_bula(texto):
     
     return texto
 
-# ----------------- EXTRAÇÃO -----------------
+# ----------------- EXTRAÇÃO COM OCR -----------------
 
 def forcar_titulos_bula(texto):
     substituicoes = [
@@ -266,7 +258,7 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             
-            # 1. LIMPEZA CIRÚRGICA
+            # 1. LIMPEZA
             texto_completo = limpar_lixo_grafico(texto_completo)
             # 2. CORREÇÃO
             texto_completo = corrigir_padroes_bula(texto_completo)
@@ -622,7 +614,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v92)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v93)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -634,7 +626,7 @@ with col1:
     pdf_ref = st.file_uploader("PDF/DOCX Referência", type=["pdf", "docx"], key="ref")
 with col2:
     st.subheader("📄 PDF da Gráfica")
-    pdf_belfar = st.file_uploader("PDF/DOCX Belfar", type=["pdf", "docx"], key="belfar")
+    pdf_belfar = st.file_uploader("PDF vindo da Gráfica", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if not (pdf_ref and pdf_belfar):
@@ -666,4 +658,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v92 | Limpeza Cirúrgica e OCR Automático.")
+st.caption("Sistema de Auditoria de Bulas v93 | Limpeza Agressiva de Rodapés.")
