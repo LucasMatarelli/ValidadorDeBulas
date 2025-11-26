@@ -511,57 +511,88 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     except: return []
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
-    def pre_norm(txt): 
+    """
+    Versão CORRIGIDA - Elimina falsos positivos de forma definitiva.
+    Compara textos normalizados mas marca apenas tokens originais realmente diferentes.
+    """
+    
+    # Função auxiliar: normaliza texto para comparação
+    def normalizar_comparacao(txt):
+        if not txt:
+            return ""
         # Remove espaços invisíveis
-        txt = (txt or "").replace('\u00A0', ' ').replace('\u202F', ' ').replace('\u200B', '')
-        return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt)
+        txt = txt.replace('\u00A0', ' ').replace('\u202F', ' ').replace('\u200B', '')
+        txt = txt.replace('\u2009', ' ').replace('\uFEFF', '').replace('\u00AD', '')
+        # Normaliza acentos
+        txt = unicodedata.normalize('NFKD', txt)
+        txt = ''.join(c for c in txt if not unicodedata.combining(c))
+        # Padroniza espaços
+        txt = re.sub(r'\s+', ' ', txt)
+        return txt.lower().strip()
     
-    def tokenizar(txt): 
-        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
+    # Normaliza os textos completos
+    ref_normalizado = normalizar_comparacao(texto_ref or "")
+    bel_normalizado = normalizar_comparacao(texto_belfar or "")
     
-    def norm(tok):
-        if tok == '\n': 
-            return ' '
-        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): 
-            return normalizar_texto(tok)
-        return tok.strip()
-
-    ref_tokens = tokenizar(texto_ref)
-    bel_tokens = tokenizar(texto_belfar)
-    ref_norm = [norm(t) for t in ref_tokens]
-    bel_norm = [norm(t) for t in bel_tokens]
+    # Se são idênticos após normalização, não marca nada
+    if ref_normalizado == bel_normalizado:
+        texto_limpo = (texto_ref if eh_referencia else texto_belfar) or ""
+        return texto_limpo.replace('\n', '<br>')
     
-    matcher = difflib.SequenceMatcher(None, ref_norm, bel_norm, autojunk=False)
-    indices = set()
+    # Tokeniza palavra por palavra (somente palavras, ignora pontuação)
+    def extrair_palavras(txt):
+        return re.findall(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9]+', txt, re.UNICODE)
+    
+    palavras_ref_norm = extrair_palavras(ref_normalizado)
+    palavras_bel_norm = extrair_palavras(bel_normalizado)
+    
+    # Usa SequenceMatcher para encontrar diferenças
+    matcher = difflib.SequenceMatcher(None, palavras_ref_norm, palavras_bel_norm, autojunk=False)
+    
+    # Marca índices de palavras diferentes
+    indices_diferentes = set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag != 'equal': 
-            indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
+        if tag != 'equal':
+            if eh_referencia:
+                indices_diferentes.update(range(i1, i2))
+            else:
+                indices_diferentes.update(range(j1, j2))
     
-    tokens = ref_tokens if eh_referencia else bel_tokens
-    marcado = []
-    for idx, tok in enumerate(tokens):
-        if tok == '\n': 
-            marcado.append('<br>')
-            continue
-        if idx in indices and tok.strip() != '': 
-            marcado.append(f"<mark class='diff'>{tok}</mark>")
-        else: 
-            marcado.append(tok)
+    # Agora trabalha com o texto ORIGINAL (não normalizado)
+    texto_original = texto_ref if eh_referencia else texto_belfar
+    if not texto_original:
+        return ""
     
+    # Extrai palavras do texto original mantendo posições
+    palavras_originais = []
+    for match in re.finditer(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9]+', texto_original, re.UNICODE):
+        palavras_originais.append({
+            'palavra': match.group(),
+            'inicio': match.start(),
+            'fim': match.end()
+        })
+    
+    # Constrói resultado marcando apenas palavras nos índices diferentes
     resultado = ""
-    for i, tok in enumerate(marcado):
-        if i == 0: 
-            resultado += tok
-            continue
-        raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        if re.match(r'^[.,;:!?)\\]$', raw_tok): 
-            resultado += tok
-        elif tok == '<br>' or marcado[i-1] == '<br>' or re.match(r'^[(]$', re.sub(r'<[^>]+>', '', marcado[i-1])):
-            resultado += tok
-        else: 
-            resultado += " " + tok
+    posicao_atual = 0
     
-    return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
+    for idx, info in enumerate(palavras_originais):
+        # Adiciona tudo que vem antes da palavra (espaços, pontuação, quebras)
+        antes = texto_original[posicao_atual:info['inicio']]
+        resultado += antes.replace('\n', '<br>')
+        
+        # Marca a palavra se estiver nos índices diferentes
+        if idx in indices_diferentes:
+            resultado += f"<mark class='diff'>{info['palavra']}</mark>"
+        else:
+            resultado += info['palavra']
+        
+        posicao_atual = info['fim']
+    
+    # Adiciona o que sobrou no final
+    resultado += texto_original[posicao_atual:].replace('\n', '<br>')
+    
+    return resultado
     
 # ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
