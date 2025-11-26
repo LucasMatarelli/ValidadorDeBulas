@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v90 - O Melhor dos Dois Mundos
-# - VISUAL: Layout lado a lado com destaques (Base v77/v84).
-# - LIMPEZA: Regex agressivo para remover rodapés de prova, telefones e códigos.
-# - INTELGÊNCIA: OCR Híbrido (só usa se não ler texto útil).
+# Versão v91 - Correção de NameError e Variáveis
+# - CORREÇÃO: Adicionada função 'detectar_tipo_arquivo_por_score' que estava faltando.
+# - CORREÇÃO: Ajustado nomes de variáveis no bloco principal (t_ref vs texto_ref_raw).
+# - MANTIDO: Limpeza pesada de lixo, Correção OCR e Visualização Lado a Lado.
 
 import re
 import difflib
@@ -19,12 +19,11 @@ from collections import namedtuple
 from PIL import Image
 import pytesseract
 
-# ----------------- UI / CSS (Layout v77/v84) -----------------
+# ----------------- UI / CSS -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
 <style>
-/* Ajuste do Container Principal */
 .main .block-container {
     padding-top: 2rem !important;
     padding-bottom: 2rem !important;
@@ -125,16 +124,9 @@ def limpar_lixo_grafico(texto):
     """Remove EXATAMENTE o que você mandou nas fotos."""
     padroes_lixo = [
         # --- LIXOS ESPECÍFICOS (Seu Pedido) ---
-        # 1 PROVA - 11 / 11 / 2025 (Flexível com espaços)
         r'^\s*\d+\s*PROVA\s*-\s*\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2,4}', 
-        
-        # BUL22122V03
         r'BUL\d+[A-Z0-9]*',
-        
-        # ( 1) BELFAR
         r'\(\s*\d+\s*\)\s*BELFAR', 
-        
-        # 313514 - 2900 artesObelfar. com. br
         r'31\s*3514\s*-\s*2900',
         r'artes[O0o]belfar\.\s*com\.\s*br',
         r'artes\s*@\s*belfar\.com\.br',
@@ -144,8 +136,8 @@ def limpar_lixo_grafico(texto):
         r'[-•]?\s*Normal\s*e\s*Negrito\.\s*Corpo\s*\d+',
         
         # --- OUTROS LIXOS TÉCNICOS ---
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',       # 19,00 cm
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',       # 30,00 mm
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',       
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',       
         r'^\s*450\s*$',
         r'AZOLINA:', r'contato:', 
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$', 
@@ -153,6 +145,7 @@ def limpar_lixo_grafico(texto):
         r'.*Cor:\s*Preta.*', r'.*Papel:.*', r'.*Ap\s*\d+gr.*', 
         r'.*da bula:.*', r'.*AFAZOLINA_BUL.*', 
         r'bula do paciente', r'página \d+\s*de\s*\d+', 
+        r'Tipologia', r'Dimensão', r'Formatos?', 
         r'Times New Roman', r'Arial', r'Helvética', 
         r'Cores?:', r'Preto', r'Black', r'Pantone', 
         r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
@@ -222,7 +215,6 @@ def executar_ocr(arquivo_bytes):
 
 def verifica_qualidade_texto(texto):
     if not texto: return False
-    # Remove espaços para testar "alma" do texto (P A R A -> PARA)
     t_limpo = re.sub(r'\s+', '', unicodedata.normalize('NFD', texto).lower())
     keywords = ["paraqueeste", "comodevousar", "dizereslegais", "quandonaodevo", "composicao"]
     hits = sum(1 for k in keywords if k in t_limpo)
@@ -553,6 +545,17 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=F
         html_map[sec] = f"<div id='{anchor_id}' style='scroll-margin-top: 20px;'>{title_html}<div style='margin-top:6px;'>{c_html}</div></div>"
     return html_map
 
+def detectar_tipo_arquivo_por_score(texto):
+    if not texto: return "Indeterminado"
+    titulos_paciente = ["como este medicamento funciona", "o que devo saber antes de usar"]
+    titulos_profissional = ["resultados de eficacia", "caracteristicas farmacologicas"]
+    t_norm = normalizar_texto(texto)
+    score_pac = sum(1 for t in titulos_paciente if t in t_norm)
+    score_prof = sum(1 for t in titulos_profissional if t in t_norm)
+    if score_pac > score_prof: return "Paciente"
+    elif score_prof > score_pac: return "Profissional"
+    return "Indeterminado"
+
 def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
     st.header("Relatório de Auditoria Inteligente")
     rx_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
@@ -607,7 +610,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v90)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v91)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -619,7 +622,7 @@ with col1:
     pdf_ref = st.file_uploader("PDF/DOCX Referência", type=["pdf", "docx"], key="ref")
 with col2:
     st.subheader("📄 PDF da Gráfica")
-    pdf_belfar = st.file_uploader("PDF/DOCX Belfar", type=["pdf", "docx"], key="belfar")
+    pdf_belfar = st.file_uploader("PDF vindo da Gráfica", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if not (pdf_ref and pdf_belfar):
@@ -644,9 +647,11 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                 if not erro:
                     t_ref = reconstruir_paragrafos(texto_ref_raw)
                     t_ref = truncar_apos_anvisa(t_ref)
+                    
                     t_bel = reconstruir_paragrafos(texto_belfar_raw)
                     t_bel = truncar_apos_anvisa(t_bel)
-                    gerar_relatorio_final(t_ref, t_bel, "Arquivo ANVISA", "PDF da Gráfica", tipo_bula_selecionado)
+                    
+                    gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v90 | OCR Inteligente + Limpeza Pesada + Visualização Completa.")
+st.caption("Sistema de Auditoria de Bulas v91 | Correção Definitiva.")
