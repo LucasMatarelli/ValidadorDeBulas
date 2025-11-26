@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v77 - Base v75 (Estável) + Correções Pontuais Solicitadas
-# - BASE: Retorna ao código da v75 que estava funcionando bem.
-# - LIMPEZA: Adicionado "31 2105" e "w Roman".
-# - TÍTULOS: Adicionados títulos 1, 2 e 3 na lista de correção forçada (estavam faltando).
+# Versão v79 - Correção Definitiva de Palavras Cortadas
+# - CORREÇÃO CRÍTICA: Removida a divisão geométrica de colunas (que cortava palavras ao meio em layouts de 3+ colunas).
+# - NOVO MÉTODO: Agora utiliza detecção de BLOCOS DE TEXTO (sort=True) para todos os arquivos. Isso respeita os limites reais das colunas.
+# - LIMPEZA: Mantém as limpezas de lixo gráfico anteriores.
 
 import re
 import difflib
@@ -209,22 +209,19 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     rect = page.rect
                     margem_y = rect.height * 0.01 
                     
-                    if is_marketing_pdf:
-                        meio_x = rect.width / 2
-                        
-                        clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
-                        texto_esq = page.get_textpage(clip=clip_esq).extractText()
-                        
-                        clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
-                        texto_dir = page.get_textpage(clip=clip_dir).extractText()
-                        
-                        texto_completo += texto_esq + "\n" + texto_dir + "\n"
-                    else:
-                        blocks = page.get_text("blocks", sort=True)
-                        for b in blocks:
-                            if b[6] == 0:
-                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    texto_completo += b[4] + "\n"
+                    # [CORREÇÃO v79]
+                    # Removida a lógica de "cortar ao meio" (meio_x).
+                    # Agora usamos 'blocks' para TODOS os arquivos. 
+                    # 'sort=True' organiza automaticamente as colunas (leitura natural).
+                    # Isso impede que o sistema corte palavras ao meio se houver 3 ou 4 colunas.
+                    
+                    blocks = page.get_text("blocks", sort=True)
+                    for b in blocks:
+                        # b[6] == 0 significa bloco de texto (não imagem)
+                        # Verifica margens (cabeçalho/rodapé)
+                        if b[6] == 0:
+                            if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                                texto_completo += b[4] + "\n"
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
