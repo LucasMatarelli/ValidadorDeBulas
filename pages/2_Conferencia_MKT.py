@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v77 - Base v75 (Estável) + Correções Pontuais Solicitadas
-# - BASE: Retorna ao código da v75 que estava funcionando bem.
-# - LIMPEZA: Adicionado "31 2105" e "w Roman".
-# - TÍTULOS: Adicionados títulos 1, 2 e 3 na lista de correção forçada (estavam faltando).
+# Versão v82 - Base v77 (Estável) + Correção Cirúrgica de Palavras Quebradas
+# - MANTIDO: Estrutura exata da v77 (títulos, regex, limpeza) que organizava bem as seções.
+# - CORRIGIDO: A extração de PDF MKT agora usa "Classificação de Blocos" em vez de "Corte Geométrico".
+#   Isso impede que palavras sejam cortadas ao meio, mas preserva a ordem de coluna Esquerda -> Direita.
 
 import re
 import difflib
@@ -210,15 +210,36 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
+                        # Lógica Híbrida v82:
+                        # Mantém a lógica de separar Esquerda/Direita (que funcionava bem para organizar seções),
+                        # mas usa BLOCOS (blocks) para não cortar palavras no meio.
+                        
                         meio_x = rect.width / 2
+                        blocks = page.get_text("blocks") # Extrai blocos inteiros
                         
-                        clip_esq = fitz.Rect(0, margem_y, meio_x, rect.height - margem_y)
-                        texto_esq = page.get_textpage(clip=clip_esq).extractText()
+                        col_esq = []
+                        col_dir = []
                         
-                        clip_dir = fitz.Rect(meio_x, margem_y, rect.width, rect.height - margem_y)
-                        texto_dir = page.get_textpage(clip=clip_dir).extractText()
+                        for b in blocks:
+                            # b = (x0, y0, x1, y1, text, block_no, block_type)
+                            if b[6] == 0: # Apenas blocos de texto
+                                # Verifica margem vertical
+                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                                    # Classifica pela posição do centro do bloco
+                                    b_center_x = (b[0] + b[2]) / 2
+                                    if b_center_x < meio_x:
+                                        col_esq.append(b)
+                                    else:
+                                        col_dir.append(b)
                         
-                        texto_completo += texto_esq + "\n" + texto_dir + "\n"
+                        # Ordena cada coluna de cima para baixo (eixo Y)
+                        col_esq.sort(key=lambda x: x[1])
+                        col_dir.sort(key=lambda x: x[1])
+                        
+                        # Reconstrói o texto
+                        for b in col_esq: texto_completo += b[4] + "\n"
+                        for b in col_dir: texto_completo += b[4] + "\n"
+                        
                     else:
                         blocks = page.get_text("blocks", sort=True)
                         for b in blocks:
