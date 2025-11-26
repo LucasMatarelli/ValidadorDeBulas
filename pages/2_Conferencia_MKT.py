@@ -1,9 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v83 - Base v82 + Correções Finais (Lixo "19,00 cm" e Seção 9)
-# - LIMPEZA: Adicionado regex para remover medidas soltas como "19, 00 cm".
-# - BUSCA ROBUSTA: Seção 9 (e outras) agora têm uma "busca de resgate" global se não forem encontradas na ordem sequencial.
-# - MANTIDO: Extração por blocos (v82) que evita palavras quebradas.
+# Versão v84 - Base v83 + Remoção de Lixo Específico (- Negrito. Corpo 14)
+# - LIMPEZA: Adicionado regex r'.*Negrito\.\s*Corpo\s*14.*' para remover a especificação de fonte que estava vazando.
+# - MANTIDO: Todas as correções anteriores (19,00 cm, Seção 9, Blocos).
 
 import re
 import difflib
@@ -128,6 +127,7 @@ def limpar_lixo_grafico(texto):
         # --- LIXOS SOLICITADOS ANTERIORMENTE ---
         r'.*31\s*2105.*',        # Remove telefones quebrados (31 2105 - 1123)
         r'.*w\s*Roman.*',        # Remove "w Roman", "New Roman"
+        r'.*Negrito\.\s*Corpo\s*14.*', # Remove "- Negrito. Corpo 14"
         
         # --- Lixos da v75 ---
         r'AZOLINA:', r'contato:', 
