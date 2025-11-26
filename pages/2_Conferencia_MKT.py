@@ -511,37 +511,58 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     except: return []
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
-    def pre_norm(txt): return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt or "")
-    def tokenizar(txt): return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
+    def pre_norm(txt): 
+        # Remove espaços invisíveis
+        txt = (txt or "").replace('\u00A0', ' ').replace('\u202F', ' ').replace('\u200B', '')
+        return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt)
+    
+    def tokenizar(txt): 
+        return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
+    
     def norm(tok):
-        if tok == '\n': return ' '
-        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): return normalizar_texto(tok)
+        if tok == '\n': 
+            return ' '
+        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): 
+            return normalizar_texto(tok)
         return tok.strip()
 
     ref_tokens = tokenizar(texto_ref)
     bel_tokens = tokenizar(texto_belfar)
     ref_norm = [norm(t) for t in ref_tokens]
     bel_norm = [norm(t) for t in bel_tokens]
+    
     matcher = difflib.SequenceMatcher(None, ref_norm, bel_norm, autojunk=False)
     indices = set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag != 'equal': indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
+        if tag != 'equal': 
+            indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
+    
     tokens = ref_tokens if eh_referencia else bel_tokens
     marcado = []
     for idx, tok in enumerate(tokens):
-        if tok == '\n': marcado.append('<br>'); continue
-        if idx in indices and tok.strip() != '': marcado.append(f"<mark class='diff'>{tok}</mark>")
-        else: marcado.append(tok)
+        if tok == '\n': 
+            marcado.append('<br>')
+            continue
+        if idx in indices and tok.strip() != '': 
+            marcado.append(f"<mark class='diff'>{tok}</mark>")
+        else: 
+            marcado.append(tok)
+    
     resultado = ""
     for i, tok in enumerate(marcado):
-        if i == 0: resultado += tok; continue
+        if i == 0: 
+            resultado += tok
+            continue
         raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        if re.match(r'^[.,;:!?)\\]$', raw_tok): resultado += tok
+        if re.match(r'^[.,;:!?)\\]$', raw_tok): 
+            resultado += tok
         elif tok == '<br>' or marcado[i-1] == '<br>' or re.match(r'^[(]$', re.sub(r'<[^>]+>', '', marcado[i-1])):
             resultado += tok
-        else: resultado += " " + tok
+        else: 
+            resultado += " " + tok
+    
     return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
-
+    
 # ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
     html_map = {}
