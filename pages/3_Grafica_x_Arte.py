@@ -1,8 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v103 - Correção de Erro de Regex (Global Flags)
-# - CORREÇÃO DE BUG: Remove o erro "global flags not at the start" causado pela duplicidade de flags na limpeza de "contato".
-# - MANTIDO: Toda a limpeza agressiva da v102 (EE, mm, telefones, etc.).
+# Versão v104 - Limpeza de Novos Padrões de Corte e Medidas
+# - NOVO: Remove a palavra solta "mma".
+# - NOVO: Remove o padrão de medida específico ": 19, 0 x 45, 0".
+# - NOVO: Remove a linha de corte com travessões "— — — — — — > > > »".
+# - MANTIDO: Todas as limpezas anteriores da v103.
 
 import re
 import difflib
@@ -117,7 +119,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v103) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v104) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos."""
@@ -137,7 +139,8 @@ def limpar_lixo_grafico(texto):
         texto_limpo = texto_limpo.replace(item, "")
 
     # 2. Tokens curtos/soltos (Usar Regex \b para evitar quebrar palavras)
-    tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm"]
+    # Adicionado "mma" aqui para remover quando estiver solto
+    tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm", "mma"]
     pattern_tokens = r'\b(' + '|'.join(tokens_lixo) + r')\b'
     texto_limpo = re.sub(pattern_tokens, '', texto_limpo, flags=re.IGNORECASE)
 
@@ -149,14 +152,20 @@ def limpar_lixo_grafico(texto):
         # Remove telefone (31) 3514 - 2900
         r'.*\(?\s*31\s*\)?\s*3514\s*-\s*2900.*',
         
-        # Remove palavra "contato" se estiver solta na linha (CORRIGIDO: sem flag (?m) aqui dentro)
+        # Remove palavra "contato" se estiver solta na linha
         r'^\s*contato\s*$',
         
         # Medidas soltas numéricas
         r'\b\d{1,3}\s*mm\b',
         r'\b\d{1,3}\s*cm\b',
+        
+        # NOVO: Medida específica ": 19, 0 x 45, 0"
+        r'.*:\s*19\s*,\s*0\s*x\s*45\s*,\s*0.*',
 
-        # Marcas de corte
+        # NOVO: Marcas de corte com travessões e setas (— — — > > > »)
+        r'.*(?:—\s*)+\s*>\s*>\s*>\s*».*',
+
+        # Marcas de corte antigas
         r'.*gm\s*>\s*>\s*>.*',              
         r'.*_{3,}.*gm.*', 
         r'.*MMA\s+\d{4}\s*-\s*\d{1,2}/\d{2,4}.*',
@@ -191,20 +200,16 @@ def limpar_lixo_grafico(texto):
     ]
     
     for p in padroes_especificos:
-        # Tenta remover linha inteira primeiro (o loop adiciona (?m)^ automaticamente)
+        # Tenta remover linha inteira primeiro
         try:
             texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
         except Exception:
-            # Fallback seguro caso algum regex esteja malformado
             pass
             
         # Se sobrar, remove inline (exceto aspas que precisam ser substituidas por espaço)
         if p == r"\s+'\s+":
              texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE)
         else:
-             # Remove inline apenas se não for um padrão de linha inteira com ancoras restritivas
-             # No caso do "contato", sem ancoras, ele removeria "contato" de frases.
-             # Como agora p tem ^ e $, o inline match só pega se for a string exata, o que é seguro.
              texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
 
     # Limpa linhas vazias ou com pontuação que sobraram
@@ -662,7 +667,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v103)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v104)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -706,4 +711,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v103 | Correção de Erro de Regex (Flags).")
+st.caption("Sistema de Auditoria v104 | Limpeza de Novos Padrões de Corte e Medidas.")
