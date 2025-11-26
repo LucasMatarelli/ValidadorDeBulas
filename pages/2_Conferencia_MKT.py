@@ -76,7 +76,31 @@ mark.anvisa { background-color: #DDEEFF; padding: 0 2px; color: black; border: 1
 .stExpander > div[role="button"] { font-weight: 700; color: #333; }
 </style>
 """
-st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+
+def normalizar_texto_comparacao(texto):
+    """Normalização extra-agressiva para comparação de conteúdo"""
+    if not isinstance(texto, str):
+        return ""
+    
+    # Remove TODOS os espaços invisíveis e especiais
+    texto = texto.replace('\u00A0', ' ')  # Non-breaking space
+    texto = texto.replace('\u202F', ' ')  # Narrow no-break space
+    texto = texto.replace('\u2009', ' ')  # Thin space
+    texto = texto.replace('\u200B', '')   # Zero-width space
+    texto = texto.replace('\u2060', '')   # Word joiner
+    texto = texto.replace('\uFEFF', '')   # BOM
+    texto = texto.replace('\u00AD', '')   # Soft hyphen
+    
+    # Normaliza caracteres acentuados (NFKD é mais agressivo que NFD)
+    texto = unicodedata.normalize('NFKD', texto)
+    texto = ''.join(c for c in texto if not unicodedata.combining(c))
+    
+    # Remove múltiplos espaços e normaliza quebras de linha
+    texto = texto.replace('\r\n', '\n').replace('\r', '\n')
+    texto = re.sub(r'[ \t]+', ' ', texto)  # Espaços horizontais
+    texto = re.sub(r'\n+', '\n', texto)    # Quebras de linha
+    
+    return texto.lower().strip()
 
 # ----------------- MODELO NLP -----------------
 @st.cache_resource
@@ -453,11 +477,13 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # [CORREÇÃO ANTI-AMARELO]
-        norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
-        norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
-        norm_ref = normalizar_texto(norm_ref)
-        norm_bel = normalizar_texto(norm_bel)
+        # [CORREÇÃO ANTI-AMARELO - v77]
+        norm_ref = normalizar_texto_comparacao(conteudo_ref or "")
+        norm_bel = normalizar_texto_comparacao(conteudo_belfar or "")
+        
+        # Remove espaços extras ao redor de pontuação para comparação
+        norm_ref = re.sub(r'\s*([.,;?!])\s*', r'\1 ', norm_ref).strip()
+        norm_bel = re.sub(r'\s*([.,;?!])\s*', r'\1 ', norm_bel).strip()
 
         tem_diferenca = False
         if norm_ref != norm_bel:
@@ -511,37 +537,184 @@ def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     except: return []
 
 def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia):
-    def pre_norm(txt): return re.sub(r'([.,;?!()\[\]])', r' \1 ', txt or "")
-    def tokenizar(txt): return re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+|[^\w\s]', pre_norm(txt), re.UNICODE)
-    def norm(tok):
-        if tok == '\n': return ' '
-        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9_•]+$', tok): return normalizar_texto(tok)
-        return tok.strip()
-
-    ref_tokens = tokenizar(texto_ref)
-    bel_tokens = tokenizar(texto_belfar)
-    ref_norm = [norm(t) for t in ref_tokens]
-    bel_norm = [norm(t) for t in bel_tokens]
-    matcher = difflib.SequenceMatcher(None, ref_norm, bel_norm, autojunk=False)
-    indices = set()
+    """
+    Marca diferenças palavra por palavra com normalização consistente.
+    Versão v77 - Corrigida para evitar falsos positivos.
+    """
+    
+    def tokenizar_para_comparacao(txt):
+        """Tokeniza e normaliza para comparação consistente"""
+        # Normalização agressiva
+        norm = normalizar_texto_comparacao(txt or "")
+        
+        # Adiciona espaços em torno de pontuação para tokenização limpa
+        norm = re.sub(r'([.,;?!()\[\]])', r' \1 ', norm)
+        
+        # Tokeniza: palavras, números e pontuação
+        tokens = re.findall(r'[a-z0-9À-ÿ]+|[.,;?!()\[\]]', norm, re.UNICODE | re.IGNORECASE)
+        
+        # Remove tokens vazios
+        return [t.strip() for t in tokens if t.strip()]
+    
+    # Tokenização dos textos NORMALIZADOS para comparação
+    ref_tokens_norm = tokenizar_para_comparacao(texto_ref)
+    bel_tokens_norm = tokenizar_para_comparacao(texto_belfar)
+    
+    # Usa SequenceMatcher com tokens normalizados
+    matcher = difflib.SequenceMatcher(None, ref_tokens_norm, bel_tokens_norm, autojunk=False)
+    
+    # Identifica índices que são diferentes
+    indices_diff = set()
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag != 'equal': indices.update(range(i1, i2) if eh_referencia else range(j1, j2))
-    tokens = ref_tokens if eh_referencia else bel_tokens
+        if tag != 'equal':
+            if eh_referencia:
+                indices_diff.update(range(i1, i2))
+            else:
+                indices_diff.update(range(j1, j2))
+    
+    # Agora tokeniza o texto ORIGINAL (sem normalização) para exibição
+    texto_original = texto_ref if eh_referencia else texto_belfar
+    tokens_originais = re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9]+|[^\w\s]', texto_original or "", re.UNICODE)
+    
+    # Constrói HTML marcando apenas os índices diferentes
     marcado = []
-    for idx, tok in enumerate(tokens):
-        if tok == '\n': marcado.append('<br>'); continue
-        if idx in indices and tok.strip() != '': marcado.append(f"<mark class='diff'>{tok}</mark>")
-        else: marcado.append(tok)
+    idx_token = 0
+    
+    for tok in tokens_originais:
+        if tok == '\n':
+            marcado.append('<br>')
+            continue
+        
+        # Ignora espaços e pontuação isolada na contagem
+        tok_strip = tok.strip()
+        if not tok_strip:
+            continue
+            
+        # Verifica se este token está nos índices diferentes
+        if idx_token in indices_diff and tok_strip:
+            marcado.append(f"<mark class='diff'>{tok}</mark>")
+        else:
+            marcado.append(tok)
+        
+        # Só incrementa o índice para palavras/números (não pontuação isolada)
+        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9]+', tok, re.UNICODE):
+            idx_token += 1
+    
+    # Reconstrói o texto com espaçamento inteligente
     resultado = ""
     for i, tok in enumerate(marcado):
-        if i == 0: resultado += tok; continue
-        raw_tok = re.sub(r'^<mark[^>]*>|</mark>$', '', tok)
-        if re.match(r'^[.,;:!?)\\]$', raw_tok): resultado += tok
-        elif tok == '<br>' or marcado[i-1] == '<br>' or re.match(r'^[(]$', re.sub(r'<[^>]+>', '', marcado[i-1])):
+        if i == 0:
             resultado += tok
-        else: resultado += " " + tok
-    return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
-
+            continue
+        
+        # Remove tags HTML temporariamente para análise
+        raw_tok = re.sub(r'<[^>]+>', '', tok)
+        raw_prev = re.sub(r'<[^>]+>', '', marcado[i-1]) if i > 0 else ""
+        
+        # Regras de espaçamento:
+        # - Não adiciona espaço antes de: . , ; : ! ? ) ]
+        # - Não adiciona espaço depois de: ( [
+        # - Não adiciona espaço depois de <br>
+        if tok == '<br>' or marcado[i-1] == '<br>':
+            resultado += tok
+        elif re.match(r'^[.,;:!?)\]]$', raw_tok):
+            resultado += tok
+        elif re.match(r'^[(\[]$', raw_prev):
+            resultado += tok
+        else:
+            resultado += " " + tok
+    
+    # Limpa espaços duplicados entre tags de marcação
+    resultado = re.sub(r'(</mark>)\s+(<mark[^>]*>)', r'\1 \2', resultado)
+    
+    return resultado
+    
+    def tokenizar_para_comparacao(txt):
+        """Tokeniza e normaliza para comparação consistente"""
+        # Normalização agressiva
+        norm = normalizar_texto_comparacao(txt or "")
+        
+        # Adiciona espaços em torno de pontuação para tokenização limpa
+        norm = re.sub(r'([.,;?!()\[\]])', r' \1 ', norm)
+        
+        # Tokeniza: palavras, números e pontuação
+        tokens = re.findall(r'[a-z0-9À-ÿ]+|[.,;?!()\[\]]', norm, re.UNICODE | re.IGNORECASE)
+        
+        # Remove tokens vazios
+        return [t.strip() for t in tokens if t.strip()]
+    
+    # Tokenização dos textos NORMALIZADOS para comparação
+    ref_tokens_norm = tokenizar_para_comparacao(texto_ref)
+    bel_tokens_norm = tokenizar_para_comparacao(texto_belfar)
+    
+    # Usa SequenceMatcher com tokens normalizados
+    matcher = difflib.SequenceMatcher(None, ref_tokens_norm, bel_tokens_norm, autojunk=False)
+    
+    # Identifica índices que são diferentes
+    indices_diff = set()
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag != 'equal':
+            if eh_referencia:
+                indices_diff.update(range(i1, i2))
+            else:
+                indices_diff.update(range(j1, j2))
+    
+    # Agora tokeniza o texto ORIGINAL (sem normalização) para exibição
+    texto_original = texto_ref if eh_referencia else texto_belfar
+    tokens_originais = re.findall(r'\n|[A-Za-zÀ-ÖØ-öø-ÿ0-9]+|[^\w\s]', texto_original or "", re.UNICODE)
+    
+    # Constrói HTML marcando apenas os índices diferentes
+    marcado = []
+    idx_token = 0
+    
+    for tok in tokens_originais:
+        if tok == '\n':
+            marcado.append('<br>')
+            continue
+        
+        # Ignora espaços e pontuação isolada na contagem
+        tok_strip = tok.strip()
+        if not tok_strip:
+            continue
+            
+        # Verifica se este token está nos índices diferentes
+        if idx_token in indices_diff and tok_strip:
+            marcado.append(f"<mark class='diff'>{tok}</mark>")
+        else:
+            marcado.append(tok)
+        
+        # Só incrementa o índice para palavras/números (não pontuação isolada)
+        if re.match(r'[A-Za-zÀ-ÖØ-öø-ÿ0-9]+', tok, re.UNICODE):
+            idx_token += 1
+    
+    # Reconstrói o texto com espaçamento inteligente
+    resultado = ""
+    for i, tok in enumerate(marcado):
+        if i == 0:
+            resultado += tok
+            continue
+        
+        # Remove tags HTML temporariamente para análise
+        raw_tok = re.sub(r'<[^>]+>', '', tok)
+        raw_prev = re.sub(r'<[^>]+>', '', marcado[i-1]) if i > 0 else ""
+        
+        # Regras de espaçamento:
+        # - Não adiciona espaço antes de: . , ; : ! ? ) ]
+        # - Não adiciona espaço depois de: ( [
+        # - Não adiciona espaço depois de <br>
+        if tok == '<br>' or marcado[i-1] == '<br>':
+            resultado += tok
+        elif re.match(r'^[.,;:!?)\]]$', raw_tok):
+            resultado += tok
+        elif re.match(r'^[(\[]$', raw_prev):
+            resultado += tok
+        else:
+            resultado += " " + tok
+    
+    # Limpa espaços duplicados entre tags de marcação
+    resultado = re.sub(r'(</mark>)\s+(<mark[^>]*>)', r'\1 \2', resultado)
+    
+    return resultado
 # ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
     html_map = {}
