@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v104 - Limpeza de Novos Padrões de Corte e Medidas
-# - NOVO: Remove a palavra solta "mma".
-# - NOVO: Remove o padrão de medida específico ": 19, 0 x 45, 0".
-# - NOVO: Remove a linha de corte com travessões "— — — — — — > > > »".
-# - MANTIDO: Todas as limpezas anteriores da v103.
+# Versão v105 - Limpeza de Dimensões Numéricas Soltas
+# - NOVO: Remove dimensões no formato ": 15 X 21".
+# - NOVO: Remove números soltos de medida como "210, 00" e "30 , 00".
+# - MANTIDO: Todas as limpezas anteriores (v104).
 
 import re
 import difflib
@@ -119,7 +118,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v104) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v105) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos."""
@@ -139,13 +138,19 @@ def limpar_lixo_grafico(texto):
         texto_limpo = texto_limpo.replace(item, "")
 
     # 2. Tokens curtos/soltos (Usar Regex \b para evitar quebrar palavras)
-    # Adicionado "mma" aqui para remover quando estiver solto
     tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm", "mma"]
     pattern_tokens = r'\b(' + '|'.join(tokens_lixo) + r')\b'
     texto_limpo = re.sub(pattern_tokens, '', texto_limpo, flags=re.IGNORECASE)
 
     # 3. Limpezas Específicas (Regex)
     padroes_especificos = [
+        # NOVO (v105): Medidas numéricas soltas (ex: 210, 00 / 30 , 00)
+        # O uso de ^ e $ garante que só apague se a linha for SÓ o número
+        r'^\s*\d{1,3}\s*,\s*00\s*$',
+        
+        # NOVO (v105): Padrão de dimensão solta (ex: : 15 X 21)
+        r'^\s*:\s*\d{1,3}\s*[xX]\s*\d{1,3}\s*$',
+
         # Remove aspas simples soltas
         r"\s+'\s+", 
         
@@ -155,14 +160,14 @@ def limpar_lixo_grafico(texto):
         # Remove palavra "contato" se estiver solta na linha
         r'^\s*contato\s*$',
         
-        # Medidas soltas numéricas
+        # Medidas soltas numéricas (com unidade)
         r'\b\d{1,3}\s*mm\b',
         r'\b\d{1,3}\s*cm\b',
         
-        # NOVO: Medida específica ": 19, 0 x 45, 0"
+        # Medida específica ": 19, 0 x 45, 0"
         r'.*:\s*19\s*,\s*0\s*x\s*45\s*,\s*0.*',
 
-        # NOVO: Marcas de corte com travessões e setas (— — — > > > »)
+        # Marcas de corte com travessões e setas (— — — > > > »)
         r'.*(?:—\s*)+\s*>\s*>\s*>\s*».*',
 
         # Marcas de corte antigas
@@ -210,7 +215,11 @@ def limpar_lixo_grafico(texto):
         if p == r"\s+'\s+":
              texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE)
         else:
-             texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
+             # Remove inline APENAS se não for um padrão restrito a linha inteira (^...$)
+             # Como os novos padrões numéricos têm ^ e $, eles só serão removidos se forem a linha toda,
+             # o que protege números legítimos no meio do texto.
+             if not p.startswith(r'^\s*'): 
+                texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
 
     # Limpa linhas vazias ou com pontuação que sobraram
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
@@ -667,7 +676,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v104)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v105)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -711,4 +720,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v104 | Limpeza de Novos Padrões de Corte e Medidas.")
+st.caption("Sistema de Auditoria v105 | Limpeza de Dimensões Numéricas Soltas.")
