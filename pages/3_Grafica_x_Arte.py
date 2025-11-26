@@ -1,9 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v91 - Correção de NameError e Variáveis
-# - CORREÇÃO: Adicionada função 'detectar_tipo_arquivo_por_score' que estava faltando.
-# - CORREÇÃO: Ajustado nomes de variáveis no bloco principal (t_ref vs texto_ref_raw).
-# - MANTIDO: Limpeza pesada de lixo, Correção OCR e Visualização Lado a Lado.
+# Versão v92 - Limpeza Cirúrgica de Fragmentos (Normal e, Prova, Títulos Soltos)
+# - LIMPEZA: Adicionado regex para remover 'Belcomplex:', '- Normal e', '1 PROVA' com espaços.
+# - MANTIDO: Interface Lado a Lado, Correção de OCR e Lógica Híbrida.
 
 import re
 import difflib
@@ -118,48 +117,62 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA PESADA (LIXO DA GRÁFICA) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (O SEU PEDIDO) -----------------
 
 def limpar_lixo_grafico(texto):
-    """Remove EXATAMENTE o que você mandou nas fotos."""
+    """Remove lixo técnico e fragmentos específicos da gráfica."""
     padroes_lixo = [
-        # --- LIXOS ESPECÍFICOS (Seu Pedido) ---
-        r'^\s*\d+\s*PROVA\s*-\s*\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2,4}', 
-        r'BUL\d+[A-Z0-9]*',
-        r'\(\s*\d+\s*\)\s*BELFAR', 
+        # --- LIXOS ESPECÍFICOS REPORTADOS ---
+        # 1 PROVA - 11 / 11 / 2025 (Com espaços variados)
+        r'^\s*\d+\s*PROVA\s*-\s*[\d\s/]+', 
+        
+        # Belcomplex B comprimido (Apenas quando é linha isolada/cabeçalho)
+        r'^\s*Belcomplex\s+B\s+comprimido\s*$',
+        
+        # - Normal e (Fragmento quebrado)
+        r'^\s*[-•]?\s*Normal\s+e\s*$',
+        
+        # Belcomplex: (Rótulo isolado)
+        r'^\s*Belcomplex:\s*$',
+        
+        # Impressão: Frente / Verso
+        r'Impress[ãa]o:.*',
+        
+        # - Negrito . Corpo 14 (Várias formas)
+        r'[-•]?\s*Negrito\s*[\.,]?\s*Corpo\s*\d+',
+        r'[-•]?\s*Normal\s*e\s*Negrito.*',
+        
+        # Telefones e e-mails
         r'31\s*3514\s*-\s*2900',
         r'artes[O0o]belfar\.\s*com\.\s*br',
         r'artes\s*@\s*belfar\.com\.br',
+        r'contato:',
         
-        # - Negrito . Corpo 14
-        r'[-•]?\s*Negrito\s*\.?\s*Corpo\s*\d+',
-        r'[-•]?\s*Normal\s*e\s*Negrito\.\s*Corpo\s*\d+',
+        # Códigos
+        r'BUL\d+[A-Z0-9]*',
+        r'\(\s*\d+\s*\)\s*BELFAR',
         
-        # --- OUTROS LIXOS TÉCNICOS ---
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',       
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',       
+        # --- LIXOS GENÉRICOS ---
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',
         r'^\s*450\s*$',
-        r'AZOLINA:', r'contato:', 
-        r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$', 
-        r'.*Frente\s*/\s*Verso.*',
+        r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
         r'.*Cor:\s*Preta.*', r'.*Papel:.*', r'.*Ap\s*\d+gr.*', 
-        r'.*da bula:.*', r'.*AFAZOLINA_BUL.*', 
         r'bula do paciente', r'página \d+\s*de\s*\d+', 
-        r'Tipologia', r'Dimensão', r'Formatos?', 
         r'Times New Roman', r'Arial', r'Helvética', 
-        r'Cores?:', r'Preto', r'Black', r'Pantone', 
+        r'Cores?:', r'Preto', r'Pantone', 
         r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
         r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', 
         r'Laetus', r'Pharmacode', 
         r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
-        r'.*BUL_CLORIDRATO.*', r'.*Impress[ãa]o.*'
+        r'.*BUL_CLORIDRATO.*'
     ]
     
     texto_limpo = texto
     for p in padroes_lixo:
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     
-    # Limpa linhas vazias ou com pontuação isolada
+    # Remove linhas que sobraram só com pontuação ou vazias
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
     
     return texto_limpo
@@ -239,7 +252,6 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     else:
                         texto_nativo += page.get_text() + "\n"
             
-            # SÓ USA OCR SE O TEXTO NATIVO FOR INÚTIL
             if verifica_qualidade_texto(texto_nativo):
                 texto_completo = texto_nativo
             else:
@@ -254,7 +266,7 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             
-            # 1. LIMPEZA
+            # 1. LIMPEZA CIRÚRGICA
             texto_completo = limpar_lixo_grafico(texto_completo)
             # 2. CORREÇÃO
             texto_completo = corrigir_padroes_bula(texto_completo)
@@ -610,7 +622,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v91)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v92)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -622,7 +634,7 @@ with col1:
     pdf_ref = st.file_uploader("PDF/DOCX Referência", type=["pdf", "docx"], key="ref")
 with col2:
     st.subheader("📄 PDF da Gráfica")
-    pdf_belfar = st.file_uploader("PDF vindo da Gráfica", type=["pdf", "docx"], key="belfar")
+    pdf_belfar = st.file_uploader("PDF/DOCX Belfar", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if not (pdf_ref and pdf_belfar):
@@ -654,4 +666,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v91 | Correção Definitiva.")
+st.caption("Sistema de Auditoria v92 | Limpeza Cirúrgica e OCR Automático.")
