@@ -213,6 +213,39 @@ def forcar_titulos_bula(texto):
     return texto_arrumado
 
 # ----------------- EXTRAÇÃO 3 COLUNAS AJUSTADA -----------------
+def detectar_num_colunas(page):
+    """Detecta se a página tem 2 ou 3 colunas analisando a distribuição horizontal dos blocos."""
+    rect = page.rect
+    blocks = page.get_text("blocks")
+    
+    if not blocks:
+        return 2  # Default para 2 colunas
+    
+    # Coleta as posições horizontais dos centros dos blocos
+    posicoes_x = []
+    for b in blocks:
+        if b[6] == 0:  # Apenas texto
+            center_x = (b[0] + b[2]) / 2
+            posicoes_x.append(center_x)
+    
+    if not posicoes_x:
+        return 2
+    
+    # Divide a largura em 3 terços e conta quantos blocos tem em cada
+    largura = rect.width
+    terco1 = largura / 3
+    terco2 = 2 * largura / 3
+    
+    col1 = sum(1 for x in posicoes_x if x < terco1)
+    col2 = sum(1 for x in posicoes_x if terco1 <= x < terco2)
+    col3 = sum(1 for x in posicoes_x if x >= terco2)
+    
+    # Se temos blocos substanciais nas 3 regiões, é 3 colunas
+    total = len(posicoes_x)
+    if col1 > total * 0.15 and col2 > total * 0.15 and col3 > total * 0.15:
+        return 3
+    
+    return 2
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -227,37 +260,85 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
-                        blocks = page.get_text("blocks") 
-                        
-                        # Limite Meio Alargado para garantir captura (32% - 70%)
-                        limite_1 = width * 0.32
-                        limite_2 = width * 0.70
-                        
-                        col_1, col_2, col_3 = [], [], []
-                        
-                        for b in blocks:
-                            if b[6] == 0: # Texto
-                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0 = b[0] # Margem esquerda
-                                    if x0 < limite_1: col_1.append(b)
-                                    elif x0 < limite_2: col_2.append(b)
-                                    else: col_3.append(b)
-                        
-                        # Ordena: Topo->Baixo, depois Esq->Dir
-                        col_1.sort(key=lambda x: (x[1], x[0]))
-                        col_2.sort(key=lambda x: (x[1], x[0]))
-                        col_3.sort(key=lambda x: (x[1], x[0]))
-                        
-                        for b in col_1: texto_completo += b[4] + "\n"
-                        for b in col_2: texto_completo += b[4] + "\n"
-                        for b in col_3: texto_completo += b[4] + "\n"
-                        
+                 # Detecta número de colunas automaticamente
+                 num_colunas = detectar_num_colunas(page)
+              blocks = page.get_text("blocks")
+    
+    if num_colunas == 3:
+        # Layout de 3 colunas com suporte a blocos multi-coluna
+        largura = rect.width
+        terco1 = largura / 3
+        terco2 = 2 * largura / 3
+        
+        # Lista única para blocos largos (títulos que ocupam 2-3 colunas)
+        blocos_ordenados = []
+        
+        for b in blocks:
+            if b[6] == 0:  # Apenas texto
+                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                    largura_bloco = b[2] - b[0]
+                    b_center_x = (b[0] + b[2]) / 2
+                    
+                    # Classifica o bloco:
+                    # - Blocos muito largos (>60% da página) = títulos de seção que ocupam múltiplas colunas
+                    # - Blocos largos (>40%) = podem ser sub-títulos ou parágrafos que cruzam 2 colunas
+                    # - Blocos normais = texto de coluna única
+                    
+                    if largura_bloco > largura * 0.6:
+                        # Título principal - ocupa 2-3 colunas
+                        tipo = 'titulo_largo'
+                        coluna = 0  # Primeira posição na ordenação
+                    elif largura_bloco > largura * 0.4:
+                        # Bloco médio - pode ocupar 2 colunas
+                        tipo = 'bloco_medio'
+                        # Define coluna pelo centro
+                        if b_center_x < terco1:
+                            coluna = 1
+                        elif b_center_x < terco2:
+                            coluna = 2
+                        else:
+                            coluna = 3
                     else:
-                        blocks = page.get_text("blocks", sort=True)
-                        for b in blocks:
-                            if b[6] == 0:
-                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    texto_completo += b[4] + "\n"
+                        # Bloco normal - 1 coluna
+                        tipo = 'normal'
+                        if b_center_x < terco1:
+                            coluna = 1
+                        elif b_center_x < terco2:
+                            coluna = 2
+                        else:
+                            coluna = 3
+                    
+                    # Adiciona: (posição_Y, coluna, tipo, bloco)
+                    blocos_ordenados.append((b[1], coluna, tipo, b))
+        
+        # Ordena por: 1) Posição Y (linha), 2) Coluna (esquerda para direita)
+        # Isso garante que na mesma "linha" visual, lemos col1 -> col2 -> col3
+        blocos_ordenados.sort(key=lambda x: (x[0], x[1]))
+        
+        # Reconstrói o texto
+        for _, _, _, b in blocos_ordenados:
+            texto_completo += b[4] + "\n"
+    
+    else:
+        # Layout de 2 colunas (código original)
+        meio_x = rect.width / 2
+        col_esq = []
+        col_dir = []
+        
+        for b in blocks:
+            if b[6] == 0:
+                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                    b_center_x = (b[0] + b[2]) / 2
+                    if b_center_x < meio_x:
+                        col_esq.append(b)
+                    else:
+                        col_dir.append(b)
+        
+        col_esq.sort(key=lambda x: x[1])
+        col_dir.sort(key=lambda x: x[1])
+        
+        for b in col_esq: texto_completo += b[4] + "\n"
+        for b in col_dir: texto_completo += b[4] + "\n"
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -270,17 +351,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
             texto_completo = limpar_lixo_grafico(texto_completo)
             
-            if is_marketing_pdf:
-                # Aplica o forçador de títulos ANTES de qualquer coisa
-                texto_completo = forcar_titulos_bula(texto_completo)
-                texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
-                texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
-
-            texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
-            return texto_completo.strip(), None
-
-    except Exception as e:
-        return "", f"Erro: {e}"
+c
 
 # ----------------- PARSER BASEADO EM ÂNCORAS CANÔNICAS -----------------
 def identificar_ancoras_secoes(texto):
