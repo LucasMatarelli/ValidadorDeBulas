@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v84 - Base v83 + Remoção de Lixo Específico (- Negrito. Corpo 14)
-# - LIMPEZA: Adicionado regex r'.*Negrito\.\s*Corpo\s*14.*' para remover a especificação de fonte que estava vazando.
-# - MANTIDO: Todas as correções anteriores (19,00 cm, Seção 9, Blocos).
+# Versão v85 - Base v84 + Correção de Ordenação de Blocos (Pressão Alta/Insuficiência)
+# - ADICIONADO: Função 'corrigir_ordem_blocos_especificos' para mover o texto de "Informações ao Paciente"
+#   que estava caindo na Seção 3 de volta para o final da Seção 2.
 
 import re
 import difflib
@@ -157,6 +157,40 @@ def limpar_lixo_grafico(texto):
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     return texto_limpo
 
+def corrigir_ordem_blocos_especificos(texto):
+    """
+    Corrige o problema onde o texto "Informações ao paciente com pressão alta..."
+    é lido DEPOIS da Seção 3 (devido ao layout de colunas e quadro lateral), 
+    mas deveria estar no final da Seção 2.
+    """
+    # Regex para capturar o bloco específico deslocado
+    # Captura desde "Informações ao paciente..." até "...insuficiência cardíaca."
+    # Flags: Dotall para pegar quebras de linha e texto longo no meio
+    padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
+    
+    match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
+    match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
+    
+    if match_bloco and match_sec3:
+        # Se a Seção 3 começa ANTES do bloco informativo (índice menor), temos o erro de ordenação
+        if match_sec3.start() < match_bloco.start():
+            bloco_content = match_bloco.group(1)
+            
+            # Remove o bloco do texto original (estava no lugar errado)
+            # Reconstrói o texto sem aquele pedaço
+            texto_limpo = texto[:match_bloco.start()] + texto[match_bloco.end():]
+            
+            # Encontra a Seção 3 novamente no texto limpo para inserir o bloco antes dela
+            match_sec3_novo = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto_limpo, re.IGNORECASE)
+            
+            if match_sec3_novo:
+                pos_insercao = match_sec3_novo.start()
+                # Insere o bloco ANTES da Seção 3, adicionando quebras de linha para separar
+                novo_texto = texto_limpo[:pos_insercao] + "\n" + bloco_content + "\n\n" + texto_limpo[pos_insercao:]
+                return novo_texto
+                
+    return texto
+
 # ----------------- CORREÇÃO FORÇADA DE TÍTULOS -----------------
 def forcar_titulos_bula(texto):
     """
@@ -265,6 +299,9 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             if is_marketing_pdf:
                 texto_completo = forcar_titulos_bula(texto_completo)
+                # --- APLICAÇÃO DA CORREÇÃO DE ORDEM (NOVO) ---
+                texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
+                # ---------------------------------------------
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
 
@@ -708,7 +745,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v77)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v85)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -754,4 +791,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v77 | Base v75 + Correção Pontual de Lixo e Títulos.")
+st.caption("Sistema de Auditoria de Bulas v85 | Base v84 + Correção de Blocos Deslocados.")
