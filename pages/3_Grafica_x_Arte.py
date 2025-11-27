@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v114 - FALLBACK PARA OCR E CORREÇÃO DE COLUNAS
-# - NOVO: Se o texto nativo vier quebrado ou sem seções, força o uso do OCR (Tesseract).
-# - CORREÇÃO: "tista" -> "dentista", "nlguesiomiro" -> "algum outro".
-# - AJUSTE: Reconstrução de títulos parciais (ex: "8. OS MALES").
+# Versão v115 - SOLUÇÃO DEFINITIVA: Validação Estrita e OCR Ordenado
+# - NOVO: Verifica presença das seções 3, 4 e 8. Se faltar, força OCR.
+# - NOVO: OCR agora retorna páginas separadas para permitir reordenação (Frente/Verso).
+# - CORREÇÃO: "tista" -> "dentista", "nlguesiomiro" -> "algum outro" (reforçado).
+# - AJUSTE: Limpeza de artefatos visuais de provas gráficas.
 
 import re
 import difflib
@@ -118,7 +119,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v114) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v115) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
@@ -230,7 +231,7 @@ def corrigir_padroes_bula(texto):
     """Corrige erros de OCR detectados na auditoria."""
     if not texto: return ""
     
-    # CORREÇÕES DE OCR V114
+    # CORREÇÕES DE OCR V115
     texto = re.sub(r'\bMalcato\b', 'Maleato', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\benalaprii\b', 'enalapril', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bRonam\b', 'Roman', texto, flags=re.IGNORECASE)
@@ -276,7 +277,7 @@ def forcar_titulos_bula(texto):
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
         (r"(?:6\.?\s*)?COMO\s*(?:DEVO\s*USAR\s*ESTE\s*)?MEDICAMENTO.*?(?:\?|\.|=)", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"), 
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-        # Captura agressiva para títulos quebrados na seção 8 (ex: "8. OS MALES QuE...")
+        # Captura agressiva para títulos quebrados na seção 8
         (r"(?:8\.?\s*)?(?:QUAIS\s*)?OS\s*MALES\s*Q(?:UE|uE)\s*ESTE\s*MEDICAMENTO\s*PODE\s*(?:ME\s*)?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
@@ -285,15 +286,22 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-def executar_ocr(arquivo_bytes):
-    texto_ocr = ""
+def executar_ocr_paginado(arquivo_bytes):
+    """Executa OCR e retorna lista de textos por página."""
+    textos_paginas = []
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         for page in doc:
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
-            try: texto_ocr += pytesseract.image_to_string(img, lang='por', config='--psm 3') + "\n"
-            except: pass
-    return texto_ocr
+            try: 
+                # Tenta layout automático
+                txt = pytesseract.image_to_string(img, lang='por', config='--psm 3')
+                if len(txt) < 50: # Se falhar, tenta bloco único
+                    txt = pytesseract.image_to_string(img, lang='por', config='--psm 6')
+                textos_paginas.append(txt)
+            except: 
+                textos_paginas.append("")
+    return textos_paginas
 
 def verifica_qualidade_texto(texto):
     if not texto: return False
@@ -303,17 +311,15 @@ def verifica_qualidade_texto(texto):
     return hits >= 2
 
 def get_text_sorted_by_columns(page):
-    """Extrai texto agrupando por colunas médias para evitar mistura."""
+    """Extrai texto agrupando por colunas médias."""
     blocks = page.get_text("blocks")
     if not blocks: return ""
     text_blocks = [b for b in blocks if b[6] == 0]
-    
     if not text_blocks: return ""
-
-    # Ajuste V114: Binning de 120 (aprox 4.2cm) - Equilíbrio fino
+    
+    # 120px para equilibrar colunas vs indentação
     def get_sort_key(b):
-        x0 = b[0]
-        y0 = b[1]
+        x0 = b[0]; y0 = b[1]
         col_bin = int(x0 / 120) * 120 
         return (col_bin, y0)
     
@@ -327,7 +333,7 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
         arquivo_bytes = arquivo.read()
         texto_completo = ""
         
-        usou_ocr = False
+        # 1. TENTA EXTRAÇÃO NATIVA PRIMEIRO
         if tipo_arquivo == 'pdf':
             pages_text = []
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -336,42 +342,59 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         txt = get_text_sorted_by_columns(page)
                     else:
                         txt = page.get_text()
-                    pages_text.append(f"--- PAGE {i+1} ---\n{txt}")
+                    pages_text.append(txt)
             
+            # REORDENAÇÃO FRENTE/VERSO NATIVA
             if len(pages_text) >= 2:
-                p1_sample = pages_text[0][:1000].upper()
-                p2_sample = pages_text[1][:1000].upper()
-                
-                p1_is_verso = "VERSO" in p1_sample or "DIZERES LEGAIS" in p1_sample
-                p2_is_frente = "FRENTE" in p2_sample or "APRESENTAÇÕES" in p2_sample or "PARA QUE ESTE MEDICAMENTO" in p2_sample
+                p1_upper = pages_text[0][:1500].upper()
+                p1_is_verso = "VERSO" in p1_upper or "DIZERES LEGAIS" in p1_upper
+                p2_upper = pages_text[1][:1500].upper() if len(pages_text) > 1 else ""
+                p2_is_frente = "FRENTE" in p2_upper or "APRESENTAÇÕES" in p2_upper
                 
                 if p1_is_verso and p2_is_frente:
                     pages_text = [pages_text[1], pages_text[0]]
             
-            texto_nativo = "\n".join(pages_text)
-            
-            if verifica_qualidade_texto(texto_nativo):
-                texto_completo = texto_nativo
-            else:
-                texto_completo = executar_ocr(arquivo_bytes)
-                usou_ocr = True
+            texto_completo = "\n".join(pages_text)
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
-        # === VALIDAÇÃO PÓS-EXTRAÇÃO (GATILHO DE SEGURANÇA) ===
-        # Se as seções 1 e 2 não aparecerem no texto extraído, assume erro de coluna e força OCR.
-        if texto_completo and not usou_ocr and is_marketing_pdf:
+        # 2. VALIDAÇÃO DE INTEGRIDADE (GATILHO DE SEGURANÇA)
+        usou_ocr = False
+        if is_marketing_pdf: # Aplica rigor apenas no arquivo da gráfica
             t_check = normalizar_texto(texto_completo)
-            # Verifica se trechos chave estão presentes e em ordem razoável
-            secoes_chave = ["1paraque", "2comoeste", "8quaisos"]
-            hits = sum(1 for s in secoes_chave if s in t_check)
+            # Lista de seções OBRIGATÓRIAS. Se faltar, o PDF nativo está zoado.
+            secoes_obrigatorias = [
+                "1paraque", 
+                "2comoeste", 
+                "3quando",  # Crítico: estava sumindo
+                "4oque",    # Crítico: estava sumindo
+                "8quaisos"
+            ]
             
-            if hits < 2: # Se menos de 2 seções chave forem encontradas
-                st.warning(f"⚠️ Detecção automática: Layout complexo detectado em {arquivo.name}. Ativando leitura visual (OCR) para garantir integridade...", icon="👁️")
-                arquivo.seek(0)
-                texto_completo = executar_ocr(arquivo.read())
+            # Conta quantas seções vitais foram encontradas
+            encontradas = sum(1 for s in secoes_obrigatorias if s in t_check)
+            
+            # SE FALTAR QUALQUER UMA DESSAS 5, FORÇA OCR
+            if encontradas < len(secoes_obrigatorias):
+                st.warning(f"⚠️ Seções faltando no texto nativo de {arquivo.name}. Ativando OCR corretivo...", icon="👁️")
+                
+                # Executa OCR página a página
+                ocr_pages = executar_ocr_paginado(arquivo_bytes)
+                
+                # REORDENAÇÃO FRENTE/VERSO NO OCR
+                if len(ocr_pages) >= 2:
+                    p1_ocr = ocr_pages[0][:1500].upper()
+                    p1_verso = "VERSO" in p1_ocr or "DIZERES LEGAIS" in p1_ocr
+                    p2_ocr = ocr_pages[1][:1500].upper() if len(ocr_pages) > 1 else ""
+                    p2_frente = "FRENTE" in p2_ocr or "APRESENTAÇÕES" in p2_ocr
+                    
+                    if p1_verso and p2_frente:
+                        ocr_pages = [ocr_pages[1], ocr_pages[0]]
+                
+                texto_completo = "\n".join(ocr_pages)
+                usou_ocr = True
 
         if texto_completo:
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
@@ -381,6 +404,8 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = corrigir_padroes_bula(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
+            
+            # Limpeza final de underscores e linhas vazias
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
@@ -732,8 +757,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v114)")
-st.markdown("Sistema com validação RÍGIDA: Fallback automático para OCR se seções falharem.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v115)")
+st.markdown("Sistema com validação RÍGIDA: OCR forçado se seções estiverem faltando.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -777,4 +802,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v114 | Fallback automático para OCR e Correção de Títulos.")
+st.caption("Sistema de Auditoria v115 | Fallback OCR Avançado e Ordenação Frente/Verso.")
