@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v106 - Fusão Completa (Limpeza v105 + Lógica Estrutural v89)
-# - LIMPEZA: Mantém remoção de dimensões soltas (v105).
-# - ESTRUTURA: Adiciona 'organizar_por_colunas' para ler corretamente 3 colunas.
-# - INTEGRIDADE: Adiciona Trava Numérica no mapeamento (impede Sec 2 virar Sec 4).
-# - CORREÇÃO: Adiciona funções para mover blocos de texto deslocados (Interações/Pressão Alta).
+# Versão v107 - Fusão Total (Limpeza Gráfica Avançada + Colunas + Trava Numérica)
+# - CORREÇÃO DE LEITURA: Usa 'organizar_por_colunas' para ler corretamente o PDF largo da gráfica.
+# - LIMPEZA DE PROVA: Remove lixos como "1a PROVA", "Medida da bula", "Gibran", assinaturas e tabelas de controle.
+# - INTEGRIDADE: Impede que Seção 6 vire Seção 8 (Trava Numérica).
+# - MANTIDO: Backend e Frontend idênticos, apenas a lógica de processamento foi aprimorada.
 
 import re
 import difflib
@@ -119,50 +119,53 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (v105) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (v107 - Provas Gráficas) -----------------
 def limpar_lixo_grafico(texto):
-    """Remove lixo técnico e fragmentos específicos."""
+    """Remove lixo técnico, fragmentos de prova gráfica e dimensões."""
     texto_limpo = texto
     
     # 1. Frases/Padrões Literais Longos
     lixo_frases = [
-        "MEDICAMENTO ?", 
-        "DEVO USAR ESTE", 
-        "mma USO ORAL mm USO ADULTO",
-        "mem CSA comprimido",
-        "MMA 1250 - 12/25",
-        "Medida da bula",
-        "19 , 0 cm x 45 , 0 cm"
+        "MEDICAMENTO ?", "DEVO USAR ESTE", "mma USO ORAL mm USO ADULTO",
+        "mem CSA comprimido", "MMA 1250 - 12/25", "Medida da bula", "19 , 0 cm x 45 , 0 cm"
     ]
     for item in lixo_frases:
         texto_limpo = texto_limpo.replace(item, "")
 
     # 2. Tokens curtos/soltos
-    tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm", "mma"]
+    tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm", "mma", "gibran"]
     pattern_tokens = r'\b(' + '|'.join(tokens_lixo) + r')\b'
     texto_limpo = re.sub(pattern_tokens, '', texto_limpo, flags=re.IGNORECASE)
 
     # 3. Limpezas Específicas (Regex)
     padroes_especificos = [
-        # NOVO (v105): Medidas numéricas soltas (ex: 210, 00 / 30 , 00)
-        r'^\s*\d{1,3}\s*,\s*00\s*$',
+        # --- LIXO DE PROVA GRÁFICA (NOVO) ---
+        r'.*PROVA\s*\d{2}/\d{2}/\d{4}.*',  # 1a. PROVA 03/10/2025
+        r'.*Favor\s*conferir.*',           # Favor conferir e enviar aprovação...
+        r'.*Autorizado\s*Sim\s*Não.*',     # Checkbox de aprovação
+        r'.*Atenção:\s*não\s*autoriz.*',   # Avisos de gráfica
+        r'.*Assinatura:.*',                # Campos de assinatura
+        r'.*gibrangrafica.*',              # Emails de gráfica
+        r'.*Versão\s*0\d+.*',              # Versão 06 solta
+        r'.*Verso\s*Bula.*',               # Cabeçalhos soltos
+        r'.*Frente\s*Bula.*',
         
-        # NOVO (v105): Padrão de dimensão solta (ex: : 15 X 21)
-        r'^\s*:\s*\d{1,3}\s*[xX]\s*\d{1,3}\s*$',
-
+        # Dimensões e Medidas
+        r'^\s*\d{1,3}\s*,\s*00\s*$',       # 210, 00 isolado
+        r'^\s*:\s*\d{1,3}\s*[xX]\s*\d{1,3}\s*$', # : 15 X 21
+        r'.*:\s*19\s*,\s*0\s*x\s*45\s*,\s*0.*',
+        r'\b\d{1,3}\s*cm\b', r'\b\d{1,3}\s*mm\b',
+        
+        # Lixo Técnico Geral
         r"\s+'\s+", 
         r'.*\(?\s*31\s*\)?\s*3514\s*-\s*2900.*',
         r'^\s*contato\s*$',
-        r'\b\d{1,3}\s*mm\b',
-        r'\b\d{1,3}\s*cm\b',
-        r'.*:\s*19\s*,\s*0\s*x\s*45\s*,\s*0.*',
         r'.*(?:—\s*)+\s*>\s*>\s*>\s*».*',
         r'.*gm\s*>\s*>\s*>.*',              
         r'.*_{3,}.*gm.*', 
         r'.*MMA\s+\d{4}\s*-\s*\d{1,2}/\d{2,4}.*',
         r'^\s*MEDICAMENTO\s*\?\s*$',
         r'^\s*DEVO\s*USAR\s*ESTE\s*$',
-        r'.*PROVA\s*-\s*[\d\s/]+.*',        
         r'.*Tipologia.*',                   
         r'.*Normal\s+e.*',                  
         r'^\s*Belcomplex\s+B\s+comprimido\s*$',
@@ -187,24 +190,19 @@ def limpar_lixo_grafico(texto):
     ]
     
     for p in padroes_especificos:
-        try:
-            texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
-        except Exception:
-            pass
-            
-        if p == r"\s+'\s+":
-             texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE)
+        try: texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
+        except: pass
+        if p == r"\s+'\s+": texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE)
         else:
              if not p.startswith(r'^\s*'): 
                 texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
 
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
     texto_limpo = texto_limpo.replace(" se a administrado ", " se administrado ")
-
     return texto_limpo
 
 def corrigir_padroes_bula(texto):
-    """Corrige erros de OCR (300, Guarde-o, 15 Ca 30)."""
+    """Corrige erros de OCR comuns."""
     if not texto: return ""
     texto = re.sub(r'(\d+)\s*Ca\s*(\d+)', r'\1°C a \2', texto)
     texto = re.sub(r'(\d+)\s*C\b', r'\1°C', texto)
@@ -218,9 +216,9 @@ def corrigir_padroes_bula(texto):
     texto = re.sub(r'\s+([.,;?!])', r'\1', texto)
     return texto
 
-# ----------------- CORREÇÕES ESTRUTURAIS (v86) -----------------
+# ----------------- CORREÇÕES ESTRUTURAIS -----------------
 def corrigir_ordem_blocos_especificos(texto):
-    """Conserta o problema onde 'Informações ao paciente...' cai na Seção 3."""
+    """Move 'Informações ao paciente...' para antes da Seção 3."""
     padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
     match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
     match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
@@ -237,7 +235,7 @@ def corrigir_ordem_blocos_especificos(texto):
     return texto
 
 def corrigir_deslocamento_interacoes(texto):
-    """Conserta o problema de 'Interações medicamentosas' deslocadas."""
+    """Move 'Interações medicamentosas' para antes da Seção 5."""
     padrao_interacoes = r'(Interações\s*medicamentosas:.*?Pode\s*ser\s*perigoso\s*para\s*a\s*sua\s*saúde\.?)'
     match_inter = re.search(padrao_interacoes, texto, re.IGNORECASE | re.DOTALL)
     match_sec5 = re.search(r'5\.\s*ONDE', texto, re.IGNORECASE)
@@ -270,20 +268,19 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS v88) -----------------
+# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS) -----------------
 def organizar_por_colunas(page):
     """
     Agrupa blocos de texto por proximidade horizontal (colunas)
     e ordena: Coluna 1 (Top->Down) -> Coluna 2 (Top->Down) -> ...
+    Isso evita que texto de colunas vizinhas se misturem.
     """
     blocks = page.get_text("blocks", sort=False)
     text_blocks = [b for b in blocks if b[6] == 0]
     
     if not text_blocks: return ""
 
-    # Ordena por X
     text_blocks.sort(key=lambda b: b[0])
-    
     columns = []
     TOLERANCIA_X = 100 
     
@@ -298,13 +295,11 @@ def organizar_por_colunas(page):
         if not placed:
             columns.append([b])
     
-    # Ordena colunas da Esquerda para Direita
     columns.sort(key=lambda c: sum(b[0] for b in c)/len(c))
     
     final_text = ""
     for col in columns:
-        # Ordena blocos da coluna de Cima para Baixo
-        col.sort(key=lambda b: b[1])
+        col.sort(key=lambda b: b[1]) # Ordena verticalmente dentro da coluna
         for b in col:
             final_text += b[4] + "\n"
             
@@ -338,8 +333,7 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_nativo = ""
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 for page in doc:
-                    # [MODIFICAÇÃO v106] Usa algoritmo de colunas SEMPRE para PDFs
-                    # Isso garante que seções de colunas adjacentes não se misturem
+                    # [IMPORTANTE] Usa algoritmo de colunas SEMPRE para PDFs
                     texto_nativo += organizar_por_colunas(page)
             
             if verifica_qualidade_texto(texto_nativo):
@@ -363,7 +357,7 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             # 3. ESTRUTURA
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # [NOVO v106] Aplica correções estruturais de blocos deslocados
+            # Aplica correções estruturais de blocos deslocados
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             
@@ -445,12 +439,14 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
         best_score = 0; best_canon = None
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
         numeric = int(mnum.group(1)) if mnum else None
+        
         for t_possivel, t_canon in titulos_possiveis.items():
             t_norm = titulos_norm.get(t_possivel, "")
             if not t_norm: continue
             score = fuzz.token_set_ratio(t_norm, norm)
             if t_norm in norm: score = max(score, 95)
             if score > best_score: best_score = score; best_canon = t_canon
+        
         is_candidate = False
         if numeric is not None: is_candidate = True
         elif best_score >= 88: is_candidate = True
@@ -459,7 +455,7 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
     unique = {c.index: c for c in candidates}
     return sorted(unique.values(), key=lambda x: x.index)
 
-# ----------------- MAPEAMENTO COM TRAVA NUMÉRICA (v89) -----------------
+# ----------------- MAPEAMENTO COM TRAVA NUMÉRICA -----------------
 def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
@@ -467,12 +463,11 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     mapa = []
     last_idx = -1
     
-    # --- HELPER: Extrai o número da SEÇÃO ESPERADA ---
+    # --- HELPER: Trava Numérica ---
     def get_canonical_number(sec_name):
         match = re.search(r'^(\d{1,2})\.', sec_name)
         return int(match.group(1)) if match else None
 
-    # --- HELPER: Validação Numérica Rigorosa ---
     def validar_candidato(cand, canon_number):
         if canon_number is not None:
             if cand.numeric is not None:
@@ -510,7 +505,7 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
                     if validar_candidato(c, canon_num): found = c; break
         
-        # 4. Busca Global (Resgate) com Trava
+        # 4. Busca Global com Trava
         if not found:
             for c in candidates:
                 match_canon = (c.matched_canon == sec)
@@ -754,7 +749,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v106)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v107)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -798,4 +793,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v106 | Base v105 + Lógica v89.")
+st.caption("Sistema de Auditoria v107 | Limpeza de Provas Gráficas.")
