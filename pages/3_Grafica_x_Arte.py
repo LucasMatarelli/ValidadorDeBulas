@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v113 - Ajuste Fino de Colunas e Recuperação de Texto
-# - CORREÇÃO: Binning de colunas ajustado para 150px (Equilíbrio ideal para separar colunas sem quebrar indentações).
-# - OCR: Correções específicas para "nlguesiomiro", "tista", "renda uso".
-# - MELHORIA: Lógica de reconstrução de parágrafos reforçada para juntar linhas quebradas (ex: "den-tista").
+# Versão v114 - Modo de Segurança OCR e Reconstrução de Títulos
+# - NOVO: Fallback automático para OCR se seções críticas estiverem vazias.
+# - NOVO: Reconstrução agressiva de títulos quebrados/incompletos (ex: "8. OS MALES...").
+# - AJUSTE: Binning de 120px para melhor separação de colunas.
 
 import re
 import difflib
@@ -118,7 +118,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v113) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v114) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
@@ -230,7 +230,7 @@ def corrigir_padroes_bula(texto):
     """Corrige erros de OCR detectados na auditoria."""
     if not texto: return ""
     
-    # CORREÇÕES DE OCR V113
+    # CORREÇÕES DE OCR V114
     texto = re.sub(r'\bMalcato\b', 'Maleato', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\benalaprii\b', 'enalapril', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bRonam\b', 'Roman', texto, flags=re.IGNORECASE)
@@ -276,7 +276,8 @@ def forcar_titulos_bula(texto):
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
         (r"(?:6\.?\s*)?COMO\s*(?:DEVO\s*USAR\s*ESTE\s*)?MEDICAMENTO.*?(?:\?|\.|=)", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"), 
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
+        # Captura agressiva para títulos quebrados na seção 8 (ex: "8. OS MALES QuE...")
+        (r"(?:8\.?\s*)?(?:QUAIS\s*)?OS\s*MALES\s*Q(?:UE|uE)\s*ESTE\s*MEDICAMENTO\s*PODE\s*(?:ME\s*)?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
     texto_arrumado = texto
@@ -309,11 +310,11 @@ def get_text_sorted_by_columns(page):
     
     if not text_blocks: return ""
 
-    # AJUSTE V113: Binning de 150 (aprox 5.3cm) - Melhor que 350 para 2 colunas em 19cm.
+    # AJUSTE V114: Binning de 120 (aprox 4.2cm) - Equilíbrio fino
     def get_sort_key(b):
         x0 = b[0]
         y0 = b[1]
-        col_bin = int(x0 / 150) * 150 
+        col_bin = int(x0 / 120) * 120 
         return (col_bin, y0)
     
     text_blocks.sort(key=get_sort_key)
@@ -326,6 +327,7 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
         arquivo_bytes = arquivo.read()
         texto_completo = ""
         
+        usou_ocr = False
         if tipo_arquivo == 'pdf':
             pages_text = []
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -352,10 +354,19 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 texto_completo = texto_nativo
             else:
                 texto_completo = executar_ocr(arquivo_bytes)
+                usou_ocr = True
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
+
+        # VALIDAÇÃO PÓS-EXTRAÇÃO: SE FALTAR SEÇÕES, FORÇA OCR
+        if texto_completo and not usou_ocr:
+            t_check = normalizar_texto(texto_completo)
+            secoes_criticas = ["comodevousar", "quaisosmales"]
+            if not any(k in t_check for k in secoes_criticas):
+                st.toast(f"⚠️ Texto incompleto em {arquivo.name}. Forçando OCR...", icon="🔄")
+                texto_completo = executar_ocr(arquivo_bytes)
 
         if texto_completo:
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
