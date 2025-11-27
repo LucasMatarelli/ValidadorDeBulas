@@ -1,10 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v107 - "Strict Bucket Column Flow" (Correção Definitiva de Ordem de Leitura)
-# - ESTRATÉGIA: Ignora a ordem de leitura padrão do PDF.
-# - AÇÃO: Classifica cada bloco de texto em 3 baldes (Col 1, Col 2, Col 3) baseados puramente na posição X.
-# - ORDEM FINAL: Concatena Balde 1 -> Balde 2 -> Balde 3. Isso força o fim da Seção 2 (Meio) a vir antes da Seção 3 (Direita).
-# - PARSER: Usa lista exata de títulos para separar o conteúdo.
+# Versão v108 - "Gravity Clustering" (Correção para o Quadrado Preto)
+# - PROBLEMA RESOLVIDO: Textos dentro de caixas/bordas (quadrado preto) sendo lidos na ordem errada.
+# - SOLUÇÃO: Algoritmo de Gravidade. Define 3 pontos centrais (Esquerda, Meio, Direita).
+#   Cada bloco de texto é atribuído à coluna cujo centro está mais próximo.
+#   Isso ignora margens internas do quadrado preto e força ele a ficar na Coluna 2.
+# - ORDEM: Garante concatenação Col 1 -> Col 2 -> Col 3.
 
 import re
 import difflib
@@ -208,7 +209,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS ("STRICT BUCKET") -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS ("GRAVITY CLUSTERING") -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -225,13 +226,15 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # DEFINIÇÃO DE "BALDES" RÍGIDOS
-                        # Col 1: Começa antes de 32% da largura.
-                        # Col 2: Começa entre 32% e 66% da largura.
-                        # Col 3: Começa depois de 66% da largura.
-                        # Isso isola o texto do meio ("Informações...") do texto da direita ("3. QUANDO").
-                        limite_1 = width * 0.32
-                        limite_2 = width * 0.66
+                        # --- ALGORITMO DE GRAVIDADE ---
+                        # Em vez de margens fixas, definimos 3 "Imãs" (Centróides Ideais)
+                        # Coluna 1: Centro em ~17% da largura
+                        # Coluna 2: Centro em ~50% da largura (Puxa o Quadrado Preto pra cá!)
+                        # Coluna 3: Centro em ~83% da largura (Puxa o titulo 3. QUANDO pra cá)
+                        
+                        magnet_1 = width * 0.17
+                        magnet_2 = width * 0.50
+                        magnet_3 = width * 0.83
                         
                         col_1, col_2, col_3 = [], [], []
                         cabecalhos = []
@@ -239,31 +242,37 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0 = b[0] # Ponto de partida esquerdo da linha
-                                    block_width = b[2] - b[0]
+                                    x0, x1 = b[0], b[2]
+                                    # Ponto central do bloco atual
+                                    block_center = (x0 + x1) / 2
+                                    block_width = x1 - x0
                                     
-                                    # Cabeçalho global apenas se for MUITO largo (>85%) e no topo
+                                    # Se for muito largo (>85%) e no topo, é cabeçalho global
                                     if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
                                         cabecalhos.append(b)
                                     else:
-                                        # CLASSIFICAÇÃO PELO INÍCIO DA LINHA (x0)
-                                        if x0 < limite_1:
-                                            col_1.append(b)
-                                        elif x0 < limite_2:
-                                            # Aqui cai o texto "Informações..."
-                                            col_2.append(b)
-                                        else:
-                                            # Aqui cai o titulo "3. QUANDO"
-                                            col_3.append(b)
+                                        # Calcula distância para cada imã
+                                        dist1 = abs(block_center - magnet_1)
+                                        dist2 = abs(block_center - magnet_2)
+                                        dist3 = abs(block_center - magnet_3)
+                                        
+                                        # O bloco vai para o imã mais próximo
+                                        # O texto do quadrado preto estará mais perto de magnet_2 (50%) 
+                                        # do que de magnet_3 (83%), garantindo a Coluna 2.
+                                        min_dist = min(dist1, dist2, dist3)
+                                        
+                                        if min_dist == dist1: col_1.append(b)
+                                        elif min_dist == dist2: col_2.append(b)
+                                        else: col_3.append(b)
                         
-                        # ORDENAÇÃO VERTICAL DENTRO DE CADA BALDE
+                        # Ordenação Vertical (Topo -> Baixo) dentro de cada coluna
                         cabecalhos.sort(key=lambda x: x[1])
                         col_1.sort(key=lambda x: x[1])
                         col_2.sort(key=lambda x: x[1])
                         col_3.sort(key=lambda x: x[1])
                         
-                        # CONCATENAÇÃO FORÇADA: Header -> Col 1 -> Col 2 -> Col 3
-                        # Isso garante a ordem de leitura correta.
+                        # Concatenação Forçada: 
+                        # Header -> Coluna 1 inteira -> Coluna 2 inteira -> Coluna 3 inteira
                         for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
@@ -313,7 +322,6 @@ def fatiar_texto_state_machine(texto):
         linha_limpa = linha.strip()
         if not linha_limpa: continue
         
-        # Tenta identificar se a linha é um título EXATO
         norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
         titulo_encontrado = None
         
@@ -321,7 +329,6 @@ def fatiar_texto_state_machine(texto):
             if s_norm == norm_linha:
                 titulo_encontrado = s_canon
                 break
-            # Fuzzy ultra-estrito (98%+) para pegar apenas erros mínimos de OCR
             if len(norm_linha) > 10 and fuzz.ratio(s_norm, norm_linha) > 98:
                 titulo_encontrado = s_canon
                 break
@@ -352,7 +359,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         cont_ref = mapa_ref.get(sec, "")
         cont_bel = mapa_bel.get(sec, "")
         
-        # Validação simples de existência
         encontrou_bel = bool(cont_bel.strip())
         encontrou_ref = bool(cont_ref.strip())
         
@@ -380,7 +386,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # Comparação de conteúdo
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_ref)
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_bel)
         norm_ref = normalizar_texto(norm_ref)
@@ -554,8 +559,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v107)")
-st.markdown("Sistema com Fluxo de Baldes Rígidos (Garante Ordem 1-2-3).")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v108)")
+st.markdown("Sistema com Extração por Gravidade (Corrige problemas de caixas e bordas).")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -597,4 +602,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v107 | Base v106 + Strict Bucket Column Flow.")
+st.caption("Sistema de Auditoria de Bulas v108 | Base v107 + Gravity Clustering.")
