@@ -1,13 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v104 - "State Machine Parser" (A Lógica que você pediu)
-# - FLUXO: Lê Coluna 1 -> Coluna 2 -> Coluna 3 (Concatenação física).
-# - PARSER: Implementa "Máquina de Estados".
-#   1. Define seção atual = "INICIO".
-#   2. Lê linha por linha.
-#   3. Se a linha for TÍTULO (da lista oficial) -> Muda seção atual.
-#   4. Se não for -> Adiciona na seção atual. Ponto.
-# - SEM ADIVINHAÇÃO: Não tenta parar leitura por "parecer" título. Só para se for exato.
+# Versão v105 - "Absolute Column Flow" (Correção da Seção 3 engolindo Seção 2)
+# - FLUXO: Força leitura estrita: Coluna 1 (Esq) -> Coluna 2 (Meio) -> Coluna 3 (Dir).
+#   Isso garante que TODO o texto da Seção 2 (que termina na Col 2) venha ANTES
+#   do título da Seção 3 (que está na Col 3).
+# - PARSER: Usa lista canônica de 13 títulos para fatiar o texto linearizado.
 
 import re
 import difflib
@@ -90,9 +87,6 @@ nlp = carregar_modelo_spacy()
 
 # ----------------- LISTA MESTRA DE SEÇÕES -----------------
 def get_canonical_sections():
-    """
-    Lista Oficial. O parser só muda de seção se encontrar EXATAMENTE um destes.
-    """
     return [
         "APRESENTAÇÕES",
         "COMPOSIÇÃO",
@@ -125,7 +119,6 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
-    # Remove numeração inicial e caracteres especiais para bater com a lista canônica
     texto_norm = normalizar_texto(texto or "")
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
@@ -215,7 +208,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS (ORDEM FÍSICA ESTRITA) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS (ABSOLUTE COLUMN FLOW) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -232,33 +225,46 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # Definição dos Silos (3 Colunas Estritas)
-                        # Margens de corte fixas para garantir que texto da direita não invada o meio.
-                        limite_1 = width * 0.33
-                        limite_2 = width * 0.66
+                        # LIMITES RÍGIDOS DE COLUNA (Baseado no layout visual da Belfar)
+                        # Col 1: Esquerda (0% - 31%)
+                        # Col 2: Meio (31% - 64%)
+                        # Col 3: Direita (64% - 100%)
+                        limite_1 = width * 0.31
+                        limite_2 = width * 0.64
                         
                         col_1, col_2, col_3 = [], [], []
+                        cabecalhos = []
                         
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
                                     x0 = b[0] # Ponto de partida esquerdo da linha
+                                    block_width = b[2] - b[0]
                                     
-                                    # Classifica no silo correto
-                                    if x0 < limite_1:
-                                        col_1.append(b)
-                                    elif x0 < limite_2:
-                                        col_2.append(b)
+                                    # Se for muito largo (>85%) e estiver no topo, é cabeçalho global (ex: logo)
+                                    if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
+                                        cabecalhos.append(b)
                                     else:
-                                        col_3.append(b)
+                                        # Classifica na coluna correta pela posição X inicial
+                                        if x0 < limite_1:
+                                            col_1.append(b)
+                                        elif x0 < limite_2:
+                                            col_2.append(b)
+                                        else:
+                                            col_3.append(b)
                         
-                        # ORDENAÇÃO VERTICAL DENTRO DO SILO (De cima para baixo)
+                        # ORDENAÇÃO CRÍTICA:
+                        # 1. Cabeçalhos globais (se houver)
+                        # 2. TODA a Coluna 1 (Topo -> Baixo)
+                        # 3. TODA a Coluna 2 (Topo -> Baixo) -> AQUI está o fim da Seção 2
+                        # 4. TODA a Coluna 3 (Topo -> Baixo) -> AQUI começa a Seção 3
+                        
+                        cabecalhos.sort(key=lambda x: x[1])
                         col_1.sort(key=lambda x: x[1])
                         col_2.sort(key=lambda x: x[1])
                         col_3.sort(key=lambda x: x[1])
                         
-                        # CONCATENAÇÃO: Silo 1 -> Silo 2 -> Silo 3
-                        # Isso FORÇA o conteúdo do meio a vir antes do conteúdo da direita.
+                        for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
                         for b in col_3: texto_completo += b[4] + "\n"
@@ -294,52 +300,49 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- PARSER "STATE MACHINE" -----------------
+# ----------------- PARSER "STATE MACHINE" (ABSOLUTO) -----------------
 def fatiar_texto_state_machine(texto):
     """
-    IMPLEMENTAÇÃO DA LÓGICA DO USUÁRIO:
-    "O título tem que aparecer, ai o conteúdo apos o titulo da seção aparecer, é o dele, pronto cabo"
+    Parser de Máquina de Estados:
+    - Estado Inicial: None (ou acumulando lixo do topo)
+    - Transição: Encontrou TÍTULO CANÔNICO -> Muda o Estado para esse título.
+    - Ação: Adiciona a linha ao conteúdo do Estado Atual.
     """
     linhas = texto.split('\n')
-    
-    # 1. Prepara Títulos Canônicos para busca rápida
     secoes_esperadas = get_canonical_sections()
     secoes_norm = {normalizar_titulo_para_comparacao(s): s for s in secoes_esperadas}
     
-    # Dicionário de resultados: {Nome_Secao: [lista_linhas]}
     conteudo_mapeado = {s: [] for s in secoes_esperadas}
-    
-    secao_atual = None # Começa sem seção (ou seção "topo")
+    secao_atual = None 
     
     for linha in linhas:
         linha_limpa = linha.strip()
         if not linha_limpa: continue
         
-        # Verifica se é um TÍTULO
+        # Tenta identificar se a linha é um título
         norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
         titulo_encontrado = None
         
-        # Verifica match exato ou muito próximo
+        # Verifica match exato ou muito próximo (sem "achismos" parciais)
         for s_norm, s_canon in secoes_norm.items():
-            if s_norm == norm_linha: # Match exato normalizado
+            # Match exato ou fuzzy muito alto (95%+)
+            if s_norm == norm_linha or (len(s_norm) > 10 and norm_linha.startswith(s_norm)):
                 titulo_encontrado = s_canon
                 break
-            # Match Fuzzy seguro (para erros de OCR leves)
-            if len(norm_linha) > 5 and fuzz.ratio(s_norm, norm_linha) > 95:
+            if fuzz.ratio(s_norm, norm_linha) > 95:
                 titulo_encontrado = s_canon
                 break
         
         if titulo_encontrado:
-            # MUDANÇA DE ESTADO: Achou título, troca a chave atual
+            # Mudança de estado: Nova seção detectada
             secao_atual = titulo_encontrado
         else:
-            # ESTADO ATUAL: Não é título, joga o conteúdo na seção que está ativa
+            # Continua na seção atual
             if secao_atual:
                 conteudo_mapeado[secao_atual].append(linha)
     
-    # Junta as linhas
-    resultado_final = {k: "\n".join(v).strip() for k, v in conteudo_mapeado.items()}
-    return resultado_final
+    # Junta as linhas em texto único por seção
+    return {k: "\n".join(v).strip() for k, v in conteudo_mapeado.items()}
 
 # ----------------- VERIFICAÇÃO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
@@ -359,7 +362,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         cont_ref = mapa_ref.get(sec, "")
         cont_bel = mapa_bel.get(sec, "")
         
-        # Se cont_bel estiver vazio, considera não encontrado
+        # Validação simples de existência
         encontrou_bel = bool(cont_bel.strip())
         encontrou_ref = bool(cont_ref.strip())
         
@@ -387,7 +390,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # Comparação
+        # Comparação de conteúdo
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_ref)
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_bel)
         norm_ref = normalizar_texto(norm_ref)
@@ -561,8 +564,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v104)")
-st.markdown("Sistema com Parser 'State Machine' (Troca de seção apenas em Títulos Exatos).")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v105)")
+st.markdown("Sistema com Fluxo de Colunas Absoluto (1-2-3) e Parser por Máquina de Estados.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -604,4 +607,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v104 | Base v103 + State Machine Parser.")
+st.caption("Sistema de Auditoria de Bulas v105 | Base v104 + Absolute Column Flow.")
