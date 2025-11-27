@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v118 - CORREÇÃO DE "SANGRIA" DE TÍTULOS
-# - FIX: Regex de títulos agora consomem a linha inteira até a interrogação (?) para não deixar pedaços no texto.
-# - NOVO: Função 'limpar_restos_de_titulo' para remover fragmentos que escaparem.
-# - OCR: Correção para "Iquer" -> "Qualquer".
+# Versão v119 - RESGATE DE CONTEÚDO E SEPARAÇÃO DE TÍTULOS
+# - FIX: Regex "faminto" para separar títulos que foram engolidos pelo parágrafo anterior.
+# - NOVO: Função 'higienizar_titulos' que insere quebras de linha forçadas antes de padrões de título.
+# - OCR: Ajuste para PSM 4 (melhor para blocos de texto variados em provas largas).
 
 import re
 import difflib
@@ -119,7 +119,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v118) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v119) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
@@ -231,7 +231,7 @@ def corrigir_padroes_bula(texto):
     """Corrige erros de OCR detectados na auditoria."""
     if not texto: return ""
     
-    # CORREÇÕES DE OCR V118
+    # CORREÇÕES DE OCR V119
     texto = re.sub(r'\bMalcato\b', 'Maleato', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\benalaprii\b', 'enalapril', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bRonam\b', 'Roman', texto, flags=re.IGNORECASE)
@@ -244,7 +244,7 @@ def corrigir_padroes_bula(texto):
     texto = re.sub(r'\bnlguesiomiro\b', 'algum outro', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\brenda uso\b', 'fazendo uso', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\btista\b', 'dentista', texto, flags=re.IGNORECASE)
-    texto = re.sub(r'\bIquer\b', 'Qualquer', texto, flags=re.IGNORECASE) # Fix "Iquer"
+    texto = re.sub(r'\bIquer\b', 'Qualquer', texto, flags=re.IGNORECASE) 
     
     texto = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', texto) 
     texto = texto.replace('excipientes ” q', 'excipientes q.s.p.')
@@ -268,31 +268,31 @@ def corrigir_padroes_bula(texto):
 
 # ----------------- EXTRAÇÃO -----------------
 
-def recuperar_titulos_perdidos(texto):
+def higienizar_titulos(texto):
     """
-    Recupera títulos perdidos garantindo que consumam toda a linha até o '?'
+    Insere quebras de linha antes de padrões que parecem ser títulos,
+    para forçar a separação do parágrafo anterior.
     """
     if not texto: return ""
-    
-    # O padrão agora usa '.*?' até encontrar uma interrogação ou ponto final, garantindo que o resto da linha seja engolido pelo título
-    mapa_recuperacao = [
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*QUANDO\s+N[ÃA]O\s+DEVO\s+USAR.*?(?:\?|\.))", r"\n\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES.*?(?:\?|\.))", r"\n\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*ONDE\s*,?\s*COMO\s+E\s+POR\s+QUANTO.*?(?:\?|\.))", r"\n\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*COMO\s+DEVO\s+USAR.*?(?:\?|\.))", r"\n\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO.*?(?:\?|\.))", r"\n\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*QUAIS\s+OS\s+MALES.*?(?:\?|\.))", r"\n\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M.*?(?:\?|\.))", r"\n\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
+    # Lista de inicios de títulos comuns que podem estar colados
+    padroes_titulo = [
+        r"(?i)QUANDO\s+N[ÃA]O\s+DEVO\s+USAR",
+        r"(?i)O\s+QUE\s+DEVO\s+SABER\s+ANTES",
+        r"(?i)ONDE\s*,?\s*COMO\s+E\s+POR\s+QUANTO",
+        r"(?i)COMO\s+DEVO\s+USAR",
+        r"(?i)O\s+QUE\s+DEVO\s+FAZER\s+QUANDO",
+        r"(?i)QUAIS\s+OS\s+MALES",
+        r"(?i)O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M"
     ]
     
-    texto_recuperado = texto
-    for padrao, substituicao in mapa_recuperacao:
-        texto_recuperado = re.sub(padrao, substituicao, texto_recuperado, flags=re.DOTALL)
+    texto_higienizado = texto
+    for pat in padroes_titulo:
+        # Se encontrar o padrão precedido por algo que não seja quebra de linha, insere \n\n
+        texto_higienizado = re.sub(f"(?<!\\n)({pat})", r"\n\n\1", texto_higienizado)
         
-    return texto_recuperado
+    return texto_higienizado
 
 def forcar_titulos_bula(texto):
-    # Regex ultra-permissivos para padronizar e limpar restos
     substituicoes = [
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
         (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
@@ -331,10 +331,11 @@ def executar_ocr_paginado(arquivo_bytes):
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             try: 
-                # PSM 1 (Orientation and Script Detection) é geralmente melhor para layouts complexos/largos
+                # PSM 1 (Orientation and Script Detection)
                 txt = pytesseract.image_to_string(img, lang='por', config='--psm 1')
                 if len(txt) < 100:
-                    txt = pytesseract.image_to_string(img, lang='por', config='--psm 3')
+                    # PSM 4 (Assume uma única coluna de texto de tamanhos variados) - Melhor que PSM 3 para blocos soltos
+                    txt = pytesseract.image_to_string(img, lang='por', config='--psm 4')
                 textos_paginas.append(txt)
             except: 
                 textos_paginas.append("")
@@ -417,7 +418,9 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = corrigir_padroes_bula(texto_completo)
             
-            texto_completo = recuperar_titulos_perdidos(texto_completo) 
+            # NOVO: Higienização pré-título para separar o que estiver grudado
+            texto_completo = higienizar_titulos(texto_completo)
+            
             texto_completo = forcar_titulos_bula(texto_completo)
             texto_completo = limpar_restos_de_titulo(texto_completo) # Limpeza final
             
@@ -772,8 +775,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v118)")
-st.markdown("Sistema com validação RÍGIDA: Correção de Títulos Sangrados e OCR.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v119)")
+st.markdown("Sistema com validação RÍGIDA: OCR otimizado e separação de títulos.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -817,4 +820,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v118 | RESGATE DE TÍTULOS E CORREÇÃO DE CONTEÚDO.")
+st.caption("Sistema de Auditoria v119 | RESGATE DE CONTEÚDO E SEPARAÇÃO DE TÍTULOS.")
