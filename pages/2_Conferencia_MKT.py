@@ -1,11 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v100 - "Centroid-Based Column Sorting"
-# - EXTRAÇÃO: Usa algoritmo de centróides (Clustering) para atribuir colunas.
-#   Calcula a distância do centro do bloco para [16% W, 50% W, 83% W].
-#   O bloco vai para a coluna mais próxima. Isso resolve desalinhamentos.
-# - FLUXO: Garante a ordem Col 1 -> Col 2 -> Col 3.
-# - PARSER: Usa lista canônica e ignora subtítulos internos.
+# Versão v101 - "Concrete Walls Sorting" (Correção Definitiva Layout 3 Colunas)
+# - COLUNAS: Define limites rígidos (30% e 64%) baseados na MARGEM ESQUERDA (x0).
+#   Isso força o texto "Informações ao Paciente" (que começa no meio) a ser classificado como Coluna 2,
+#   e o título "3. QUANDO" (que começa na direita) como Coluna 3.
+# - ORDEM: Garante que o texto da Coluna 2 venha ANTES da Coluna 3.
+# - PARSER: Usa lista canônica de 13 títulos para fatiar.
 
 import re
 import difflib
@@ -88,9 +88,6 @@ nlp = carregar_modelo_spacy()
 
 # ----------------- LISTA MESTRA DE SEÇÕES -----------------
 def get_canonical_sections():
-    """
-    Retorna a lista exata de títulos que o sistema deve respeitar.
-    """
     return [
         "APRESENTAÇÕES",
         "COMPOSIÇÃO",
@@ -212,7 +209,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS (CENTROID SORT) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS (CONCRETE WALLS) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -229,13 +226,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # DEFINIÇÃO DE CENTROIDES (Centros Ideais das Colunas)
-                        # Col 1: ~16% da largura (Centro do primeiro terço)
-                        # Col 2: ~50% da largura (Centro do segundo terço)
-                        # Col 3: ~83% da largura (Centro do terceiro terço)
-                        c1 = width * 0.166
-                        c2 = width * 0.500
-                        c3 = width * 0.833
+                        # DEFINIÇÃO DE "MUROS" RÍGIDOS
+                        # Col 1: Começa antes de 30% da largura.
+                        # Col 2: Começa entre 30% e 64% da largura. (Alargado para pegar o centro)
+                        # Col 3: Começa depois de 64% da largura. (Onde começa o titulo da Sec 3)
+                        limite_1 = width * 0.30
+                        limite_2 = width * 0.64
                         
                         col_1, col_2, col_3 = [], [], []
                         cabecalhos = []
@@ -243,40 +239,33 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0, x1 = b[0], b[2]
-                                    center_x = (x0 + x1) / 2
-                                    block_width = x1 - x0
+                                    x0 = b[0] # Margem esquerda do bloco
                                     
-                                    # Se for muito largo (>85%), é cabeçalho global
-                                    if block_width > (width * 0.85):
+                                    # Cabeçalho global apenas se for MUITO largo (>85%) e no topo
+                                    block_width = b[2] - b[0]
+                                    if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
                                         cabecalhos.append(b)
                                     else:
-                                        # CLASSIFICAÇÃO POR PROXIMIDADE (Distância ao Centróide)
-                                        # Calcula a distância do centro do bloco para cada centróide
-                                        d1 = abs(center_x - c1)
-                                        d2 = abs(center_x - c2)
-                                        d3 = abs(center_x - c3)
-                                        
-                                        # Atribui ao mais próximo
-                                        min_dist = min(d1, d2, d3)
-                                        if min_dist == d1:
+                                        # CLASSIFICAÇÃO PELO INÍCIO DA LINHA (x0)
+                                        if x0 < limite_1:
                                             col_1.append(b)
-                                        elif min_dist == d2:
-                                            col_2.append(b) # "Informações..." cairá aqui com certeza
+                                        elif x0 < limite_2:
+                                            col_2.append(b)
                                         else:
                                             col_3.append(b)
                         
-                        # ORDENAÇÃO: Topo->Baixo dentro de cada coluna
+                        # ORDENAÇÃO VERTICAL (Topo -> Baixo)
                         cabecalhos.sort(key=lambda x: x[1])
                         col_1.sort(key=lambda x: (x[1], x[0]))
                         col_2.sort(key=lambda x: (x[1], x[0]))
                         col_3.sort(key=lambda x: (x[1], x[0]))
                         
                         # CONCATENAÇÃO: Header -> Col 1 -> Col 2 -> Col 3
+                        # Isso garante que "Informações..." (Col 2) venha antes de "3. QUANDO" (Col 3)
                         for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
-                        for b in col_2: texto_completo += b[4] + "\n" # Garante que "Informações..." (Sec 2) venha antes...
-                        for b in col_3: texto_completo += b[4] + "\n" # ...de "3. QUANDO" (Sec 3)
+                        for b in col_2: texto_completo += b[4] + "\n"
+                        for b in col_3: texto_completo += b[4] + "\n"
                         
                     else:
                         # ANVISA (Texto corrido)
@@ -298,7 +287,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
-                # Aplica o forçador de títulos ANTES de qualquer coisa
                 texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
@@ -323,11 +311,9 @@ def identificar_ancoras_secoes(texto):
         
         matched_canon = None
         for s_norm, s_canon in secoes_norm.items():
-            # Match exato ou inicio
             if s_norm == norm_linha or (len(s_norm) > 10 and norm_linha.startswith(s_norm)):
                 matched_canon = s_canon
                 break
-            # Fuzzy match mais tolerante
             if fuzz.ratio(s_norm, norm_linha) > 88:
                 matched_canon = s_canon
                 break
@@ -572,8 +558,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v100)")
-st.markdown("Sistema com Extração de Colunas por Centróide (Robustez Total).")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v101)")
+st.markdown("Sistema com Extração de Muros de Concreto (30/64) e Fatiamento Canônico.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -615,4 +601,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v100 | Base v99 + Centroid Layout.")
+st.caption("Sistema de Auditoria de Bulas v101 | Base v100 + Concrete Walls Layout.")
