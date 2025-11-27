@@ -1,8 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v85 - Base v84 + Suporte a Layout de 3 Colunas (Maleato de Enalapril)
-# - ESTRUTURA: Lógica de extração de PDF atualizada para suportar 3 colunas verticais automaticamente.
-# - LIMPEZA: Novos regex para sujeiras de layout detectadas (Merlidu, Fuenteerso, Altefar).
+# Versão v86 - Base v85 + Correção de Fluxo de Colunas (Zonas de Layout)
+# - CORREÇÃO CRÍTICA: Substituída a leitura estrita de colunas verticais por leitura baseada em Zonas (Y-Axis).
+#   Isso resolve o problema de seções que começam no fim de uma coluna e continuam no topo da próxima,
+#   especialmente quando há títulos ou quebras horizontais no meio da página.
 
 import re
 import difflib
@@ -209,7 +210,7 @@ def forcar_titulos_bula(texto):
         
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO (SPLIT COLUMN DINÂMICO) -----------------
+# ----------------- EXTRAÇÃO (SMART LAYOUT / ZONES) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -220,48 +221,72 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
-                    width = rect.width
+                    page_w = rect.width
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
-                        # Lógica Tripla v85 (Suporte a 3 Colunas - Maleato Enalapril):
-                        # Em vez de dividir apenas em Esq/Dir, dividimos em 3 "baldes" verticais.
-                        # Coluna 1: x < 33% | Coluna 2: 33% <= x < 66% | Coluna 3: x >= 66%
-                        # Isso funciona para 2 colunas também (o texto cairá na Col 1 e Col 3).
+                        # Lógica v86: Análise de Layout por Zonas.
+                        # Em vez de colunas estritas, identifica "quebras horizontais" (blocos largos)
+                        # e ordena o conteúdo entre elas.
                         
-                        limite_1 = width * 0.33
-                        limite_2 = width * 0.66
-
-                        blocks = page.get_text("blocks") # Extrai blocos
-                        
-                        col_1 = []
-                        col_2 = []
-                        col_3 = []
+                        blocks = page.get_text("blocks") 
+                        blocks_meta = []
                         
                         for b in blocks:
                             # b = (x0, y0, x1, y1, text, block_no, block_type)
                             if b[6] == 0: # Apenas texto
+                                # Ignora cabeçalhos/rodapés extremos da página se necessário
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    b_center_x = (b[0] + b[2]) / 2
+                                    x0, y0, x1, y1, text = b[:5]
+                                    width = x1 - x0
+                                    center_x = (x0 + x1) / 2
                                     
-                                    if b_center_x < limite_1:
-                                        col_1.append(b)
-                                    elif b_center_x < limite_2:
-                                        col_2.append(b)
-                                    else:
-                                        col_3.append(b)
+                                    # Detecta se é um "Separador" (ocupa mais de 45% da largura da página)
+                                    # Isso pega títulos centralizados, rodapés, ou texto de coluna única.
+                                    is_wide = width > (page_w * 0.45)
+                                    
+                                    # Define Coluna Lógica (0, 1, 2) para ordenação fina
+                                    if center_x < page_w * 0.33: col_id = 0
+                                    elif center_x < page_w * 0.66: col_id = 1
+                                    else: col_id = 2
+                                    
+                                    blocks_meta.append({
+                                        'y0': y0, 'x0': x0, 'col': col_id, 'is_wide': is_wide, 'text': text
+                                    })
                         
-                        # Ordena cada coluna de cima para baixo
-                        col_1.sort(key=lambda x: x[1])
-                        col_2.sort(key=lambda x: x[1])
-                        col_3.sort(key=lambda x: x[1])
+                        # 1. Ordena TUDO por Y (Cima para Baixo) primeiro.
+                        # Isso garante que a gente processe a página "fatia por fatia".
+                        blocks_meta.sort(key=lambda x: x['y0'])
                         
-                        # Reconstrói: Col 1 -> Col 2 -> Col 3
-                        for b in col_1: texto_completo += b[4] + "\n"
-                        for b in col_2: texto_completo += b[4] + "\n"
-                        for b in col_3: texto_completo += b[4] + "\n"
+                        buffer_colunas = []
+                        
+                        def flush_buffer(buf):
+                            if not buf: return ""
+                            # Ordena o buffer: Primeiro por Coluna (Esq -> Dir), depois por Y (Cima -> Baixo)
+                            # Isso garante que em uma zona de colunas, a gente leia Col 1, depois Col 2, depois Col 3.
+                            buf.sort(key=lambda x: (x['col'], x['y0']))
+                            return "".join([item['text'] + "\n" for item in buf])
+
+                        for item in blocks_meta:
+                            if item['is_wide']:
+                                # Encontrou um elemento largo (ex: Título no meio da página).
+                                # Isso age como uma "barreira".
+                                
+                                # 1. Despeja o que acumulou nas colunas acima desta barreira.
+                                texto_completo += flush_buffer(buffer_colunas)
+                                buffer_colunas = []
+                                
+                                # 2. Adiciona o texto da barreira (título/texto largo)
+                                texto_completo += item['text'] + "\n"
+                            else:
+                                # É um bloco estreito (coluna). Guarda no buffer para ordenar depois.
+                                buffer_colunas.append(item)
+                        
+                        # Despeja o que sobrou no final da página
+                        texto_completo += flush_buffer(buffer_colunas)
                         
                     else:
+                        # ANVISA (Texto corrido ou padrão)
                         blocks = page.get_text("blocks", sort=True)
                         for b in blocks:
                             if b[6] == 0:
@@ -724,8 +749,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v85)")
-st.markdown("Sistema com suporte a layout de 3 Colunas (Maleato de Enalapril).")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v86)")
+st.markdown("Sistema com suporte a Layout Inteligente (Detecta continuidade entre colunas e quebras horizontais).")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -770,4 +795,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v85 | Base v84 + Suporte 3 Colunas.")
+st.caption("Sistema de Auditoria de Bulas v86 | Base v85 + Layout de Zonas.")
