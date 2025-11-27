@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v89 - "Snake Flow" & "Strict Section Boundary"
-# - FLUXO: Garante a leitura Coluna 1 -> Coluna 2 -> Coluna 3 para não cortar frases no meio.
-# - BOUNDARY: Implementa verificação linha-a-linha contra TODAS as seções esperadas para evitar vazamento.
-# - TITULOS: Normalização agressiva para variações de OCR (pontos, traços, espaços extras).
+# Versão v90 - "Strict 3-Track Layout" & "Hardened Stop Condition"
+# - LAYOUT: Remove lógica de "Header Global" no meio da página. Força divisão em 3 trilhos verticais puros.
+#   Ordem de Leitura: Trilho Esquerdo -> Trilho Meio -> Trilho Direito.
+# - PARSER: "Freio" de seção reforçado. Só para se encontrar "Número + Ponto" (ex: "3.") ou "DIZERES LEGAIS".
+#   Subtítulos como "O que é pressão arterial?" não param mais a leitura.
 
 import re
 import difflib
@@ -147,7 +148,7 @@ def limpar_lixo_grafico(texto):
 
 def forcar_titulos_bula(texto):
     """
-    Garante que os títulos estejam em linhas próprias e corrige títulos 'colados' (ex: 3.QUANDO).
+    Garante que os títulos estejam em linhas próprias e corrige títulos 'colados'.
     """
     substituicoes = [
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
@@ -183,7 +184,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS "SNAKE FLOW" -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS "STRICT TRACKS" -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -198,55 +199,53 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
-                        # ESTRATÉGIA: FLUXO CONTÍNUO (SNAKE FLOW)
-                        # Agrupa blocos por coluna e concatena na ordem: Col 1 -> Col 2 -> Col 3.
-                        # Isso garante que se uma seção começa no fim da Col 1 e vai pra Col 2, elas ficam adjacentes.
+                        # ESTRATÉGIA V90: 3 TRILHOS PUROS
+                        # Ignora "headers globais" no meio da página.
+                        # Tudo é Coluna 1, 2 ou 3 baseado apenas na posição X.
                         
                         blocks = page.get_text("blocks") 
                         
-                        # Definição de colunas com margem de segurança
-                        limite_1 = width * 0.35
-                        limite_2 = width * 0.68
+                        # Limiares de 3 colunas (aprox 33% e 66%)
+                        limite_1 = width * 0.33
+                        limite_2 = width * 0.66
                         
-                        col_0 = [] # Esquerda
-                        col_1 = [] # Meio
-                        col_2 = [] # Direita
-                        header_footer = [] # Cabeçalhos globais
+                        # "Baldes" para os blocos
+                        col_1 = []
+                        col_2 = []
+                        col_3 = []
+                        top_header = [] # Apenas para o título principal da bula lá no topo absoluto
                         
                         for b in blocks:
                             # b = (x0, y0, x1, y1, text, block_no, type)
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0, x1 = b[0], b[2]
-                                    w_block = x1 - x0
+                                    x0, x1, y0 = b[0], b[2], b[1]
                                     center_x = (x0 + x1) / 2
                                     
-                                    # Se o bloco é muito largo (>85% da pág), é um elemento global (Header/Banner)
-                                    if w_block > (width * 0.85):
-                                        header_footer.append(b)
+                                    # Se está no topo absoluto (primeiros 10% da página) e é largo, é Header
+                                    if y0 < (rect.height * 0.10) and (x1-x0) > (width * 0.8):
+                                        top_header.append(b)
                                     else:
-                                        # Classifica nas colunas
+                                        # Distribuição Geográfica Simples (Bucket Sort)
                                         if center_x < limite_1:
-                                            col_0.append(b)
-                                        elif center_x < limite_2:
                                             col_1.append(b)
-                                        else:
+                                        elif center_x < limite_2:
                                             col_2.append(b)
+                                        else:
+                                            col_3.append(b)
                         
-                        # Ordena cada coluna verticalmente (de cima para baixo)
-                        header_footer.sort(key=lambda x: x[1])
-                        col_0.sort(key=lambda x: x[1])
+                        # Ordena cada coluna de cima para baixo
+                        top_header.sort(key=lambda x: x[1])
                         col_1.sort(key=lambda x: x[1])
                         col_2.sort(key=lambda x: x[1])
+                        col_3.sort(key=lambda x: x[1])
                         
-                        # MONTAGEM DO TEXTO:
-                        # Assumimos que Headers vêm primeiro, depois o fluxo das colunas em ordem.
-                        # Inserimos quebras de linha duplas entre colunas para separar visualmente, mas manter fluxo.
-                        
-                        for b in header_footer: texto_completo += b[4] + "\n"
-                        for b in col_0: texto_completo += b[4] + "\n"
+                        # Concatenação: Topo -> Esquerda -> Meio -> Direita
+                        # Isso garante que a Seção 2 (fim da Esq + todo o Meio) fique contínua.
+                        for b in top_header: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
+                        for b in col_3: texto_completo += b[4] + "\n"
                         
                     else:
                         # ANVISA (Texto corrido)
@@ -279,23 +278,27 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         return "", f"Erro: {e}"
 
 # ----------------- RECONSTRUÇÃO DE PARÁGRAFOS -----------------
-def is_known_section_title(linha, all_sections):
+def is_real_section_title(linha):
     """
-    Verifica se a linha corresponde a QUALQUER título de seção conhecido.
-    Usado como 'freio de mão' para parar a leitura.
+    FREIO DE MÃO REFORÇADO:
+    Só retorna True se for OBRIGATORIAMENTE uma nova seção numerada ou Dizeres Legais.
+    Ignora perguntas como 'O que é pressão alta?' ou 'Como devo usar?'.
     """
-    norm_line = normalizar_titulo_para_comparacao(linha)
-    if len(norm_line) < 5: return False
+    ln = linha.strip()
+    if len(ln) < 4: return False
     
-    # Verifica contra a lista oficial de seções
-    for sec in all_sections:
-        norm_sec = normalizar_titulo_para_comparacao(sec)
-        # Match exato ou muito próximo
-        if norm_sec == norm_line or (len(norm_sec) > 10 and norm_sec in norm_line):
-            return True
-        if fuzz.ratio(norm_sec, norm_line) > 90:
-            return True
-            
+    # 1. Deve começar com NÚMERO + Ponto/Traço/Paren (Ex: "3. QUANDO", "4- O QUE")
+    # A regex exige espaço após o separador para evitar falsos positivos
+    if re.match(r'^\d{1,2}\s*[\.\)\-]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln):
+        return True
+        
+    # 2. Títulos Específicos sem número (apenas estes)
+    upper_ln = ln.upper()
+    if "DIZERES LEGAIS" in upper_ln: return True
+    if "APRESENTAÇÕES" in upper_ln and len(ln) < 20: return True
+    if "COMPOSIÇÃO" in upper_ln and len(ln) < 15: return True
+    
+    # Se for uma pergunta em negrito ("O que é...?", "Por que...?") retorna FALSE
     return False
 
 def reconstruir_paragrafos(texto):
@@ -306,9 +309,6 @@ def reconstruir_paragrafos(texto):
     linhas_out = []
     buffer = ""
     padrao_tabela = re.compile(r'\.{3,}|_{3,}|q\.s\.p|^\s*[-•]\s+')
-    
-    # Lista de seções para identificar quebras
-    all_sections = obter_secoes_por_tipo()
 
     for linha in linhas:
         l_strip = linha.strip()
@@ -319,8 +319,8 @@ def reconstruir_paragrafos(texto):
                 linhas_out.append("")
             continue
             
-        # Se detectamos um título de seção, forçamos quebra
-        if is_known_section_title(l_strip, all_sections):
+        # Usa o verificador reforçado para quebra
+        if is_real_section_title(l_strip):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append(l_strip)
             continue
@@ -390,7 +390,6 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
         if not raw: continue
         norm = normalizar_titulo_para_comparacao(raw)
         
-        # Detecção de número (1., 2., 3)
         mnum = re.match(r'^\s*(\d{1,2})', raw)
         numeric = int(mnum.group(1)) if mnum else None
         
@@ -414,14 +413,13 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
             candidates.append(HeadingCandidate(index=i, raw=raw, norm=norm, numeric=numeric, matched_canon=best_canon if best_score >= 85 else None, score=best_score))
 
     mapa = []
-    # 1. Tenta encontrar cada seção pelo melhor match
     for sec_idx, sec in enumerate(secoes_esperadas):
+        sec_norm = normalizar_titulo_para_comparacao(sec)
         found = None
-        # A. Match por Texto Forte
+        
         possibles = [c for c in candidates if c.matched_canon == sec and c.score >= 90]
         if possibles: found = possibles[0]
         
-        # B. Match por Número (Backup)
         if not found:
             match_num = re.search(r'^(\d+)\.', sec)
             if match_num:
@@ -443,16 +441,15 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     linha_inicio = entrada['linha_inicio']
     
     conteudo_lines = []
-    all_sections = obter_secoes_por_tipo() # Lista de todos os títulos possíveis para "Freio de Mão"
-
-    # Lê até o final do texto, mas para se encontrar OUTRA seção
+    
+    # Lê até o final do texto OU encontrar outro título REAL (Start with Number)
     for i in range(linha_inicio + 1, len(linhas_texto)):
         line = linhas_texto[i]
         
-        # FREIO DE MÃO (Stop Condition)
-        # Se a linha atual parece ser o título de QUALQUER outra seção conhecida, paramos.
-        # Isso impede que o conteúdo da Seção 3 invada a Seção 4.
-        if is_known_section_title(line, all_sections):
+        # FREIO DE MÃO REFORÇADO: 
+        # Só para se for "3. Título" ou "4. Título". 
+        # Não para em "O que é pressão alta?".
+        if is_real_section_title(line):
             break
             
         conteudo_lines.append(line)
@@ -710,8 +707,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v89)")
-st.markdown("Sistema com Fluxo Snake (3 Colunas Contínuas) e Verificação Estrita de Limites de Seção.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v90)")
+st.markdown("Sistema com Trilhos Verticais Rígidos (Evita quebra de seção) e Freio de Seção Inteligente.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -756,4 +753,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v89 | Base v88 + Snake Flow & Boundary Strict Check.")
+st.caption("Sistema de Auditoria de Bulas v90 | Base v89 + 3-Tracks & Smart Brake.")
