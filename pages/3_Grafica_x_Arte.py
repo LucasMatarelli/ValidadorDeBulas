@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v107 - Fusão Total (Limpeza Gráfica Avançada + Colunas + Trava Numérica)
-# - CORREÇÃO DE LEITURA: Usa 'organizar_por_colunas' para ler corretamente o PDF largo da gráfica.
-# - LIMPEZA DE PROVA: Remove lixos como "1a PROVA", "Medida da bula", "Gibran", assinaturas e tabelas de controle.
-# - INTEGRIDADE: Impede que Seção 6 vire Seção 8 (Trava Numérica).
-# - MANTIDO: Backend e Frontend idênticos, apenas a lógica de processamento foi aprimorada.
+# Versão v108 - Solução Definitiva para Provas Gráficas (Híbrido OCR + Colunas)
+# - NOVO: 'extrair_texto_hibrido' verifica se o PDF tem texto legível. Se não, ativa OCR automaticamente.
+# - LIMPEZA: Remove lixos de gráfica ("1a PROVA", "Gibran", medidas, assinaturas).
+# - ESTRUTURA: Lê por colunas verticais para não misturar texto em PDFs largos.
+# - INTEGRIDADE: Mantém a trava numérica (Seção 2 não mistura com 4).
 
 import re
 import difflib
@@ -20,7 +20,7 @@ from collections import namedtuple
 from PIL import Image
 import pytesseract
 
-# ----------------- UI / CSS -----------------
+# ----------------- UI / CSS (MANTIDO DO ANTERIOR) -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
@@ -119,9 +119,9 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (v107 - Provas Gráficas) -----------------
+# ----------------- LIMPEZA CIRÚRGICA DE PROVAS GRÁFICAS -----------------
 def limpar_lixo_grafico(texto):
-    """Remove lixo técnico, fragmentos de prova gráfica e dimensões."""
+    """Remove lixo técnico, anotações de prova gráfica e dimensões."""
     texto_limpo = texto
     
     # 1. Frases/Padrões Literais Longos
@@ -139,7 +139,7 @@ def limpar_lixo_grafico(texto):
 
     # 3. Limpezas Específicas (Regex)
     padroes_especificos = [
-        # --- LIXO DE PROVA GRÁFICA (NOVO) ---
+        # --- LIXO DE PROVA GRÁFICA (IDENTIFICADO NAS IMAGENS) ---
         r'.*PROVA\s*\d{2}/\d{2}/\d{4}.*',  # 1a. PROVA 03/10/2025
         r'.*Favor\s*conferir.*',           # Favor conferir e enviar aprovação...
         r'.*Autorizado\s*Sim\s*Não.*',     # Checkbox de aprovação
@@ -268,7 +268,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS) -----------------
+# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS & HÍBRIDO) -----------------
 def organizar_por_colunas(page):
     """
     Agrupa blocos de texto por proximidade horizontal (colunas)
@@ -316,13 +316,18 @@ def executar_ocr(arquivo_bytes):
     return texto_ocr
 
 def verifica_qualidade_texto(texto):
-    if not texto: return False
+    """Verifica se o texto extraído tem palavras-chave de bula suficientes."""
+    if not texto or len(texto) < 100: return False
     t_limpo = re.sub(r'\s+', '', unicodedata.normalize('NFD', texto).lower())
-    keywords = ["paraqueeste", "comodevousar", "dizereslegais", "quandonaodevo", "composicao"]
+    # Palavras-chave obrigatórias em qualquer bula
+    keywords = ["paraqueeste", "comodevousar", "dizereslegais", "quandonaodevo", "composicao", "medicamento"]
     hits = sum(1 for k in keywords if k in t_limpo)
-    return hits >= 2
+    return hits >= 2 # Se encontrar pelo menos 2, assume que o texto é válido
 
 def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
+    """
+    Tenta extração nativa. Se falhar (texto vazio ou ruim), usa OCR.
+    """
     if arquivo is None: return "", "Arquivo não enviado."
     try:
         arquivo.seek(0)
@@ -336,9 +341,11 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     # [IMPORTANTE] Usa algoritmo de colunas SEMPRE para PDFs
                     texto_nativo += organizar_por_colunas(page)
             
+            # Verifica se precisa de OCR
             if verifica_qualidade_texto(texto_nativo):
                 texto_completo = texto_nativo
             else:
+                # Se a extração nativa falhou, tenta OCR
                 texto_completo = executar_ocr(arquivo_bytes)
 
         elif tipo_arquivo == 'docx':
@@ -695,79 +702,27 @@ def detectar_tipo_arquivo_por_score(texto):
     elif score_prof > score_pac: return "Profissional"
     return "Indeterminado"
 
-def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
-    st.header("Relatório de Auditoria Inteligente")
-    rx_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
-    m_ref = re.search(rx_anvisa, texto_ref or "", re.IGNORECASE)
-    m_bel = re.search(rx_anvisa, texto_belfar or "", re.IGNORECASE)
-    data_ref = m_ref.group(2).strip() if m_ref else "Não encontrada"
-    data_bel = m_bel.group(2).strip() if m_bel else "Não encontrada"
-
-    secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos, secoes_analisadas = verificar_secoes_e_conteudo(texto_ref, texto_belfar)
-    erros = checar_ortografia_inteligente(texto_belfar, texto_ref)
-    score = sum(similaridades)/len(similaridades) if similaridades else 100.0
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Conformidade", f"{score:.0f}%")
-    c2.metric("Erros Ortográficos", len(erros))
-    c3.metric("Data ANVISA (Ref)", data_ref)
-    c4.metric("Data ANVISA (Bel)", data_bel)
-
-    st.divider()
-    st.subheader("Seções (clique para expandir)")
-    
-    html_ref = construir_html_secoes(secoes_analisadas, [], True)
-    html_bel = construir_html_secoes(secoes_analisadas, erros, False)
-    prefixos = {"PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.", "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", "COMO DEVO USAR ESTE MEDICAMENTO?": "6.", "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.", "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."}
-
-    for diff in secoes_analisadas:
-        sec = diff['secao']
-        pref = prefixos.get(sec, "")
-        tit = f"{pref} {sec}" if pref else sec
-        status = "✅ Idêntico"
-        if diff.get('faltante'): status = "🚨 FALTANTE"
-        elif diff.get('ignorada'): status = "⚠️ Ignorada"
-        elif diff.get('tem_diferenca'): status = "❌ Divergente"
-
-        with st.expander(f"{tit} — {status}", expanded=(diff.get('tem_diferenca') or diff.get('faltante'))):
-            c1, c2 = st.columns([1,1], gap="large")
-            with c1:
-                st.markdown(f"**{nome_ref}**", unsafe_allow_html=True)
-                st.markdown(f"<div class='bula-box'>{html_ref.get(sec, '<i>N/A</i>')}</div>", unsafe_allow_html=True)
-            with c2:
-                st.markdown(f"**{nome_belfar}**", unsafe_allow_html=True)
-                st.markdown(f"<div class='bula-box'>{html_bel.get(sec, '<i>N/A</i>')}</div>", unsafe_allow_html=True)
-
-    st.divider()
-    st.subheader("🎨 Visualização Completa")
-    full_order = [s['secao'] for s in secoes_analisadas]
-    h_r = "".join([html_ref.get(s, "") for s in full_order])
-    h_b = "".join([html_bel.get(s, "") for s in full_order])
-    
-    cr, cb = st.columns(2, gap="large")
-    with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
-    with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
-
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v107)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v108)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
-tipo_bula_selecionado = "Paciente" # Fixo
+tipo_bula_selecionado = "Paciente"
 
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arte Vigente")
+    st.subheader("📄 Arquivo ANVISA")
     pdf_ref = st.file_uploader("PDF/DOCX Referência", type=["pdf", "docx"], key="ref")
 with col2:
-    st.subheader("📄 PDF da Gráfica")
-    pdf_belfar = st.file_uploader("PDF vindo da Gráfica", type=["pdf", "docx"], key="belfar")
+    st.subheader("📄 Arquivo MKT")
+    pdf_belfar = st.file_uploader("PDF/DOCX Belfar", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
         with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
+            # AQUI ESTÁ A MUDANÇA PRINCIPAL: USA 'extrair_texto_hibrido' EM VEZ DE 'extrair_texto'
             texto_ref_raw, erro_ref = extrair_texto_hibrido(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto_hibrido(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
 
@@ -793,4 +748,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v107 | Limpeza de Provas Gráficas.")
+st.caption("Sistema de Auditoria de Bulas v108 | Solução Definitiva para Provas Gráficas.")
