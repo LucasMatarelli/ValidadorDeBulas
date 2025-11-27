@@ -20,7 +20,7 @@ from collections import namedtuple
 from PIL import Image
 import pytesseract
 
-# ----------------- UI / CSS (MANTIDO DO ANTERIOR) -----------------
+# ----------------- UI / CSS -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
@@ -701,6 +701,59 @@ def detectar_tipo_arquivo_por_score(texto):
     if score_pac > score_prof: return "Paciente"
     elif score_prof > score_pac: return "Profissional"
     return "Indeterminado"
+
+def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_bula):
+    st.header("Relatório de Auditoria Inteligente")
+    rx_anvisa = r"(aprovad[ao]\s+pela\s+anvisa\s+em|data\s+de\s+aprovação\s+na\s+anvisa:)\s*([\d]{1,2}/[\d]{1,2}/[\d]{2,4})"
+    m_ref = re.search(rx_anvisa, texto_ref or "", re.IGNORECASE)
+    m_bel = re.search(rx_anvisa, texto_belfar or "", re.IGNORECASE)
+    data_ref = m_ref.group(2).strip() if m_ref else "Não encontrada"
+    data_bel = m_bel.group(2).strip() if m_bel else "Não encontrada"
+
+    secoes_faltantes, diferencas_conteudo, similaridades, diferencas_titulos, secoes_analisadas = verificar_secoes_e_conteudo(texto_ref, texto_belfar)
+    erros = checar_ortografia_inteligente(texto_belfar, texto_ref)
+    score = sum(similaridades)/len(similaridades) if similaridades else 100.0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Conformidade", f"{score:.0f}%")
+    c2.metric("Erros Ortográficos", len(erros))
+    c3.metric("Data ANVISA (Ref)", data_ref)
+    c4.metric("Data ANVISA (Bel)", data_bel)
+
+    st.divider()
+    st.subheader("Seções (clique para expandir)")
+    
+    html_ref = construir_html_secoes(secoes_analisadas, [], True)
+    html_bel = construir_html_secoes(secoes_analisadas, erros, False)
+    prefixos = {"PARA QUE ESTE MEDICAMENTO É INDICADO": "1.", "COMO ESTE MEDICAMENTO FUNCIONA?": "2.", "QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?": "3.", "O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?": "4.", "ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?": "5.", "COMO DEVO USAR ESTE MEDICAMENTO?": "6.", "O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?": "7.", "QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?": "8.", "O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?": "9."}
+
+    for diff in secoes_analisadas:
+        sec = diff['secao']
+        pref = prefixos.get(sec, "")
+        tit = f"{pref} {sec}" if pref else sec
+        status = "✅ Idêntico"
+        if diff.get('faltante'): status = "🚨 FALTANTE"
+        elif diff.get('ignorada'): status = "⚠️ Ignorada"
+        elif diff.get('tem_diferenca'): status = "❌ Divergente"
+
+        with st.expander(f"{tit} — {status}", expanded=(diff.get('tem_diferenca') or diff.get('faltante'))):
+            c1, c2 = st.columns([1,1], gap="large")
+            with c1:
+                st.markdown(f"**{nome_ref}**", unsafe_allow_html=True)
+                st.markdown(f"<div class='bula-box'>{html_ref.get(sec, '<i>N/A</i>')}</div>", unsafe_allow_html=True)
+            with c2:
+                st.markdown(f"**{nome_belfar}**", unsafe_allow_html=True)
+                st.markdown(f"<div class='bula-box'>{html_bel.get(sec, '<i>N/A</i>')}</div>", unsafe_allow_html=True)
+
+    st.divider()
+    st.subheader("🎨 Visualização Completa")
+    full_order = [s['secao'] for s in secoes_analisadas]
+    h_r = "".join([html_ref.get(s, "") for s in full_order])
+    h_b = "".join([html_bel.get(s, "") for s in full_order])
+    
+    cr, cb = st.columns(2, gap="large")
+    with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
+    with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
 st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v108)")
