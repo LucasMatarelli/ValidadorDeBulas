@@ -169,7 +169,7 @@ def limpar_lixo_grafico(texto):
         
         # Lixo comum
         r"\s+'\s+", 
-        r'.*\(?\s*31\s*\)?\s*3514\s*-\s*2900.*',
+        r'.*\(?\s*31\s*\)?\s*3514\s*[-.]\s*2900.*', # Atualizado para aceitar ponto no telefone
         r'^\s*contato\s*$',
         r'.*:\s*19\s*,\s*0\s*x\s*45\s*,\s*0.*',
         r'.*(?:—\s*)+\s*>\s*>\s*>\s*».*',
