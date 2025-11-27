@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v96 - "Strict Thirds" + "Header Force"
-# - COLUNAS: Divisão estrita em 33% e 66% da largura da página. Isso corrige o problema
-#   de títulos da coluna da direita (Seção 8) caírem na coluna do meio (Seção 6).
-# - TITULOS: Regex mais agressivo para garantir que "6.COMO" vire "6. COMO" e seja reconhecido.
-# - PARSER: Usa apenas a lista oficial de seções para fatiar o texto (ignora subtítulos).
+# Versão v97 - "Vertical Silos" (Correção Definitiva de Ordem)
+# - CORREÇÃO CRÍTICA: Garante que o texto seja montado coluna por coluna (1->2->3),
+#   e NUNCA linha por linha (o que misturava as seções).
+# - LOGICA: Usa a coordenada X0 (margem esquerda) para classificar os blocos em 3 silos.
+# - PARSER: Usa a lista canônica de 13 títulos para fatiar o texto com precisão.
 
 import re
 import difflib
@@ -85,11 +85,11 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- LISTA MESTRA DE SEÇÕES (HARDCODED) -----------------
+# ----------------- LISTA MESTRA DE SEÇÕES -----------------
 def get_canonical_sections():
     """
-    Lista oficial de títulos. O sistema só vai quebrar o texto se encontrar
-    exatamente um destes (com tolerância a OCR).
+    Retorna a lista exata de títulos oficiais.
+    Qualquer texto que não seja um desses 13 títulos é considerado CONTEÚDO da seção anterior.
     """
     return [
         "APRESENTAÇÕES",
@@ -175,8 +175,7 @@ def limpar_lixo_grafico(texto):
 
 def forcar_titulos_bula(texto):
     """
-    Padronização agressiva dos títulos. Garante que existam quebras de linha antes e depois.
-    Resolve problemas de títulos colados como "6.COMO".
+    Garante que os títulos estejam isolados e limpos para o matcher.
     """
     substituicoes = [
         (r"(?:^|\n)\s*(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
@@ -214,7 +213,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS ESTRITA (33/66) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS (SILOS VERTICAIS) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -231,42 +230,41 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # LIMITES DE COLUNA (Terços Exatos)
-                        # Usamos 33% e 66% da largura. 
-                        # Isso garante que se um bloco começar em 68% (direita), ele caia na Coluna 3.
-                        limite_1 = width * 0.33
+                        # Definição dos Silos (3 Colunas Estritas)
+                        # Usamos 32% e 66% para garantir margem de segurança
+                        limite_1 = width * 0.32
                         limite_2 = width * 0.66
                         
-                        col_1, col_2, col_3 = [], [], []
-                        cabecalhos = []
+                        col_1 = []
+                        col_2 = []
+                        col_3 = []
                         
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0 = b[0] # Margem esquerda
-                                    block_width = b[2] - b[0]
+                                    x0 = b[0] # Ponto de partida esquerdo da linha
                                     
-                                    # Se for muito largo (>85%), é cabeçalho global
-                                    if block_width > (width * 0.85):
-                                        cabecalhos.append(b)
+                                    # Classifica no silo correto
+                                    if x0 < limite_1:
+                                        col_1.append(b)
+                                    elif x0 < limite_2:
+                                        col_2.append(b)
                                     else:
-                                        # Distribuição por margem esquerda
-                                        if x0 < limite_1: col_1.append(b)
-                                        elif x0 < limite_2: col_2.append(b)
-                                        else: col_3.append(b)
+                                        col_3.append(b)
                         
-                        # Ordena: Topo->Baixo
-                        cabecalhos.sort(key=lambda x: x[1])
-                        col_1.sort(key=lambda x: (x[1], x[0]))
-                        col_2.sort(key=lambda x: (x[1], x[0]))
-                        col_3.sort(key=lambda x: (x[1], x[0]))
+                        # ORDENAÇÃO VERTICAL DENTRO DO SILO (De cima para baixo)
+                        col_1.sort(key=lambda x: x[1])
+                        col_2.sort(key=lambda x: x[1])
+                        col_3.sort(key=lambda x: x[1])
                         
-                        for b in cabecalhos: texto_completo += b[4] + "\n"
+                        # CONCATENAÇÃO: Silo 1 -> Silo 2 -> Silo 3
+                        # Isso garante que se uma frase termina na Col 1 e vai pra Col 2, elas fiquem juntas.
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
                         for b in col_3: texto_completo += b[4] + "\n"
                         
                     else:
+                        # ANVISA (Texto corrido)
                         blocks = page.get_text("blocks", sort=True)
                         for b in blocks:
                             if b[6] == 0:
@@ -285,7 +283,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
-                # Aplica o forçador de títulos ANTES de qualquer coisa
                 texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
@@ -314,7 +311,7 @@ def identificar_ancoras_secoes(texto):
             if s_norm == norm_linha or (len(s_norm) > 10 and norm_linha.startswith(s_norm)):
                 matched_canon = s_canon
                 break
-            # Fuzzy match mais tolerante (85%) para pegar erros de OCR leves
+            # Fuzzy match mais tolerante
             if fuzz.ratio(s_norm, norm_linha) > 88:
                 matched_canon = s_canon
                 break
@@ -559,8 +556,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v96)")
-st.markdown("Sistema com Extração de 3 Colunas Rígidas (33/66) e Fatiamento Canônico.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v97)")
+st.markdown("Sistema com Extração de Silos Verticais (1->2->3) e Fatiamento Canônico.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -602,4 +599,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v96 | Base v94 + Strict Thirds Split.")
+st.caption("Sistema de Auditoria de Bulas v97 | Base v96 + Vertical Silos Fix.")
