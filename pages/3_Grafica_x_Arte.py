@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v109 - Refinamento Final de Layout e Títulos
-# - MELHORIA: Lógica de colunas ainda mais robusta para evitar fragmentação de texto.
-# - CORREÇÃO: Limpeza agressiva de "ruído" de OCR (linhas de pontuação, caracteres soltos).
-# - AJUSTE: Normalização de títulos flexível para capturar variações truncadas/sujas.
-# - MANTIDO: Correções específicas de termos ("Maleato", "10 mg", etc.).
+# Versão v110 - Limpeza de Barras de Cores e Metadados
+# - NOVO: Regex "Anti-Ruído" para remover barras de calibração (E [ -> w ...).
+# - NOVO: Remoção de marcadores de página (--- PAGE X ---) e códigos de arte (22142800).
+# - AJUSTE: Limpeza de linhas curtas "fantasmas" (c " a e).
+# - MANTIDO: Lógica de colunas e normalização de títulos da v109.
 
 import re
 import difflib
@@ -119,21 +119,26 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v109) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v110) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
     texto_limpo = texto
     
+    # 1. Padrões de "Ruído Gráfico" (Barras de Cores / Escalas)
+    # Remove linhas contendo sequências longas de caracteres especiais típicos de OCR de barras de cor
+    # Ex: E [ — > w [ [ | [ | [ | | ...
+    texto_limpo = re.sub(r'(?m)^.*[\[\]|—>w]{5,}.*$', '', texto_limpo)
+
     lixo_frases = [
         "mma USO ORAL mm USO ADULTO",
         "mem CSA comprimido",
         "MMA 1250 - 12/25",
         "Medida da bula",
-        "19 , 0 cm x 45 , 0 cm",
         "Can Phete", "gbrangrafica", "Gibran",
         "............", "..........",
-        ".. o.", "?. =", " . ="
+        ".. o.", "?. =", " . =",
+        "c “ a e" # Artefato específico reportado
     ]
     for item in lixo_frases:
         texto_limpo = texto_limpo.replace(item, "")
@@ -141,11 +146,12 @@ def limpar_lixo_grafico(texto):
     # 2. Tokens curtos/soltos
     texto_limpo = re.sub(r'\b(mm|cm|gm)\b', '', texto_limpo, flags=re.IGNORECASE)
 
-    # 3. Limpezas Específicas
+    # 3. Limpezas Específicas com Regex
     padroes_especificos = [
+        r'^\s*--- PAGE \d+ ---\s*$', # Cabeçalho de página inserido pelo extrator
         r'^\s*\d{1,3}\s*,\s*00\s*$',
         r'^\s*\d{1,3}\s*[xX]\s*\d{1,3}\s*$',
-        r'^\s*\d{1,3}\s*[\.,]\s*\d{1,2}\s*cm\s*$', 
+        r'^\s*[\d\.,]+\s*cm\s*$', # Ex: 19.00 cm, 10,00 cm
         r'^\s*[\d\.,]+\s*mm\s*$', 
         r'^.*Medida da bula:.*$',
         r'^.*Tipologia da bula:.*$',
@@ -191,12 +197,12 @@ def limpar_lixo_grafico(texto):
         r'.*\b\d{6,}\s*-\s*\d{2}/\d{2}\b.*', 
         r'.*BUL_CLORIDRATO.*',
         r'^\s*450\s*$',
-        r'^\s*22142800\s*$',
+        r'^\s*22142800\s*$', # Código numérico específico do PDF
         r'.*☑.*', r'.*☐.*',
-        r'\.{4,}', # Pontilhados
+        r'\.{4,}', # Pontilhados longos
         r'ir ie+r+e+', # Ruído de bitmap
         r'c tr tr r+e+', # Ruído de bitmap
-        r'^[_\W]+$' # Linhas só com símbolos
+        r'^[_\W]+$' # Linhas constituídas apenas por símbolos (ex: ____, | | |)
     ]
     
     for p in padroes_especificos:
@@ -213,6 +219,7 @@ def limpar_lixo_grafico(texto):
 
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
     texto_limpo = texto_limpo.replace(" se a administrado ", " se administrado ")
+    texto_limpo = texto_limpo.replace("* bicarbonato", "bicarbonato") # Remove bullet solto
 
     return texto_limpo
 
@@ -316,16 +323,18 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
         if tipo_arquivo == 'pdf':
             pages_text = []
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
-                for page in doc:
+                for i, page in enumerate(doc):
                     if is_marketing_pdf:
                         # Usa o novo extrator por colunas corrigido
                         txt = get_text_sorted_by_columns(page)
                     else:
                         txt = page.get_text()
-                    pages_text.append(txt)
+                    # Adiciona marcador temporário para debug, removido depois pelo regex de limpeza
+                    pages_text.append(f"--- PAGE {i+1} ---\n{txt}")
             
             # Lógica Inteligente de Reordenação de Páginas
             if len(pages_text) >= 2:
+                # Remove cabeçalhos inseridos manualmente para verificação de conteúdo
                 p1_sample = pages_text[0][:1000].upper()
                 p2_sample = pages_text[1][:1000].upper()
                 
@@ -704,7 +713,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v109)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v110)")
 st.markdown("Sistema com validação RÍGIDA: Correção de fragmentação de colunas e títulos.")
 
 st.divider()
@@ -749,4 +758,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v109 | Correção de Colunas Fragmentadas e Títulos Sujos.")
+st.caption("Sistema de Auditoria v110 | Correção de Colunas Fragmentadas e Títulos Sujos.")
