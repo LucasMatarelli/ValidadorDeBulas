@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v110 - Limpeza de Barras de Cores e Metadados
-# - NOVO: Regex "Anti-Ruído" para remover barras de calibração (E [ -> w ...).
-# - NOVO: Remoção de marcadores de página (--- PAGE X ---) e códigos de arte (22142800).
-# - AJUSTE: Limpeza de linhas curtas "fantasmas" (c " a e).
-# - MANTIDO: Lógica de colunas e normalização de títulos da v109.
+# Versão v112 - Fix Final de Colunas Largas e OCR
+# - CORREÇÃO CRÍTICA: Binning de colunas aumentado para 350px (resolve textos pulando de coluna).
+# - OCR: Correção específica para "nlguesiomiro", "tista", "renda uso".
+# - LIMPEZA: Remoção de pontuação flutuante e linhas de ruído gráfico.
 
 import re
 import difflib
@@ -119,16 +118,17 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v110) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v112) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
     texto_limpo = texto
     
     # 1. Padrões de "Ruído Gráfico" (Barras de Cores / Escalas)
-    # Remove linhas contendo sequências longas de caracteres especiais típicos de OCR de barras de cor
-    # Ex: E [ — > w [ [ | [ | [ | | ...
     texto_limpo = re.sub(r'(?m)^.*[\[\]|—>w]{5,}.*$', '', texto_limpo)
+
+    # 2. Remoção de Gibberish (Sequências longas de vogais/consoantes repetidas)
+    texto_limpo = re.sub(r'\b[a-z]*([aeiou]{3,}|[rsnt]{4,})[a-z]*\b', '', texto_limpo, flags=re.IGNORECASE)
 
     lixo_frases = [
         "mma USO ORAL mm USO ADULTO",
@@ -137,21 +137,24 @@ def limpar_lixo_grafico(texto):
         "Medida da bula",
         "Can Phete", "gbrangrafica", "Gibran",
         "............", "..........",
-        ".. o.", "?. =", " . =",
-        "c “ a e" # Artefato específico reportado
+        "?. =", " . =",
+        "c “ a e"
     ]
     for item in lixo_frases:
         texto_limpo = texto_limpo.replace(item, "")
 
-    # 2. Tokens curtos/soltos
+    # Limpeza flexível de pontuação solta
+    texto_limpo = re.sub(r':\s*\.\.\s*o\.?', ':', texto_limpo)
+
+    # 3. Tokens curtos/soltos
     texto_limpo = re.sub(r'\b(mm|cm|gm)\b', '', texto_limpo, flags=re.IGNORECASE)
 
-    # 3. Limpezas Específicas com Regex
+    # 4. Limpezas Específicas com Regex
     padroes_especificos = [
-        r'^\s*--- PAGE \d+ ---\s*$', # Cabeçalho de página inserido pelo extrator
+        r'^\s*--- PAGE \d+ ---\s*$',
         r'^\s*\d{1,3}\s*,\s*00\s*$',
         r'^\s*\d{1,3}\s*[xX]\s*\d{1,3}\s*$',
-        r'^\s*[\d\.,]+\s*cm\s*$', # Ex: 19.00 cm, 10,00 cm
+        r'^\s*[\d\.,]+\s*cm\s*$',
         r'^\s*[\d\.,]+\s*mm\s*$', 
         r'^.*Medida da bula:.*$',
         r'^.*Tipologia da bula:.*$',
@@ -197,12 +200,12 @@ def limpar_lixo_grafico(texto):
         r'.*\b\d{6,}\s*-\s*\d{2}/\d{2}\b.*', 
         r'.*BUL_CLORIDRATO.*',
         r'^\s*450\s*$',
-        r'^\s*22142800\s*$', # Código numérico específico do PDF
+        r'^\s*22142800\s*$',
         r'.*☑.*', r'.*☐.*',
-        r'\.{4,}', # Pontilhados longos
-        r'ir ie+r+e+', # Ruído de bitmap
-        r'c tr tr r+e+', # Ruído de bitmap
-        r'^[_\W]+$' # Linhas constituídas apenas por símbolos (ex: ____, | | |)
+        r'\.{4,}',
+        r'ir ie+r+e+',
+        r'c tr tr r+e+',
+        r'^[_\W]+$'
     ]
     
     for p in padroes_especificos:
@@ -219,7 +222,7 @@ def limpar_lixo_grafico(texto):
 
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
     texto_limpo = texto_limpo.replace(" se a administrado ", " se administrado ")
-    texto_limpo = texto_limpo.replace("* bicarbonato", "bicarbonato") # Remove bullet solto
+    texto_limpo = texto_limpo.replace("* bicarbonato", "bicarbonato")
 
     return texto_limpo
 
@@ -236,7 +239,14 @@ def corrigir_padroes_bula(texto):
     texto = re.sub(r'\bparam\b', 'para', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bdae:\s*', 'dose: ', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bcm dosc\b', 'em dose', texto, flags=re.IGNORECASE)
-    texto = re.sub(r'101\s*excipientes', '10 mg excipientes', texto, flags=re.IGNORECASE) # Fix "101 excipientes"
+    
+    # CORREÇÕES CRÍTICAS V112
+    texto = re.sub(r'\bnlguesiomiro\b', 'algum outro', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'\brenda uso\b', 'fazendo uso', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'\btista\b', 'dentista', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', texto) # Fix números quebrados
+    texto = texto.replace('excipientes ” q', 'excipientes q.s.p.')
+    texto = re.sub(r'101\s*excipientes', '10 mg excipientes', texto, flags=re.IGNORECASE)
     
     # 1. TEMPERATURA E SÍMBOLOS
     texto = re.sub(r'(\d+)\s*Ca\s*(\d+)', r'\1°C a \2', texto)
@@ -259,14 +269,12 @@ def corrigir_padroes_bula(texto):
 # ----------------- EXTRAÇÃO -----------------
 
 def forcar_titulos_bula(texto):
-    # Regex ultra-permissivos para pegar títulos quebrados como "6. COMO MEDICAMENTO?. ="
     substituicoes = [
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
         (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
         (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
         (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-        # Captura "6. COMO MEDICAMENTO" com qualquer lixo depois até o ? ou . e linhas adjacentes sujas
         (r"(?:6\.?\s*)?COMO\s*(?:DEVO\s*USAR\s*ESTE\s*)?MEDICAMENTO.*?(?:\?|\.|=)", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"), 
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
@@ -295,23 +303,23 @@ def verifica_qualidade_texto(texto):
     return hits >= 2
 
 def get_text_sorted_by_columns(page):
-    """Extrai texto agrupando por colunas de forma robusta."""
+    """Extrai texto agrupando por colunas largas para evitar fragmentação."""
     blocks = page.get_text("blocks")
     if not blocks: return ""
     text_blocks = [b for b in blocks if b[6] == 0]
     
     if not text_blocks: return ""
 
-    # Ajuste Crítico: Binning mais largo (200pts) para garantir que
-    # parágrafos indentados (recuados) fiquem na mesma coluna lógica.
+    # AJUSTE V112: Binning de 350 para capturar colunas largas de provas gráficas
     def get_sort_key(b):
         x0 = b[0]
         y0 = b[1]
-        col_bin = int(x0 / 200) * 200 
+        col_bin = int(x0 / 350) * 350 
         return (col_bin, y0)
     
     text_blocks.sort(key=get_sort_key)
-    return "\n".join([b[4] for b in text_blocks])
+    # Adiciona quebra de linha dupla para separar blocos claramente
+    return "\n\n".join([b[4] for b in text_blocks])
 
 def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", "Arquivo não enviado."
@@ -325,16 +333,12 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 for i, page in enumerate(doc):
                     if is_marketing_pdf:
-                        # Usa o novo extrator por colunas corrigido
                         txt = get_text_sorted_by_columns(page)
                     else:
                         txt = page.get_text()
-                    # Adiciona marcador temporário para debug, removido depois pelo regex de limpeza
                     pages_text.append(f"--- PAGE {i+1} ---\n{txt}")
             
-            # Lógica Inteligente de Reordenação de Páginas
             if len(pages_text) >= 2:
-                # Remove cabeçalhos inseridos manualmente para verificação de conteúdo
                 p1_sample = pages_text[0][:1000].upper()
                 p2_sample = pages_text[1][:1000].upper()
                 
@@ -385,7 +389,8 @@ def reconstruir_paragrafos(texto):
             if not linhas_out or linhas_out[-1] != "": linhas_out.append("")
             continue
         first = l_strip.split('\n')[0]
-        is_title = re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', first) or (first.isupper() and len(first)>4)
+        # Ajuste V112: Título não pode terminar com ponto final (evita frases soltas serem titulos)
+        is_title = re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', first) or (first.isupper() and len(first)>4 and not first.strip().endswith('.'))
         if is_title:
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append(l_strip)
@@ -713,7 +718,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v110)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v112)")
 st.markdown("Sistema com validação RÍGIDA: Correção de fragmentação de colunas e títulos.")
 
 st.divider()
@@ -758,4 +763,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v110 | Correção de Colunas Fragmentadas e Títulos Sujos.")
+st.caption("Sistema de Auditoria v112 | Correção de Colunas Fragmentadas e Títulos Sujos.")
