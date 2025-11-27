@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v93 - "Canonical Anchor Slicing"
-# - LÓGICA: Não adivinha mais seções. Usa APENAS a lista de 13 títulos fornecida pelo usuário.
-# - PARSER: Varre o texto, encontra as linhas desses 13 títulos (Âncoras) e fatia o texto entre elas.
-# - RESULTADO: Subtítulos como "O que é pressão alta?" são ignorados como quebra e entram corretamente no conteúdo.
+# Versão v94 - "Canonical Anchor Slicing" + Fix NameError
+# - CORREÇÃO: Restauradas as funções 'obter_secoes_ignorar_comparacao' e 'obter_secoes_ignorar_ortografia' que faltavam.
+# - LÓGICA: Mantém a estratégia v93 de usar APENAS a lista de 13 títulos para fatiar o texto.
+# - RESULTADO: O erro de NameError sumirá e a separação será rígida pelos títulos oficiais.
 
 import re
 import difflib
@@ -104,6 +104,13 @@ def get_canonical_sections():
         "9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?",
         "DIZERES LEGAIS"
     ]
+
+# --- FUNÇÕES RESTAURADAS (FIX NAME ERROR) ---
+def obter_secoes_ignorar_comparacao(): 
+    return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
+
+def obter_secoes_ignorar_ortografia(): 
+    return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
 # ----------------- UTILITÁRIOS -----------------
 def normalizar_texto(texto):
@@ -564,7 +571,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v93)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v94)")
 st.markdown("Sistema com Fatiamento por Âncoras Canônicas (Ignora subtítulos).")
 
 st.divider()
@@ -609,4 +616,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v93 | Base v92 + Canonical Anchors.")
+st.caption("Sistema de Auditoria de Bulas v94 | Base v93 + Fix NameError.")
