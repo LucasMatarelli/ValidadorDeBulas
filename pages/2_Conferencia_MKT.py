@@ -1,9 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v87 - Base v86 + Extração Estrita de 3 Colunas + Smart Matching
-# - CORREÇÃO CRÍTICA: Implementada lógica de "Buckets" verticais rígidos para garantir a ordem Coluna 1 -> 2 -> 3.
-# - MAPPER: Substituída a busca sequencial por busca global de melhor match (evita cruzar Seção 3 com Seção 5).
-# - VISUAL: Melhorada a identificação de títulos "colados" (ex: 3.QUANDO sem espaço).
+# Versão v88 - "Linear Flow" & "Strict Stop"
+# - EXTRAÇÃO: Reconstrói a página concatenando Coluna 1 -> Coluna 2 -> Coluna 3.
+#   Isso garante que texto que quebra de coluna continue na linha seguinte.
+# - PARSER: Adicionado "Freio de Mão" (Stop Condition). Ao ler o conteúdo, se encontrar
+#   QUALQUER padrão de título (mesmo que não seja o esperado), ele para a leitura.
+# - TITULOS: Reforço na detecção de títulos colados (ex: "3.QUANDO").
 
 import re
 import difflib
@@ -17,12 +19,11 @@ from thefuzz import fuzz
 from spellchecker import SpellChecker
 from collections import namedtuple
 
-# ----------------- UI / CSS (LAYOUT SOLICITADO) -----------------
+# ----------------- UI / CSS -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
 
 GLOBAL_CSS = """
 <style>
-/* Ajuste do Container Principal */
 .main .block-container {
     padding-top: 2rem !important;
     padding-bottom: 2rem !important;
@@ -88,7 +89,7 @@ def carregar_modelo_spacy():
 
 nlp = carregar_modelo_spacy()
 
-# ----------------- UTILITÁRIOS DE TEXTO -----------------
+# ----------------- UTILITÁRIOS -----------------
 def normalizar_texto(texto):
     if not isinstance(texto, str): return ""
     texto = texto.replace('\n', ' ')
@@ -99,7 +100,7 @@ def normalizar_texto(texto):
 
 def normalizar_titulo_para_comparacao(texto):
     texto_norm = normalizar_texto(texto or "")
-    # Remove números no início, ex: "1. PARA" -> "PARA" ou "3QUANDO" -> "QUANDO"
+    # Remove numeração inicial para comparar apenas o texto
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
@@ -118,7 +119,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO (MKT) -----------------
+# ----------------- FILTRO DE LIXO -----------------
 def limpar_lixo_grafico(texto):
     padroes_lixo = [
         r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b', 
@@ -150,8 +151,11 @@ def limpar_lixo_grafico(texto):
 
 # ----------------- CORREÇÃO FORÇADA DE TÍTULOS -----------------
 def forcar_titulos_bula(texto):
-    # Regex mais permissivo para pegar "3.QUANDO" (sem espaço) ou "3 . QUANDO"
+    """
+    Garante que os títulos estejam em linhas próprias e corrige títulos 'colados'.
+    """
     substituicoes = [
+        # Correção para "3.QUANDO" sem espaço ou quebras de linha ruins
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
          r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
 
@@ -185,7 +189,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS ESTRITA -----------------
+# ----------------- EXTRAÇÃO LINEAR POR COLUNAS -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -200,54 +204,56 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
-                        # ESTRATÉGIA "BUCKET" (BALDE) VERTICAL RÍGIDO
-                        # Força todo texto da esquerda a vir antes do meio, e o meio antes da direita.
-                        # Isso corrige o problema da Seção 5 aparecer antes da 3.
+                        # ESTRATÉGIA: CLASSIFICAÇÃO GEOMÉTRICA DE COLUNAS
+                        # 1. Captura todos os blocos de texto
+                        # 2. Classifica cada bloco em Coluna 0, 1 ou 2 baseado no X
+                        # 3. Ordena os blocos DENTRO de cada coluna pelo Y
+                        # 4. Concatena Col 0 -> Col 1 -> Col 2
                         
                         blocks = page.get_text("blocks") 
                         
-                        # Definição dos limiares das colunas (33% e 66%)
-                        limite_col1 = width * 0.35  # Um pouco mais de folga
-                        limite_col2 = width * 0.68
+                        # Limiares de 3 colunas (aprox 33% e 66%)
+                        limite_1 = width * 0.34
+                        limite_2 = width * 0.67
                         
-                        bucket_1 = []
-                        bucket_2 = []
-                        bucket_3 = []
-                        bucket_header = [] # Para títulos que atravessam a página toda
+                        col_0 = [] # Esquerda
+                        col_1 = [] # Meio
+                        col_2 = [] # Direita
+                        globais = [] # Cabeçalhos/Rodapés largos
                         
                         for b in blocks:
-                            # b = (x0, y0, x1, y1, text, ...)
+                            # b = (x0, y0, x1, y1, text, block_no, type)
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
                                     x0, x1 = b[0], b[2]
-                                    block_width = x1 - x0
+                                    block_w = x1 - x0
                                     center_x = (x0 + x1) / 2
                                     
-                                    # Se o bloco ocupa mais de 80% da largura, é cabeçalho/rodapé global
-                                    if block_width > (width * 0.8):
-                                        bucket_header.append(b)
-                                    # Caso contrário, joga no balde da coluna correta
-                                    elif center_x < limite_col1:
-                                        bucket_1.append(b)
-                                    elif center_x < limite_col2:
-                                        bucket_2.append(b)
+                                    # Se o bloco é muito largo (>85% da página), é global
+                                    if block_w > (width * 0.85):
+                                        globais.append(b)
+                                    # Senão, distribui nas colunas
+                                    elif center_x < limite_1:
+                                        col_0.append(b)
+                                    elif center_x < limite_2:
+                                        col_1.append(b)
                                     else:
-                                        bucket_3.append(b)
+                                        col_2.append(b)
                         
-                        # Ordena cada balde de cima para baixo (eixo Y)
-                        bucket_header.sort(key=lambda x: x[1])
-                        bucket_1.sort(key=lambda x: x[1])
-                        bucket_2.sort(key=lambda x: x[1])
-                        bucket_3.sort(key=lambda x: x[1])
+                        # Ordena verticalmente (Y)
+                        globais.sort(key=lambda x: x[1])
+                        col_0.sort(key=lambda x: x[1])
+                        col_1.sort(key=lambda x: x[1])
+                        col_2.sort(key=lambda x: x[1])
                         
-                        # Reconstrói o texto na ordem de leitura humana
-                        # 1. Cabeçalhos globais (se houver no topo)
-                        # 2. Coluna 1 inteira -> Coluna 2 inteira -> Coluna 3 inteira
+                        # Montagem Linear: Primeiro Globais (se forem cabeçalho), depois Col 1, 2, 3
+                        # Nota: Se houver rodapé global, ele vai aparecer no topo aqui se não filtrarmos por Y.
+                        # Assumindo cabeçalho.
                         
-                        for b in bucket_header: texto_completo += b[4] + "\n"
-                        for b in bucket_1: texto_completo += b[4] + "\n"
-                        for b in bucket_2: texto_completo += b[4] + "\n"
-                        for b in bucket_3: texto_completo += b[4] + "\n"
+                        for b in globais: texto_completo += b[4] + "\n"
+                        for b in col_0: texto_completo += b[4] + "\n"
+                        for b in col_1: texto_completo += b[4] + "\n"
+                        for b in col_2: texto_completo += b[4] + "\n"
                         
                     else:
                         # ANVISA (Texto corrido)
@@ -280,13 +286,23 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         return "", f"Erro: {e}"
 
 # ----------------- RECONSTRUÇÃO DE PARÁGRAFOS -----------------
-def is_titulo_secao(linha):
+def is_titulo_secao_generico(linha):
+    """
+    Detecta QUALQUER linha que pareça um título de seção.
+    Usado como 'freio' para parar a leitura.
+    """
     ln = linha.strip()
     if len(ln) < 4: return False
-    # Regex para pegar "1. TÍTULO", "1.TÍTULO", "1 - TÍTULO"
-    if re.match(r'^\d+\s*[\.\-)]*\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln): return True
-    first = ln.split('\n')[0]
-    if first.isupper() and not first.endswith('.') and len(first) > 4: return True
+    # Padrão: Começa com número (1-9), seguido de ponto, traço ou espaço, e letra maiúscula.
+    # Ex: "1. PARA", "3.QUANDO", "8 - QUAIS", "9 O QUE"
+    if re.match(r'^\d{1,2}\s*[\.\)\-]?\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln): return True
+    
+    # Títulos sem número conhecidos
+    upper_ln = ln.upper()
+    if "DIZERES LEGAIS" in upper_ln: return True
+    if "APRESENTAÇÕES" in upper_ln and len(ln) < 20: return True
+    if "COMPOSIÇÃO" in upper_ln and len(ln) < 15: return True
+    
     return False
 
 def reconstruir_paragrafos(texto):
@@ -301,13 +317,15 @@ def reconstruir_paragrafos(texto):
     for linha in linhas:
         l_strip = linha.strip()
         
+        # Ignora linhas vazias ou muito curtas que não sejam números isolados
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
             if not linhas_out or linhas_out[-1] != "":
                 linhas_out.append("")
             continue
             
-        if is_titulo_secao(l_strip):
+        # Se for título, quebra o parágrafo anterior
+        if is_titulo_secao_generico(l_strip):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append(l_strip)
             continue
@@ -359,17 +377,14 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO INTELIGENTE (SMART MATCH) -----------------
+# ----------------- MAPEAMENTO -----------------
 HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
 
 def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
     
-    # 1. Identificar TODOS os candidatos a título no texto inteiro
     candidates = []
-    
-    # Prepara dicionário de comparação
     titulos_possiveis = {s: s for s in secoes_esperadas}
     for a, c in aliases.items():
         if c in secoes_esperadas: titulos_possiveis[a] = c
@@ -380,66 +395,44 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
         if not raw: continue
         norm = normalizar_titulo_para_comparacao(raw)
         
-        # Regex para pegar número do título (ex: "3. QUANDO" -> 3)
         mnum = re.match(r'^\s*(\d{1,2})', raw)
         numeric = int(mnum.group(1)) if mnum else None
         
-        # Tenta casar com seções conhecidas
         best_score = 0
         best_canon = None
         
         for t_possivel, t_canon in titulos_possiveis.items():
             t_norm = titulos_norm.get(t_possivel, "")
             if not t_norm: continue
-            
-            # Comparação Fuzzy
             score = fuzz.token_set_ratio(t_norm, norm)
-            
-            # Bonus se contiver o texto exato
             if t_norm in norm: score = max(score, 98)
-            
             if score > best_score:
                 best_score = score
                 best_canon = t_canon
         
-        # Só considera se for um match forte OU tiver número
         is_candidate = False
         if numeric is not None: is_candidate = True
-        elif best_score >= 85: is_candidate = True # Aumentei rigor
+        elif best_score >= 85: is_candidate = True 
         
         if is_candidate:
             candidates.append(HeadingCandidate(index=i, raw=raw, norm=norm, numeric=numeric, matched_canon=best_canon if best_score >= 85 else None, score=best_score))
 
-    # 2. Atribuir o MELHOR candidato para cada seção esperada (Busca Global)
     mapa = []
-    
     for sec_idx, sec in enumerate(secoes_esperadas):
         sec_norm = normalizar_titulo_para_comparacao(sec)
         found = None
         
-        # A. Procura match exato de Título Canônico e Score alto
+        # 1. Match forte
         possibles = [c for c in candidates if c.matched_canon == sec and c.score >= 90]
-        if possibles:
-            found = possibles[0] # Pega o primeiro que aparecer
+        if possibles: found = possibles[0]
         
-        # B. Se não achou, procura pelo NÚMERO da seção (ex: Seção 3 procura linha começando com "3")
+        # 2. Match numérico
         if not found:
-            possibles_num = [c for c in candidates if c.numeric == (sec_idx + 1)] # sec_idx é 0-based, mas seções "PARA QUE" começam em 1
-            # Ajuste para seções sem número (Apresentação/Composição/Dizeres)
-            if sec.upper() in ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]:
-                possibles_num = [] 
-            else:
-                # Verifica o mapeamento numérico (ex: 1=Para que, 2=Como funciona)
-                # O índice da lista secoes_esperadas:
-                # 0=Apres, 1=Comp, 2=Sec1, 3=Sec2...
-                target_num = sec_idx - 1 # Ajuste grosseiro, melhor verificar string
-                match_num = re.search(r'^(\d+)\.', sec)
-                if match_num:
-                    target_num = int(match_num.group(1))
-                    possibles_num = [c for c in candidates if c.numeric == target_num]
-
-            if possibles_num:
-                found = possibles_num[0]
+            match_num = re.search(r'^(\d+)\.', sec)
+            if match_num:
+                target_num = int(match_num.group(1))
+                possibles_num = [c for c in candidates if c.numeric == target_num]
+                if possibles_num: found = possibles_num[0]
 
         if found:
             mapa.append({'canonico': sec, 'titulo_encontrado': found.raw, 'linha_inicio': found.index, 'score': found.score})
@@ -454,23 +447,15 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     if not entrada: return False, None, ""
     linha_inicio = entrada['linha_inicio']
     
-    # Descobre onde termina esta seção (início da próxima seção encontrada)
-    sorted_map = sorted(mapa_secoes, key=lambda x: x['linha_inicio'])
-    prox_idx = None
-    for m in sorted_map:
-        if m['linha_inicio'] > linha_inicio: 
-            prox_idx = m['linha_inicio']
-            break
-            
-    linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
-    
     conteudo_lines = []
-    for i in range(linha_inicio + 1, linha_fim):
-        # Validação extra: Se encontrar algo que parece MUITO um título de outra seção não mapeada, para.
-        line_norm = normalizar_titulo_para_comparacao(linhas_texto[i])
-        if line_norm in {normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()}: 
+    # Lê do início da seção até o fim do arquivo, MAS...
+    for i in range(linha_inicio + 1, len(linhas_texto)):
+        line = linhas_texto[i]
+        # ...PARA imediatamente se encontrar QUALQUER coisa que pareça um título de seção.
+        # Isso impede que o texto da Seção 3 engula o título da Seção 4.
+        if is_titulo_secao_generico(line):
             break
-        conteudo_lines.append(linhas_texto[i])
+        conteudo_lines.append(line)
         
     conteudo_final = "\n".join(conteudo_lines).strip()
     return True, entrada['titulo_encontrado'], conteudo_final
@@ -489,15 +474,13 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         encontrou_ref, titulo_ref, conteudo_ref = obter_dados_secao_v2(sec, mapa_ref, linhas_ref)
         encontrou_belfar, titulo_belfar, conteudo_belfar = obter_dados_secao_v2(sec, mapa_belfar, linhas_belfar)
 
-        # Se não achou na Belfar, marca como FALTANTE em vez de tentar comparar com texto errado
         if not encontrou_belfar:
             secoes_faltantes.append(sec)
             secoes_analisadas.append({
                 'secao': sec, 
                 'conteudo_ref': conteudo_ref if encontrou_ref else "Seção não encontrada",
-                'conteudo_belfar': "SEÇÃO NÃO ENCONTRADA NA BULA MKT", # Texto explícito
-                'titulo_encontrado_ref': titulo_ref, 
-                'titulo_encontrado_belfar': None,
+                'conteudo_belfar': "SEÇÃO NÃO ENCONTRADA",
+                'titulo_encontrado_ref': titulo_ref, 'titulo_encontrado_belfar': None,
                 'tem_diferenca': True, 'ignorada': False, 'faltante': True
             })
             continue
@@ -727,8 +710,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v87)")
-st.markdown("Sistema com Extração de 3 Colunas Rígidas + Smart Matching.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v88)")
+st.markdown("Sistema com Extração Linear (Colunas Concatendas) e Detecção Rígida de Títulos.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -773,4 +756,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v87 | Base v86 + Colunas Rígidas + Smart Matching.")
+st.caption("Sistema de Auditoria de Bulas v88 | Base v87 + Linear Flow & Strict Stop.")
