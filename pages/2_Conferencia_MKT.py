@@ -1,10 +1,13 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v103 - "Vertical Column Force" (Correção Definitiva de Ordem de Leitura)
-# - ESTRATÉGIA: Ignora a altura (Y) globalmente. Divide a página em 3 fatias verticais estritas.
-# - ORDEM: Lê a Fatia 1 inteira -> Lê a Fatia 2 inteira -> Lê a Fatia 3 inteira.
-#   Isso força o texto do rodapé da Coluna 2 a vir ANTES do topo da Coluna 3.
-# - PARSER: Usa lista exata de títulos para separar o conteúdo.
+# Versão v104 - "State Machine Parser" (A Lógica que você pediu)
+# - FLUXO: Lê Coluna 1 -> Coluna 2 -> Coluna 3 (Concatenação física).
+# - PARSER: Implementa "Máquina de Estados".
+#   1. Define seção atual = "INICIO".
+#   2. Lê linha por linha.
+#   3. Se a linha for TÍTULO (da lista oficial) -> Muda seção atual.
+#   4. Se não for -> Adiciona na seção atual. Ponto.
+# - SEM ADIVINHAÇÃO: Não tenta parar leitura por "parecer" título. Só para se for exato.
 
 import re
 import difflib
@@ -87,6 +90,9 @@ nlp = carregar_modelo_spacy()
 
 # ----------------- LISTA MESTRA DE SEÇÕES -----------------
 def get_canonical_sections():
+    """
+    Lista Oficial. O parser só muda de seção se encontrar EXATAMENTE um destes.
+    """
     return [
         "APRESENTAÇÕES",
         "COMPOSIÇÃO",
@@ -119,6 +125,7 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
+    # Remove numeração inicial e caracteres especiais para bater com a lista canônica
     texto_norm = normalizar_texto(texto or "")
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
@@ -170,35 +177,45 @@ def limpar_lixo_grafico(texto):
 
 def forcar_titulos_bula(texto):
     """
-    Garante que os títulos estejam isolados.
+    Força a padronização EXATA dos títulos para bater com a lista canônica.
     """
     substituicoes = [
         (r"(?:^|\n)\s*(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
          r"\n1.PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
+
         (r"(?:^|\n)\s*(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
          r"\n2.COMO ESTE MEDICAMENTO FUNCIONA?\n"),
+
         (r"(?:^|\n)\s*(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
+
         (r"(?:^|\n)\s*(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
+
         (r"(?:^|\n)\s*(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
+          
         (r"(?:^|\n)\s*(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n6.COMO DEVO USAR ESTE MEDICAMENTO?\n"),
+
         (r"(?:^|\n)\s*(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
+          
         (r"(?:^|\n)\s*(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?\n"),
+          
         (r"(?:^|\n)\s*(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", 
          r"\n9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
+         
         (r"(?:^|\n)\s*(?:DIZERES\s*LEGAIS)", r"\nDIZERES LEGAIS\n")
     ]
+    
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS ("FATIA VERTICAL") -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS (ORDEM FÍSICA ESTRITA) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -215,44 +232,33 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # DIVISÃO RÍGIDA DE COLUNAS (SEM GLOBAL HEADER NO MEIO)
-                        # Col 1: 0% a 31%
-                        # Col 2: 31% a 64% (Aqui está o texto amarelo)
-                        # Col 3: 64% em diante (Aqui está o título da Seção 3)
-                        limite_1 = width * 0.31
-                        limite_2 = width * 0.64
+                        # Definição dos Silos (3 Colunas Estritas)
+                        # Margens de corte fixas para garantir que texto da direita não invada o meio.
+                        limite_1 = width * 0.33
+                        limite_2 = width * 0.66
                         
                         col_1, col_2, col_3 = [], [], []
-                        cabecalhos_topo = [] # Apenas o logotipo no topo absoluto
                         
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0 = b[0] # Margem esquerda
+                                    x0 = b[0] # Ponto de partida esquerdo da linha
                                     
-                                    # Cabeçalho apenas se estiver no topo absoluto (primeiros 10% da pag)
-                                    if b[1] < (rect.height * 0.10) and (b[2]-b[0]) > (width * 0.8):
-                                        cabecalhos_topo.append(b)
+                                    # Classifica no silo correto
+                                    if x0 < limite_1:
+                                        col_1.append(b)
+                                    elif x0 < limite_2:
+                                        col_2.append(b)
                                     else:
-                                        # CLASSIFICAÇÃO RIGIDA
-                                        if x0 < limite_1: 
-                                            col_1.append(b)
-                                        elif x0 < limite_2: 
-                                            col_2.append(b)
-                                        else: 
-                                            col_3.append(b)
+                                        col_3.append(b)
                         
-                        # Ordena cada coluna verticalmente (Topo -> Baixo)
-                        cabecalhos_topo.sort(key=lambda x: x[1])
+                        # ORDENAÇÃO VERTICAL DENTRO DO SILO (De cima para baixo)
                         col_1.sort(key=lambda x: x[1])
                         col_2.sort(key=lambda x: x[1])
                         col_3.sort(key=lambda x: x[1])
                         
-                        # CONCATENAÇÃO:
-                        # Header Topo -> TUDO da Col 1 -> TUDO da Col 2 -> TUDO da Col 3
-                        # Isso garante que o texto amarelo (final da Col 2) venha ANTES do título (inicio da Col 3)
-                        
-                        for b in cabecalhos_topo: texto_completo += b[4] + "\n"
+                        # CONCATENAÇÃO: Silo 1 -> Silo 2 -> Silo 3
+                        # Isso FORÇA o conteúdo do meio a vir antes do conteúdo da direita.
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
                         for b in col_3: texto_completo += b[4] + "\n"
@@ -277,6 +283,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
+                # Aplica o forçador de títulos ANTES de qualquer coisa
                 texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
@@ -287,57 +294,61 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- PARSER POR ÂNCORAS -----------------
-def identificar_ancoras_secoes(texto):
+# ----------------- PARSER "STATE MACHINE" -----------------
+def fatiar_texto_state_machine(texto):
+    """
+    IMPLEMENTAÇÃO DA LÓGICA DO USUÁRIO:
+    "O título tem que aparecer, ai o conteúdo apos o titulo da seção aparecer, é o dele, pronto cabo"
+    """
     linhas = texto.split('\n')
+    
+    # 1. Prepara Títulos Canônicos para busca rápida
     secoes_esperadas = get_canonical_sections()
-    ancoras = {}
     secoes_norm = {normalizar_titulo_para_comparacao(s): s for s in secoes_esperadas}
     
-    for i, linha in enumerate(linhas):
-        linha_limpa = linha.strip()
-        if len(linha_limpa) < 5: continue
-        norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
-        
-        matched_canon = None
-        for s_norm, s_canon in secoes_norm.items():
-            if s_norm == norm_linha or (len(s_norm) > 10 and norm_linha.startswith(s_norm)):
-                matched_canon = s_canon
-                break
-            if fuzz.ratio(s_norm, norm_linha) > 90:
-                matched_canon = s_canon
-                break
-                
-        if matched_canon:
-            if matched_canon not in ancoras:
-                ancoras[matched_canon] = i
-    return ancoras, linhas
-
-def fatiar_texto_por_ancoras(ancoras, linhas):
-    secoes_esperadas = get_canonical_sections()
-    resultado = {}
-    ancoras_ordenadas = sorted(ancoras.items(), key=lambda x: x[1])
+    # Dicionário de resultados: {Nome_Secao: [lista_linhas]}
+    conteudo_mapeado = {s: [] for s in secoes_esperadas}
     
-    for i in range(len(ancoras_ordenadas)):
-        nome_secao, linha_inicio = ancoras_ordenadas[i]
-        if i < len(ancoras_ordenadas) - 1:
-            linha_fim = ancoras_ordenadas[i+1][1]
+    secao_atual = None # Começa sem seção (ou seção "topo")
+    
+    for linha in linhas:
+        linha_limpa = linha.strip()
+        if not linha_limpa: continue
+        
+        # Verifica se é um TÍTULO
+        norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
+        titulo_encontrado = None
+        
+        # Verifica match exato ou muito próximo
+        for s_norm, s_canon in secoes_norm.items():
+            if s_norm == norm_linha: # Match exato normalizado
+                titulo_encontrado = s_canon
+                break
+            # Match Fuzzy seguro (para erros de OCR leves)
+            if len(norm_linha) > 5 and fuzz.ratio(s_norm, norm_linha) > 95:
+                titulo_encontrado = s_canon
+                break
+        
+        if titulo_encontrado:
+            # MUDANÇA DE ESTADO: Achou título, troca a chave atual
+            secao_atual = titulo_encontrado
         else:
-            linha_fim = len(linhas)
-        conteudo_bruto = linhas[linha_inicio+1 : linha_fim]
-        resultado[nome_secao] = "\n".join(conteudo_bruto).strip()
-    return resultado
+            # ESTADO ATUAL: Não é título, joga o conteúdo na seção que está ativa
+            if secao_atual:
+                conteudo_mapeado[secao_atual].append(linha)
+    
+    # Junta as linhas
+    resultado_final = {k: "\n".join(v).strip() for k, v in conteudo_mapeado.items()}
+    return resultado_final
 
 # ----------------- VERIFICAÇÃO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_esperadas = get_canonical_sections()
     ignore_comparison = [s.upper() for s in obter_secoes_ignorar_comparacao()]
     
-    ancoras_ref, linhas_ref = identificar_ancoras_secoes(texto_ref)
-    ancoras_bel, linhas_bel = identificar_ancoras_secoes(texto_belfar)
-    
-    conteudo_ref_map = fatiar_texto_por_ancoras(ancoras_ref, linhas_ref)
-    conteudo_bel_map = fatiar_texto_por_ancoras(ancoras_bel, linhas_bel)
+    # Usa o parser State Machine para ambos
+    mapa_ref = fatiar_texto_state_machine(texto_ref)
+    mapa_bel = fatiar_texto_state_machine(texto_belfar)
     
     secoes_faltantes = []
     diferencas_conteudo = []
@@ -345,11 +356,12 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_analisadas = []
 
     for sec in secoes_esperadas:
-        cont_ref = conteudo_ref_map.get(sec)
-        cont_bel = conteudo_bel_map.get(sec)
+        cont_ref = mapa_ref.get(sec, "")
+        cont_bel = mapa_bel.get(sec, "")
         
-        encontrou_ref = (cont_ref is not None)
-        encontrou_bel = (cont_bel is not None)
+        # Se cont_bel estiver vazio, considera não encontrado
+        encontrou_bel = bool(cont_bel.strip())
+        encontrou_ref = bool(cont_ref.strip())
         
         if not encontrou_bel:
             secoes_faltantes.append(sec)
@@ -375,8 +387,9 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_ref or "")
-        norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_bel or "")
+        # Comparação
+        norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_ref)
+        norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_bel)
         norm_ref = normalizar_texto(norm_ref)
         norm_bel = normalizar_texto(norm_bel)
 
@@ -548,8 +561,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v103)")
-st.markdown("Sistema com Extração de 3 Colunas Vertical Forçada.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v104)")
+st.markdown("Sistema com Parser 'State Machine' (Troca de seção apenas em Títulos Exatos).")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -591,4 +604,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v103 | Base v102 + Vertical Column Force.")
+st.caption("Sistema de Auditoria de Bulas v104 | Base v103 + State Machine Parser.")
