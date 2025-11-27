@@ -1,8 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v85 - Base v84 + Correção de Ordenação de Blocos (Pressão Alta/Insuficiência)
-# - ADICIONADO: Função 'corrigir_ordem_blocos_especificos' para mover o texto de "Informações ao Paciente"
-#   que estava caindo na Seção 3 de volta para o final da Seção 2.
+# Versão v86 - Correção de Layout + Interações Deslocadas + Limpeza de Rodapé
+# - ATUALIZAÇÃO: 'extrair_texto' agora usa estratégia de colunas para TODOS os PDFs.
+# - NOVO: Função 'corrigir_deslocamento_interacoes' para consertar a Seção 4 quebrada no arquivo de Referência.
+# - MELHORIA: Regex adicionais para remover "Bula ao Paciente" e paginação.
 
 import re
 import difflib
@@ -21,7 +22,6 @@ st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="�
 
 GLOBAL_CSS = """
 <style>
-/* Ajuste do Container Principal */
 .main .block-container {
     padding-top: 2rem !important;
     padding-bottom: 2rem !important;
@@ -116,40 +116,31 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO (MKT) -----------------
+# ----------------- FILTRO DE LIXO -----------------
 def limpar_lixo_grafico(texto):
-    """Remove lixo técnico e fragmentos de texto de borda."""
+    """Remove lixo técnico, cabeçalhos repetitivos e fragmentos de borda."""
     padroes_lixo = [
-        # --- REMOÇÃO ESPECÍFICA DE DIMENSÕES (19, 00 cm) ---
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',  # Remove "19, 00 cm", "30,00 cm"
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',  # Remove milímetros também
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b', 
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',
         
-        # --- LIXOS SOLICITADOS ANTERIORMENTE ---
-        r'.*31\s*2105.*',        # Remove telefones quebrados (31 2105 - 1123)
-        r'.*w\s*Roman.*',        # Remove "w Roman", "New Roman"
-        r'.*Negrito\.\s*Corpo\s*14.*', # Remove "- Negrito. Corpo 14"
-        
-        # --- Lixos da v75 ---
-        r'AZOLINA:', r'contato:', 
-        r'artes\s*@\s*belfar\.com\.br',
+        # --- REMOÇÃO DE CABEÇALHO/RODAPÉ REPETITIVO ---
+        r'^\s*Bula\s*ao\s*Paciente\s*$',
+        r'^\s*Página\s*\d+\s*de\s*\d+\s*$',
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
-        r'.*Frente\s*/\s*Verso.*',
-        r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
-        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', 
-        r'.*da bula:.*', r'.*AFAZOLINA_BUL.*',
-        r'bula do paciente', r'página \d+\s*de\s*\d+', r'^\s*\d+\s*$',
+        r'^\s*ALTEFAR\s*$', # Marca d'água comum detectada
+        
+        # Lixos anteriores
+        r'.*31\s*2105.*', r'.*w\s*Roman.*', r'.*Negrito\.\s*Corpo\s*14.*',
+        r'AZOLINA:', r'contato:', r'artes\s*@\s*belfar\.com\.br',
+        r'.*Frente\s*/\s*Verso.*', r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
+        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', r'.*da bula:.*', r'.*AFAZOLINA_BUL.*',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
         r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
-        r'^\s*\d+[,.]?\d*\s*mm\s*$', r'\b\d{2,4}\s*x\s*\d{2,4}\s*mm\b',
-        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
-        r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?', r'CRF-?MG',
+        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$', r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?',
         r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
-        r'.*AZOLINA:\s*Tim.*', r'.*NAFAZOLINA:\s*Times.*', 
-        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', 
-        r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
-        r'.*New\s*Roman.*', r'.*r?po\s*10.*',
-        r'.*BUL_CLORIDRATO.*', r'.*Impress[ãa]o.*', r'.*Normal\s*e\s*Negrito.*'
+        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
+        r'.*Impress[ãa]o.*'
     ]
     
     texto_limpo = texto
@@ -157,87 +148,87 @@ def limpar_lixo_grafico(texto):
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     return texto_limpo
 
+# ----------------- CORREÇÃO DE ESTRUTURA E ORDEM -----------------
+
 def corrigir_ordem_blocos_especificos(texto):
     """
-    Corrige o problema onde o texto "Informações ao paciente com pressão alta..."
-    é lido DEPOIS da Seção 3 (devido ao layout de colunas e quadro lateral), 
-    mas deveria estar no final da Seção 2.
+    Conserta o problema do MKT onde 'Informações ao paciente...' cai na Seção 3.
     """
-    # Regex para capturar o bloco específico deslocado
-    # Captura desde "Informações ao paciente..." até "...insuficiência cardíaca."
-    # Flags: Dotall para pegar quebras de linha e texto longo no meio
     padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
-    
     match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
     match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
     
     if match_bloco and match_sec3:
-        # Se a Seção 3 começa ANTES do bloco informativo (índice menor), temos o erro de ordenação
-        if match_sec3.start() < match_bloco.start():
+        if match_sec3.start() < match_bloco.start(): # Seção 3 veio antes do bloco (Errado)
             bloco_content = match_bloco.group(1)
+            texto_limpo = texto[:match_bloco.start()] + texto[match_bloco.end():] # Remove do lugar errado
             
-            # Remove o bloco do texto original (estava no lugar errado)
-            # Reconstrói o texto sem aquele pedaço
-            texto_limpo = texto[:match_bloco.start()] + texto[match_bloco.end():]
-            
-            # Encontra a Seção 3 novamente no texto limpo para inserir o bloco antes dela
+            # Recalcula posição da Sec 3
             match_sec3_novo = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto_limpo, re.IGNORECASE)
-            
             if match_sec3_novo:
                 pos_insercao = match_sec3_novo.start()
-                # Insere o bloco ANTES da Seção 3, adicionando quebras de linha para separar
                 novo_texto = texto_limpo[:pos_insercao] + "\n" + bloco_content + "\n\n" + texto_limpo[pos_insercao:]
                 return novo_texto
+    return texto
+
+def corrigir_deslocamento_interacoes(texto):
+    """
+    Conserta o problema da Referência onde 'Interações medicamentosas' aparece
+    lá no final (perto da Seção 8 ou 9) devido à quebra de coluna, mas deveria estar na Seção 4.
+    """
+    # 1. Localiza o bloco de Interações
+    # Começa em "Interações medicamentosas:" e vai até "Informe ao seu médico... perigoso para a sua saúde."
+    padrao_interacoes = r'(Interações\s*medicamentosas:.*?Pode\s*ser\s*perigoso\s*para\s*a\s*sua\s*saúde\.?)'
+    
+    match_inter = re.search(padrao_interacoes, texto, re.IGNORECASE | re.DOTALL)
+    
+    # 2. Localiza a Seção 5 (que é o limite onde a Seção 4 deveria acabar)
+    match_sec5 = re.search(r'5\.\s*ONDE', texto, re.IGNORECASE)
+    
+    if match_inter and match_sec5:
+        # Se as interações aparecem DEPOIS da Seção 5, estão no lugar errado
+        if match_inter.start() > match_sec5.start():
+            bloco_inter = match_inter.group(1)
+            
+            # Remove o bloco do local errado
+            texto_sem_inter = texto[:match_inter.start()] + texto[match_inter.end():]
+            
+            # Re-encontra a Seção 5 no texto limpo para inserir ANTES dela
+            match_sec5_novo = re.search(r'5\.\s*ONDE', texto_sem_inter, re.IGNORECASE)
+            
+            if match_sec5_novo:
+                pos = match_sec5_novo.start()
+                # Insere antes da Seção 5
+                texto_final = texto_sem_inter[:pos] + "\n" + bloco_inter + "\n\n" + texto_sem_inter[pos:]
+                return texto_final
                 
     return texto
 
-# ----------------- CORREÇÃO FORÇADA DE TÍTULOS -----------------
 def forcar_titulos_bula(texto):
-    """
-    Encontra títulos quebrados (com ou SEM número) e força a inserção
-    da numeração correta e a junção em uma linha.
-    """
+    """Padroniza títulos quebrados ou sem número."""
     substituicoes = [
-        # --- NOVOS TÍTULOS ADICIONADOS (1, 2, 3) ---
-        (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
-         r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
-
-        (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
-         r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
-
-        (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
-         r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
-
-        # --- Títulos da v75 ---
-        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
-         r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-
-        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
-         r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-          
-        (r"(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
-         r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
-
-        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
-         r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-          
-        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
-         r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
-          
-        # Seção 9 com margem maior para garantir captura
-        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", 
-         r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
+        (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
+        (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
+        (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
+        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
+        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
+        (r"(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
+        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
+        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?\n"),
+        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
-    
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
-        
     return texto_arrumado
 
 # ----------------- EXTRAÇÃO (SPLIT COLUMN) -----------------
-def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
-    if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
+def extrair_texto(arquivo, tipo_arquivo):
+    """
+    Extrai texto com lógica de colunas sempre ativada para PDFs, 
+    pois tanto Bula de MKT quanto de Referência costumam usar colunas.
+    """
+    if arquivo is None: return "", f"Arquivo não enviado."
     try:
         arquivo.seek(0)
         texto_completo = ""
@@ -248,43 +239,28 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     rect = page.rect
                     margem_y = rect.height * 0.01 
                     
-                    if is_marketing_pdf:
-                        # Lógica Híbrida v82:
-                        # Mantém a lógica de separar Esquerda/Direita (que funcionava bem para organizar seções),
-                        # mas usa BLOCOS (blocks) para não cortar palavras no meio.
-                        
-                        meio_x = rect.width / 2
-                        blocks = page.get_text("blocks") # Extrai blocos inteiros
-                        
-                        col_esq = []
-                        col_dir = []
-                        
-                        for b in blocks:
-                            # b = (x0, y0, x1, y1, text, block_no, block_type)
-                            if b[6] == 0: # Apenas blocos de texto
-                                # Verifica margem vertical
-                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    # Classifica pela posição do centro do bloco
-                                    b_center_x = (b[0] + b[2]) / 2
-                                    if b_center_x < meio_x:
-                                        col_esq.append(b)
-                                    else:
-                                        col_dir.append(b)
-                        
-                        # Ordena cada coluna de cima para baixo (eixo Y)
-                        col_esq.sort(key=lambda x: x[1])
-                        col_dir.sort(key=lambda x: x[1])
-                        
-                        # Reconstrói o texto
-                        for b in col_esq: texto_completo += b[4] + "\n"
-                        for b in col_dir: texto_completo += b[4] + "\n"
-                        
-                    else:
-                        blocks = page.get_text("blocks", sort=True)
-                        for b in blocks:
-                            if b[6] == 0:
-                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    texto_completo += b[4] + "\n"
+                    # --- Lógica de Colunas para TODOS os PDFs ---
+                    meio_x = rect.width / 2
+                    blocks = page.get_text("blocks") 
+                    
+                    col_esq = []
+                    col_dir = []
+                    
+                    for b in blocks:
+                        # b = (x0, y0, x1, y1, text, block_no, block_type)
+                        if b[6] == 0: # Apenas texto
+                            if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                                b_center_x = (b[0] + b[2]) / 2
+                                if b_center_x < meio_x:
+                                    col_esq.append(b)
+                                else:
+                                    col_dir.append(b)
+                    
+                    col_esq.sort(key=lambda x: x[1])
+                    col_dir.sort(key=lambda x: x[1])
+                    
+                    for b in col_esq: texto_completo += b[4] + "\n"
+                    for b in col_dir: texto_completo += b[4] + "\n"
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -296,16 +272,15 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
             texto_completo = limpar_lixo_grafico(texto_completo)
+            texto_completo = forcar_titulos_bula(texto_completo)
             
-            if is_marketing_pdf:
-                texto_completo = forcar_titulos_bula(texto_completo)
-                # --- APLICAÇÃO DA CORREÇÃO DE ORDEM (NOVO) ---
-                texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
-                # ---------------------------------------------
-                texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
-                texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
-
-            # [CORREÇÃO DOS ESPAÇOS GIGANTES]
+            # --- APLICAÇÃO DE CORREÇÕES ESPECÍFICAS DE ORDEM ---
+            texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
+            texto_completo = corrigir_deslocamento_interacoes(texto_completo)
+            # ---------------------------------------------------
+            
+            texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
+            texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
             return texto_completo.strip(), None
 
@@ -324,7 +299,6 @@ def is_titulo_secao(linha):
 def reconstruir_paragrafos(texto):
     if not texto: return ""
     texto = forcar_titulos_bula(texto)
-    
     linhas = texto.split('\n')
     linhas_out = []
     buffer = ""
@@ -332,34 +306,23 @@ def reconstruir_paragrafos(texto):
 
     for linha in linhas:
         l_strip = linha.strip()
-        
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
             if buffer: linhas_out.append(buffer); buffer = ""
-            # Não adiciona linha vazia se a última já for vazia
-            if not linhas_out or linhas_out[-1] != "":
-                linhas_out.append("")
+            if not linhas_out or linhas_out[-1] != "": linhas_out.append("")
             continue
-            
         if is_titulo_secao(l_strip):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append(l_strip)
             continue
-            
         if padrao_tabela.search(l_strip):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append(l_strip)
             continue
-
         if buffer:
-            if buffer.endswith('-'):
-                buffer = buffer[:-1] + l_strip
-            elif not buffer.endswith(('.', ':', '!', '?')):
-                buffer += " " + l_strip
-            else:
-                linhas_out.append(buffer); buffer = l_strip
-        else:
-            buffer = l_strip
-            
+            if buffer.endswith('-'): buffer = buffer[:-1] + l_strip
+            elif not buffer.endswith(('.', ':', '!', '?')): buffer += " " + l_strip
+            else: linhas_out.append(buffer); buffer = l_strip
+        else: buffer = l_strip
     if buffer: linhas_out.append(buffer)
     return "\n".join(linhas_out)
 
@@ -419,7 +382,6 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
         is_candidate = False
         if numeric is not None: is_candidate = True
         elif best_score >= 88: is_candidate = True
-        
         if is_candidate:
             candidates.append(HeadingCandidate(index=i, raw=raw, norm=norm, numeric=numeric, matched_canon=best_canon if best_score >= 80 else None, score=best_score))
     unique = {c.index: c for c in candidates}
@@ -435,8 +397,6 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     for sec_idx, sec in enumerate(secoes_esperadas):
         sec_norm = normalizar_titulo_para_comparacao(sec)
         found = None
-        
-        # Tentativa 1: Busca Sequencial (Respeita last_idx)
         for c in candidates:
             if c.index <= last_idx: continue
             if c.matched_canon == sec: found = c; break
@@ -452,23 +412,14 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
             for c in candidates:
                 if c.index <= last_idx: continue
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92: found = c; break
-        
-        # Tentativa 2: Busca Global de Resgate (Ignora last_idx se não encontrou)
         if not found:
-            # Procura em TODO o documento (útil se a seção 9 apareceu "antes" da 8 no layout)
             for c in candidates:
-                # Verifica match exato ou muito forte
                 if c.matched_canon == sec or (c.numeric == (sec_idx + 1)) or (sec_norm and sec_norm in c.norm):
-                    # Só aceita se tiver certeza (score alto ou numérico exato)
                     if c.numeric == (sec_idx + 1) or c.score > 95:
-                        found = c
-                        break
-
+                        found = c; break
         if found:
             mapa.append({'canonico': sec, 'titulo_encontrado': found.raw, 'linha_inicio': found.index, 'score': found.score})
-            # Só atualiza last_idx se a seção encontrada estiver DEPOIS da última
-            if found.index > last_idx:
-                last_idx = found.index
+            if found.index > last_idx: last_idx = found.index
                 
     mapa = sorted(mapa, key=lambda x: x['linha_inicio'])
     return mapa, candidates, linhas
@@ -512,8 +463,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             secoes_faltantes.append(sec)
             secoes_analisadas.append({
                 'secao': sec, 'conteudo_ref': "Seção não encontrada", 'conteudo_belfar': "Seção não encontrada",
-                'titulo_encontrado_ref': None, 'titulo_encontrado_belfar': None,
-                'tem_diferenca': True, 'ignorada': False, 'faltante': True
+                'titulo_encontrado_ref': None, 'titulo_encontrado_belfar': None, 'tem_diferenca': True, 'ignorada': False, 'faltante': True
             })
             continue
 
@@ -529,12 +479,10 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         if sec.upper() in ignore_comparison:
             secoes_analisadas.append({
                 'secao': sec, 'conteudo_ref': conteudo_ref or "", 'conteudo_belfar': conteudo_belfar or "",
-                'titulo_encontrado_ref': titulo_ref, 'titulo_encontrado_belfar': titulo_belfar,
-                'tem_diferenca': False, 'ignorada': True, 'faltante': False
+                'titulo_encontrado_ref': titulo_ref, 'titulo_encontrado_belfar': titulo_belfar, 'tem_diferenca': False, 'ignorada': True, 'faltante': False
             })
             continue
 
-        # [CORREÇÃO ANTI-AMARELO]
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_ref or "")
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', conteudo_belfar or "")
         norm_ref = normalizar_texto(norm_ref)
@@ -550,8 +498,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
 
         secoes_analisadas.append({
             'secao': sec, 'conteudo_ref': conteudo_ref, 'conteudo_belfar': conteudo_belfar,
-            'titulo_encontrado_ref': titulo_ref, 'titulo_encontrado_belfar': titulo_belfar,
-            'tem_diferenca': tem_diferenca, 'ignorada': False, 'faltante': False
+            'titulo_encontrado_ref': titulo_ref, 'titulo_encontrado_belfar': titulo_belfar, 'tem_diferenca': tem_diferenca, 'ignorada': False, 'faltante': False
         })
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos, secoes_analisadas
 
@@ -654,7 +601,6 @@ def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=F
             title_html = f"<div class='section-title bel-title'>{tit}</div>"
             conteudo = diff['conteudo_belfar'] or ""
         
-        # [CORREÇÃO ESPAÇOS GIGANTES]
         if diff.get('ignorada', False):
             conteudo_html = (conteudo or "").replace('\n', '<br>')
         else:
@@ -745,11 +691,11 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v85)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v86)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
-tipo_bula_selecionado = "Paciente" # Fixo
+tipo_bula_selecionado = "Paciente"
 
 col1, col2 = st.columns(2)
 with col1:
@@ -764,9 +710,8 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
         with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
-            # Extração MKT (Split-Column) e Anvisa (Padrão)
-            texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
-            texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
+            texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf')
+            texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf')
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro de leitura: {erro_ref or erro_belfar}")
@@ -781,7 +726,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     st.error(f"🚨 Arquivo MKT parece Bula Profissional. Use Paciente."); erro=True
                 
                 if not erro:
-                    # Aplica reconstrução de parágrafos (Correção MKT)
                     t_ref = reconstruir_paragrafos(texto_ref_raw)
                     t_ref = truncar_apos_anvisa(t_ref)
                     
@@ -791,4 +735,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v85 | Base v84 + Correção de Blocos Deslocados.")
+st.caption("Sistema de Auditoria de Bulas v86 | Correção de Colunas e Interações Deslocadas.")
