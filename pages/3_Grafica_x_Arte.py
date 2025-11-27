@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v112 - Fix Final de Colunas Largas e OCR
-# - CORREÇÃO CRÍTICA: Binning de colunas aumentado para 350px (resolve textos pulando de coluna).
-# - OCR: Correção específica para "nlguesiomiro", "tista", "renda uso".
-# - LIMPEZA: Remoção de pontuação flutuante e linhas de ruído gráfico.
+# Versão v113 - Ajuste Fino de Colunas e Recuperação de Texto
+# - CORREÇÃO: Binning de colunas ajustado para 150px (Equilíbrio ideal para separar colunas sem quebrar indentações).
+# - OCR: Correções específicas para "nlguesiomiro", "tista", "renda uso".
+# - MELHORIA: Lógica de reconstrução de parágrafos reforçada para juntar linhas quebradas (ex: "den-tista").
 
 import re
 import difflib
@@ -118,16 +118,16 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v112) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v113) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
     texto_limpo = texto
     
-    # 1. Padrões de "Ruído Gráfico" (Barras de Cores / Escalas)
+    # 1. Padrões de "Ruído Gráfico"
     texto_limpo = re.sub(r'(?m)^.*[\[\]|—>w]{5,}.*$', '', texto_limpo)
 
-    # 2. Remoção de Gibberish (Sequências longas de vogais/consoantes repetidas)
+    # 2. Remoção de Gibberish
     texto_limpo = re.sub(r'\b[a-z]*([aeiou]{3,}|[rsnt]{4,})[a-z]*\b', '', texto_limpo, flags=re.IGNORECASE)
 
     lixo_frases = [
@@ -149,7 +149,7 @@ def limpar_lixo_grafico(texto):
     # 3. Tokens curtos/soltos
     texto_limpo = re.sub(r'\b(mm|cm|gm)\b', '', texto_limpo, flags=re.IGNORECASE)
 
-    # 4. Limpezas Específicas com Regex
+    # 4. Limpezas Específicas
     padroes_especificos = [
         r'^\s*--- PAGE \d+ ---\s*$',
         r'^\s*\d{1,3}\s*,\s*00\s*$',
@@ -230,7 +230,7 @@ def corrigir_padroes_bula(texto):
     """Corrige erros de OCR detectados na auditoria."""
     if not texto: return ""
     
-    # 0. CORREÇÕES ESPECÍFICAS DESTA BULA (Gibran e CV)
+    # CORREÇÕES DE OCR V113
     texto = re.sub(r'\bMalcato\b', 'Maleato', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\benalaprii\b', 'enalapril', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bRonam\b', 'Roman', texto, flags=re.IGNORECASE)
@@ -240,11 +240,10 @@ def corrigir_padroes_bula(texto):
     texto = re.sub(r'\bdae:\s*', 'dose: ', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bcm dosc\b', 'em dose', texto, flags=re.IGNORECASE)
     
-    # CORREÇÕES CRÍTICAS V112
     texto = re.sub(r'\bnlguesiomiro\b', 'algum outro', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\brenda uso\b', 'fazendo uso', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\btista\b', 'dentista', texto, flags=re.IGNORECASE)
-    texto = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', texto) # Fix números quebrados
+    texto = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', texto) 
     texto = texto.replace('excipientes ” q', 'excipientes q.s.p.')
     texto = re.sub(r'101\s*excipientes', '10 mg excipientes', texto, flags=re.IGNORECASE)
     
@@ -303,22 +302,21 @@ def verifica_qualidade_texto(texto):
     return hits >= 2
 
 def get_text_sorted_by_columns(page):
-    """Extrai texto agrupando por colunas largas para evitar fragmentação."""
+    """Extrai texto agrupando por colunas médias para evitar mistura."""
     blocks = page.get_text("blocks")
     if not blocks: return ""
     text_blocks = [b for b in blocks if b[6] == 0]
     
     if not text_blocks: return ""
 
-    # AJUSTE V112: Binning de 350 para capturar colunas largas de provas gráficas
+    # AJUSTE V113: Binning de 150 (aprox 5.3cm) - Melhor que 350 para 2 colunas em 19cm.
     def get_sort_key(b):
         x0 = b[0]
         y0 = b[1]
-        col_bin = int(x0 / 350) * 350 
+        col_bin = int(x0 / 150) * 150 
         return (col_bin, y0)
     
     text_blocks.sort(key=get_sort_key)
-    # Adiciona quebra de linha dupla para separar blocos claramente
     return "\n\n".join([b[4] for b in text_blocks])
 
 def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
@@ -389,7 +387,7 @@ def reconstruir_paragrafos(texto):
             if not linhas_out or linhas_out[-1] != "": linhas_out.append("")
             continue
         first = l_strip.split('\n')[0]
-        # Ajuste V112: Título não pode terminar com ponto final (evita frases soltas serem titulos)
+        # Ajuste V112: Título não pode terminar com ponto final
         is_title = re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', first) or (first.isupper() and len(first)>4 and not first.strip().endswith('.'))
         if is_title:
             if buffer: linhas_out.append(buffer); buffer = ""
@@ -718,7 +716,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v112)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v113)")
 st.markdown("Sistema com validação RÍGIDA: Correção de fragmentação de colunas e títulos.")
 
 st.divider()
@@ -763,4 +761,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v112 | Correção de Colunas Fragmentadas e Títulos Sujos.")
+st.caption("Sistema de Auditoria v113 | Correção de Colunas Fragmentadas e Títulos Sujos.")
