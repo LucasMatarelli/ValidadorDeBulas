@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v108 - Correção de Fragmentação de Colunas e Títulos
-# - CORREÇÃO CRÍTICA: Ajuste na sensibilidade de colunas (Binning de 50 -> 200) para evitar quebrar parágrafos indentados.
-# - NOVO: Regex de títulos ultra-permissivos para capturar variações como "6. COMO MEDICAMENTO?. ="
-# - NOVO: Limpeza específica para artefatos de OCR vistos na prova ("101 excipientes", ".. o.", etc).
+# Versão v109 - Refinamento Final de Layout e Títulos
+# - MELHORIA: Lógica de colunas ainda mais robusta para evitar fragmentação de texto.
+# - CORREÇÃO: Limpeza agressiva de "ruído" de OCR (linhas de pontuação, caracteres soltos).
+# - AJUSTE: Normalização de títulos flexível para capturar variações truncadas/sujas.
+# - MANTIDO: Correções específicas de termos ("Maleato", "10 mg", etc.).
 
 import re
 import difflib
@@ -118,7 +119,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v108) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v109) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
@@ -194,7 +195,8 @@ def limpar_lixo_grafico(texto):
         r'.*☑.*', r'.*☐.*',
         r'\.{4,}', # Pontilhados
         r'ir ie+r+e+', # Ruído de bitmap
-        r'c tr tr r+e+' # Ruído de bitmap
+        r'c tr tr r+e+', # Ruído de bitmap
+        r'^[_\W]+$' # Linhas só com símbolos
     ]
     
     for p in padroes_especificos:
@@ -257,8 +259,8 @@ def forcar_titulos_bula(texto):
         (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
         (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-        # Captura "6. COMO MEDICAMENTO" com qualquer lixo depois até o ? ou .
-        (r"(?:6\.?\s*)?COMO\s*(?:DEVO\s*USAR\s*ESTE\s*)?MEDICAMENTO.*?[?.]", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"), 
+        # Captura "6. COMO MEDICAMENTO" com qualquer lixo depois até o ? ou . e linhas adjacentes sujas
+        (r"(?:6\.?\s*)?COMO\s*(?:DEVO\s*USAR\s*ESTE\s*)?MEDICAMENTO.*?(?:\?|\.|=)", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"), 
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
@@ -293,13 +295,12 @@ def get_text_sorted_by_columns(page):
     
     if not text_blocks: return ""
 
-    # Ajuste Crítico: Binning mais largo (150pts ~ 5cm) para garantir que
+    # Ajuste Crítico: Binning mais largo (200pts) para garantir que
     # parágrafos indentados (recuados) fiquem na mesma coluna lógica.
-    # Antes era 50, o que quebrava o texto em tiras finas.
     def get_sort_key(b):
         x0 = b[0]
         y0 = b[1]
-        col_bin = int(x0 / 150) * 150 
+        col_bin = int(x0 / 200) * 200 
         return (col_bin, y0)
     
     text_blocks.sort(key=get_sort_key)
@@ -703,7 +704,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v108)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v109)")
 st.markdown("Sistema com validação RÍGIDA: Correção de fragmentação de colunas e títulos.")
 
 st.divider()
@@ -748,4 +749,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v108 | Correção de Colunas Fragmentadas e Títulos Sujos.")
+st.caption("Sistema de Auditoria v109 | Correção de Colunas Fragmentadas e Títulos Sujos.")
