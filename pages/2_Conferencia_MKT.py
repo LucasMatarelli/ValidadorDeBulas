@@ -1,11 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v108 - "Gravity Clustering" (Correção para o Quadrado Preto)
-# - PROBLEMA RESOLVIDO: Textos dentro de caixas/bordas (quadrado preto) sendo lidos na ordem errada.
-# - SOLUÇÃO: Algoritmo de Gravidade. Define 3 pontos centrais (Esquerda, Meio, Direita).
-#   Cada bloco de texto é atribuído à coluna cujo centro está mais próximo.
-#   Isso ignora margens internas do quadrado preto e força ele a ficar na Coluna 2.
-# - ORDEM: Garante concatenação Col 1 -> Col 2 -> Col 3.
+# Versão v109 - "Right-Shifted Sorting" & "Aggressive Splitter"
+# - EXTRAÇÃO: Fronteira da Coluna 3 movida para 68% (Width * 0.68).
+#   Isso força qualquer coisa no meio (até 68% da página) a ficar na Coluna 2.
+#   Garante que o texto "Informações..." (Sec 2) venha antes de "3. QUANDO" (Sec 3).
+# - SPLITTER: Regex super permissivo para detectar títulos de seção e cortar o texto imediatamente.
 
 import re
 import difflib
@@ -170,46 +169,33 @@ def limpar_lixo_grafico(texto):
     return texto_limpo
 
 def forcar_titulos_bula(texto):
-    """
-    Força a padronização EXATA dos títulos para bater com a lista canônica.
-    """
     substituicoes = [
         (r"(?:^|\n)\s*(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
          r"\n1.PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
-
         (r"(?:^|\n)\s*(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
          r"\n2.COMO ESTE MEDICAMENTO FUNCIONA?\n"),
-
         (r"(?:^|\n)\s*(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:^|\n)\s*(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:^|\n)\s*(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-          
         (r"(?:^|\n)\s*(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n6.COMO DEVO USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:^|\n)\s*(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-          
         (r"(?:^|\n)\s*(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?\n"),
-          
         (r"(?:^|\n)\s*(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", 
          r"\n9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
-         
         (r"(?:^|\n)\s*(?:DIZERES\s*LEGAIS)", r"\nDIZERES LEGAIS\n")
     ]
-    
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS ("GRAVITY CLUSTERING") -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS (RIGHT-SHIFTED) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -226,15 +212,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # --- ALGORITMO DE GRAVIDADE ---
-                        # Em vez de margens fixas, definimos 3 "Imãs" (Centróides Ideais)
-                        # Coluna 1: Centro em ~17% da largura
-                        # Coluna 2: Centro em ~50% da largura (Puxa o Quadrado Preto pra cá!)
-                        # Coluna 3: Centro em ~83% da largura (Puxa o titulo 3. QUANDO pra cá)
-                        
-                        magnet_1 = width * 0.17
-                        magnet_2 = width * 0.50
-                        magnet_3 = width * 0.83
+                        # --- ESTRATÉGIA V109: RIGHT-SHIFTED WALLS ---
+                        # Para garantir que a "Caixa Preta" (Seção 2, Meio) não invada a Direita:
+                        # Col 1 (Esq): < 32%
+                        # Col 2 (Meio): 32% até 68% (Aumentado de 66% para 68% para pegar o quadrado inteiro)
+                        # Col 3 (Dir): >= 68% (Só texto muito à direita)
+                        limite_1 = width * 0.32
+                        limite_2 = width * 0.68
                         
                         col_1, col_2, col_3 = [], [], []
                         cabecalhos = []
@@ -242,37 +226,28 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0, x1 = b[0], b[2]
-                                    # Ponto central do bloco atual
-                                    block_center = (x0 + x1) / 2
-                                    block_width = x1 - x0
+                                    x0 = b[0] # Usa borda esquerda
+                                    block_width = b[2] - b[0]
                                     
-                                    # Se for muito largo (>85%) e no topo, é cabeçalho global
+                                    # Cabeçalho global (Topão)
                                     if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
                                         cabecalhos.append(b)
                                     else:
-                                        # Calcula distância para cada imã
-                                        dist1 = abs(block_center - magnet_1)
-                                        dist2 = abs(block_center - magnet_2)
-                                        dist3 = abs(block_center - magnet_3)
-                                        
-                                        # O bloco vai para o imã mais próximo
-                                        # O texto do quadrado preto estará mais perto de magnet_2 (50%) 
-                                        # do que de magnet_3 (83%), garantindo a Coluna 2.
-                                        min_dist = min(dist1, dist2, dist3)
-                                        
-                                        if min_dist == dist1: col_1.append(b)
-                                        elif min_dist == dist2: col_2.append(b)
-                                        else: col_3.append(b)
+                                        # Distribuição
+                                        if x0 < limite_1:
+                                            col_1.append(b)
+                                        elif x0 < limite_2:
+                                            col_2.append(b) # Aqui cai o Quadrado Preto e o fim da Seção 2
+                                        else:
+                                            col_3.append(b) # Aqui cai "3. QUANDO"
                         
-                        # Ordenação Vertical (Topo -> Baixo) dentro de cada coluna
+                        # Ordenação Vertical (Topo -> Baixo)
                         cabecalhos.sort(key=lambda x: x[1])
                         col_1.sort(key=lambda x: x[1])
                         col_2.sort(key=lambda x: x[1])
                         col_3.sort(key=lambda x: x[1])
                         
-                        # Concatenação Forçada: 
-                        # Header -> Coluna 1 inteira -> Coluna 2 inteira -> Coluna 3 inteira
+                        # Concatenação: Força leitura sequencial das colunas
                         for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
@@ -310,6 +285,22 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         return "", f"Erro: {e}"
 
 # ----------------- PARSER "STATE MACHINE" -----------------
+def is_new_section_header(line):
+    """
+    Retorna True se a linha for inequivocamente um novo título de seção.
+    Regex agressivo para "Número + Texto Maiúsculo".
+    """
+    # Ex: "3. QUANDO", "3-QUANDO", "3 QUANDO", "DIZERES LEGAIS"
+    if re.match(r'^\d{1,2}[\s\.\-\)]+\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{3,}', line.strip()):
+        return True
+    if "DIZERES LEGAIS" in line.upper():
+        return True
+    if "APRESENTAÇÕES" in line.upper() and len(line) < 30:
+        return True
+    if "COMPOSIÇÃO" in line.upper() and len(line) < 30:
+        return True
+    return False
+
 def fatiar_texto_state_machine(texto):
     linhas = texto.split('\n')
     secoes_esperadas = get_canonical_sections()
@@ -322,16 +313,22 @@ def fatiar_texto_state_machine(texto):
         linha_limpa = linha.strip()
         if not linha_limpa: continue
         
+        # Verifica se é título
         norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
         titulo_encontrado = None
         
-        for s_norm, s_canon in secoes_norm.items():
-            if s_norm == norm_linha:
-                titulo_encontrado = s_canon
-                break
-            if len(norm_linha) > 10 and fuzz.ratio(s_norm, norm_linha) > 98:
-                titulo_encontrado = s_canon
-                break
+        # Se parecer título visualmente (Regex) OU bater com lista canônica
+        possible_header = is_new_section_header(linha_limpa)
+        
+        if possible_header:
+            # Tenta casar com a lista oficial
+            for s_norm, s_canon in secoes_norm.items():
+                if s_norm in norm_linha: # Contém o título
+                    titulo_encontrado = s_canon
+                    break
+                if fuzz.ratio(s_norm, norm_linha) > 90:
+                    titulo_encontrado = s_canon
+                    break
         
         if titulo_encontrado:
             secao_atual = titulo_encontrado
@@ -346,7 +343,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_esperadas = get_canonical_sections()
     ignore_comparison = [s.upper() for s in obter_secoes_ignorar_comparacao()]
     
-    # Usa o parser State Machine para ambos
     mapa_ref = fatiar_texto_state_machine(texto_ref)
     mapa_bel = fatiar_texto_state_machine(texto_belfar)
     
@@ -559,8 +555,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v108)")
-st.markdown("Sistema com Extração por Gravidade (Corrige problemas de caixas e bordas).")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v109)")
+st.markdown("Sistema com Extração de Coluna Deslocada (68%) e Corte de Seção Agressivo.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -602,4 +598,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v108 | Base v107 + Gravity Clustering.")
+st.caption("Sistema de Auditoria de Bulas v109 | Base v108 + Aggressive Splitter.")
