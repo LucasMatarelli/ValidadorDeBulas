@@ -1,9 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v98 - "Geometric Center Sort" (Correção da Seção 2 invadindo a 3)
-# - COLUNAS: Usa o CENTRO (center_x) do bloco de texto para definir a coluna, não a borda esquerda.
-#   Isso impede que textos indentados do meio caiam na coluna da direita.
-# - ORDEM: Garante leitura sequencial: Texto do Meio (Sec 2) -> Título da Direita (Sec 3).
+# Versão v99 - "Concrete Walls Layout" (Força Bruta na Divisão de Colunas)
+# - COLUNAS: Define limites rígidos baseados na MARGEM ESQUERDA (x0).
+#   - Col 1: x0 < 30% da página.
+#   - Col 2: 30% <= x0 < 62% da página (Recuado para evitar misturar com a 3).
+#   - Col 3: x0 >= 62% da página.
+# - ORDEM: Garante que TODO o texto da Col 2 seja processado antes de qualquer texto da Col 3.
 # - PARSER: Mantém a lista canônica de 13 títulos.
 
 import re
@@ -211,7 +213,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS (GEOMETRIC CENTER) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS ("CONCRETE WALLS" / FORÇA BRUTA) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -228,9 +230,11 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # Limites baseados em TERÇOS da página
-                        limite_1 = width * 0.333
-                        limite_2 = width * 0.666
+                        # "MUROS DE CONCRETO"
+                        # Limite 1: 30% da página. (Col 1 termina aqui)
+                        # Limite 2: 62% da página. (Col 2 termina aqui - ANTES da Col 3 começar)
+                        limite_1 = width * 0.30
+                        limite_2 = width * 0.62
                         
                         col_1, col_2, col_3 = [], [], []
                         cabecalhos = []
@@ -238,35 +242,33 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0, x1 = b[0], b[2]
+                                    x0 = b[0] # Usa SEMPRE a borda esquerda para decidir
                                     
-                                    # Calcula o CENTRO do bloco
-                                    center_x = (x0 + x1) / 2
-                                    block_width = x1 - x0
-                                    
-                                    # Se for muito largo (>85%), é cabeçalho global
-                                    if block_width > (width * 0.85):
+                                    # Cabeçalho global apenas se for MUITO largo e estiver no TOPO
+                                    # (Evita pegar titulos de seção que ocupam 1 coluna mas parecem largos)
+                                    block_width = b[2] - b[0]
+                                    if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
                                         cabecalhos.append(b)
                                     else:
-                                        # Distribuição pelo CENTRO (Mais robusto)
-                                        if center_x < limite_1: 
+                                        # Distribuição RÍGIDA
+                                        if x0 < limite_1: 
                                             col_1.append(b)
-                                        elif center_x < limite_2: 
-                                            col_2.append(b) # Aqui cai o texto amarelo (Meio)
+                                        elif x0 < limite_2: 
+                                            col_2.append(b)
                                         else: 
-                                            col_3.append(b) # Aqui cai o titulo da Seção 3 (Direita)
+                                            col_3.append(b)
                         
                         # Ordena cada coluna verticalmente (Topo -> Baixo)
                         cabecalhos.sort(key=lambda x: x[1])
-                        col_1.sort(key=lambda x: (x[1], x[0]))
-                        col_2.sort(key=lambda x: (x[1], x[0]))
-                        col_3.sort(key=lambda x: (x[1], x[0]))
+                        col_1.sort(key=lambda x: x[1])
+                        col_2.sort(key=lambda x: x[1])
+                        col_3.sort(key=lambda x: x[1])
                         
-                        # Montagem Final: Coluna do Meio vem ANTES da Coluna da Direita
+                        # Montagem Final: Header -> Esq -> Meio -> Dir
                         for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
-                        for b in col_2: texto_completo += b[4] + "\n" # Texto amarelo é processado aqui
-                        for b in col_3: texto_completo += b[4] + "\n" # Titulo Seção 3 vem depois
+                        for b in col_2: texto_completo += b[4] + "\n"
+                        for b in col_3: texto_completo += b[4] + "\n"
                         
                     else:
                         blocks = page.get_text("blocks", sort=True)
@@ -559,8 +561,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v98)")
-st.markdown("Sistema com Extração via Centro Geométrico (Correção de Colunas).")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v99)")
+st.markdown("Sistema com Extração de Muros de Concreto (30/62) e Fatiamento Canônico.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -602,4 +604,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v98 | Base v97 + Geometric Center Sort.")
+st.caption("Sistema de Auditoria de Bulas v99 | Base v98 + Concrete Walls Layout.")
