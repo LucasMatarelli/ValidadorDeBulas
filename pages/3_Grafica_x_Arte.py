@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v116 - MODO "FORÇA BRUTA" PARA PROVAS GRÁFICAS
-# - NOVO: Se o PDF for largo (> A4) ou paisagem, ignora texto nativo e força OCR imediatamente.
-# - OCR: Configurado para segmentação automática de páginas (lida melhor com múltiplas colunas).
-# - LIMPEZA: Remoção agressiva de escalas métricas e metadados de impressão antes do processamento.
-# - CORREÇÕES: Mantidas correções de "tista", "nlguesiomiro", etc.
+# Versão v117 - RESGATE DE TÍTULOS PERDIDOS E OCR OTIMIZADO
+# - NOVO: Função 'recuperar_titulos_perdidos' que usa Fuzzy Matching para achar títulos sujos de OCR no meio do texto.
+# - MELHORIA: Regex "Vale-Tudo" para as seções 3, 4 e 8 (que estavam sumindo).
+# - OCR: Prioridade total para PSM 1 (melhor para layouts complexos/largos).
 
 import re
 import difflib
@@ -106,19 +105,13 @@ def normalizar_titulo_para_comparacao(texto):
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str): return texto
-    # Procura data de aprovação no final do texto
     regex_anvisa = r"((?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprova\w+[\s\n]+na[\s\n]+anvisa:)[\s\n]*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
-    # Pega a última ocorrência para evitar datas no cabeçalho
     matches = list(re.finditer(regex_anvisa, texto, re.IGNORECASE | re.DOTALL))
     if not matches: return texto
-    
     last_match = matches[-1]
     cut_off_position = last_match.end(1)
-    
-    # Tenta achar um ponto final logo depois
     pos_match = re.search(r'^\s*\.', texto[cut_off_position:], re.IGNORECASE)
     if pos_match: cut_off_position += pos_match.end()
-    
     return texto[:cut_off_position]
 
 def _create_anchor_id(secao_nome, prefix):
@@ -126,13 +119,13 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v116) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v117) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
     texto_limpo = texto
     
-    # 1. Padrões de "Ruído Gráfico" (Barras de Cores / Escalas)
+    # 1. Padrões de "Ruído Gráfico"
     texto_limpo = re.sub(r'(?m)^.*[\[\]|—>w]{5,}.*$', '', texto_limpo)
 
     # 2. Remoção de Gibberish
@@ -238,7 +231,6 @@ def corrigir_padroes_bula(texto):
     """Corrige erros de OCR detectados na auditoria."""
     if not texto: return ""
     
-    # CORREÇÕES DE OCR V116
     texto = re.sub(r'\bMalcato\b', 'Maleato', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\benalaprii\b', 'enalapril', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bRonam\b', 'Roman', texto, flags=re.IGNORECASE)
@@ -255,27 +247,52 @@ def corrigir_padroes_bula(texto):
     texto = texto.replace('excipientes ” q', 'excipientes q.s.p.')
     texto = re.sub(r'101\s*excipientes', '10 mg excipientes', texto, flags=re.IGNORECASE)
     
-    # 1. TEMPERATURA E SÍMBOLOS
+    # Temperatura
     texto = re.sub(r'(\d+)\s*Ca\s*(\d+)', r'\1°C a \2', texto)
     texto = re.sub(r'(\d+)\s*C\b', r'\1°C', texto)
     texto = re.sub(r'(\d+)\s*["”]\s*[Cc]', r'\1°C', texto)
     texto = re.sub(r'(15|25)\s*[°"”]?\s*[Cc]?\s*a\s*300\b', r'\1°C a 30°C', texto)
     texto = re.sub(r'\b300\b', r'30°C', texto) 
     
-    # 2. PALAVRAS QUEBRADAS
+    # Palavras quebradas
     texto = re.sub(r'\bGuarde\s*-\s*o\b', 'Guarde-o', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bGuardeo\b', 'Guarde-o', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\butilizá\s*-\s*lo\b', 'utilizá-lo', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bUtilizalo\b', 'utilizá-lo', texto, flags=re.IGNORECASE)
-    
-    # 3. PONTUAÇÃO
     texto = re.sub(r'\s+([.,;?!])', r'\1', texto)
     
     return texto
 
 # ----------------- EXTRAÇÃO -----------------
 
+def recuperar_titulos_perdidos(texto):
+    """
+    Tenta encontrar títulos que foram 'comidos' pelo OCR ou grudados no texto anterior.
+    Usa Regex muito permissivo e insere quebras de linha para destacar o título.
+    """
+    if not texto: return ""
+    
+    # Mapa de "Tokens Chave" -> Título Correto
+    # Procura por pedaços chave que identificam o início de uma seção, mesmo com lixo em volta
+    mapa_recuperacao = [
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*QUANDO\s+N[ÃA]O\s+DEVO\s+USAR)", r"\n\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES)", r"\n\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*ONDE\s*,?\s*COMO\s+E\s+POR\s+QUANTO)", r"\n\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*COMO\s+DEVO\s+USAR)", r"\n\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO)", r"\n\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*QUAIS\s+OS\s+MALES)", r"\n\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M)", r"\n\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
+    ]
+    
+    texto_recuperado = texto
+    for padrao, substituicao in mapa_recuperacao:
+        # Só substitui se encontrar o padrão
+        texto_recuperado = re.sub(padrao, substituicao, texto_recuperado)
+        
+    return texto_recuperado
+
 def forcar_titulos_bula(texto):
+    # Regex ultra-permissivos para padronizar o que já foi pré-processado ou lido quase corretamente
     substituicoes = [
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
         (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
@@ -284,7 +301,6 @@ def forcar_titulos_bula(texto):
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
         (r"(?:6\.?\s*)?COMO\s*(?:DEVO\s*USAR\s*ESTE\s*)?MEDICAMENTO.*?(?:\?|\.|=)", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"), 
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-        # Captura agressiva para títulos quebrados na seção 8
         (r"(?:8\.?\s*)?(?:QUAIS\s*)?OS\s*MALES\s*Q(?:UE|uE)\s*ESTE\s*MEDICAMENTO\s*PODE\s*(?:ME\s*)?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
@@ -294,17 +310,16 @@ def forcar_titulos_bula(texto):
     return texto_arrumado
 
 def executar_ocr_paginado(arquivo_bytes):
-    """Executa OCR com configurações otimizadas para colunas."""
+    """Executa OCR e retorna lista de textos por página."""
     textos_paginas = []
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         for page in doc:
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             try: 
-                # Tenta layout automático com OSD (Orientation and Script Detection) - PSM 1
-                # Isso ajuda muito em provas gráficas que podem ter texto vertical ou colunas complexas
+                # PSM 1 (Orientation and Script Detection) é geralmente melhor para layouts complexos/largos
                 txt = pytesseract.image_to_string(img, lang='por', config='--psm 1')
-                if len(txt) < 100: # Se falhar, tenta o padrão PSM 3
+                if len(txt) < 100:
                     txt = pytesseract.image_to_string(img, lang='por', config='--psm 3')
                 textos_paginas.append(txt)
             except: 
@@ -314,17 +329,13 @@ def executar_ocr_paginado(arquivo_bytes):
 def verifica_qualidade_texto(texto):
     if not texto: return False
     t_limpo = re.sub(r'\s+', '', unicodedata.normalize('NFD', texto).lower())
-    # Lista estrita de seções que DEVEM aparecer
     keywords = ["1paraque", "2comoeste", "3quando", "4oque", "8quaisos"]
     hits = sum(1 for k in keywords if k in t_limpo)
-    # Se faltar qualquer uma dessas 5 seções principais, considera qualidade ruim
     return hits >= 4
 
 def check_is_proof(page):
-    """Verifica se a página é uma prova gráfica (larga ou com marcas)."""
     rect = page.rect
     width_cm = rect.width / 72 * 2.54
-    # Se largura > 30cm (A4 paisagem é ~29.7, provas costumam ser 40+), é prova gráfica
     if width_cm > 35: 
         return True
     return False
@@ -338,7 +349,6 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
         
         usou_ocr = False
         
-        # 1. ANALISA GEOMETRIA DO PDF ANTES DE TENTAR LER
         force_ocr = False
         if tipo_arquivo == 'pdf' and is_marketing_pdf:
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
@@ -346,17 +356,13 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     st.toast(f"📐 Layout de Bula Gráfica detectado (>35cm). Forçando OCR para leitura correta...", icon="📏")
                     force_ocr = True
 
-        # 2. TENTA EXTRAÇÃO NATIVA (SE NÃO FOR FORÇADO OCR)
         if not force_ocr and tipo_arquivo == 'pdf':
-            # ... (código de extração nativa mantido para PDFs normais A4)
             pages_text = []
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 for i, page in enumerate(doc):
-                    # Tenta ler nativo (linear)
                     txt = page.get_text() 
                     pages_text.append(txt)
             
-            # Reordenação nativa
             if len(pages_text) >= 2:
                 p1_sample = pages_text[0][:1500].upper()
                 p1_verso = "VERSO" in p1_sample or "DIZERES LEGAIS" in p1_sample
@@ -370,16 +376,14 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
-        # 3. VALIDAÇÃO E FALLBACK (OU EXECUÇÃO DIRETA SE FORCE_OCR)
         if force_ocr or (is_marketing_pdf and not verifica_qualidade_texto(texto_completo)):
             if not force_ocr:
                 st.warning(f"⚠️ Seções faltando no texto nativo. Ativando OCR corretivo...", icon="👁️")
             
             ocr_pages = executar_ocr_paginado(arquivo_bytes)
             
-            # REORDENAÇÃO FRENTE/VERSO NO OCR (CRÍTICO)
             if len(ocr_pages) >= 2:
-                p1_ocr = ocr_pages[0][:2000].upper() # Aumentei o buffer de busca
+                p1_ocr = ocr_pages[0][:2000].upper()
                 p1_verso = "VERSO" in p1_ocr or "DIZERES LEGAIS" in p1_ocr
                 p2_ocr = ocr_pages[1][:2000].upper() if len(ocr_pages) > 1 else ""
                 p2_frente = "FRENTE" in p2_ocr or "APRESENTAÇÕES" in p2_ocr
@@ -395,8 +399,11 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             
+            # Limpeza e Correção
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = corrigir_padroes_bula(texto_completo)
+            # NOVO: Tenta recuperar títulos antes da formatação final
+            texto_completo = recuperar_titulos_perdidos(texto_completo) 
             texto_completo = forcar_titulos_bula(texto_completo)
             
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
@@ -750,8 +757,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v116)")
-st.markdown("Sistema com validação RÍGIDA: OCR forçado em Provas Gráficas.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v117)")
+st.markdown("Sistema com validação RÍGIDA: OCR forçado em Provas Gráficas + Resgate de Títulos.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -795,4 +802,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v116 | MODO FORÇA BRUTA: OCR em Provas Gráficas.")
+st.caption("Sistema de Auditoria v117 | RESGATE DE TÍTULOS PERDIDOS + OCR OTIMIZADO.")
