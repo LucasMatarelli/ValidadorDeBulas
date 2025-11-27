@@ -1,10 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v105 - "Absolute Column Flow" (Correção da Seção 3 engolindo Seção 2)
-# - FLUXO: Força leitura estrita: Coluna 1 (Esq) -> Coluna 2 (Meio) -> Coluna 3 (Dir).
-#   Isso garante que TODO o texto da Seção 2 (que termina na Col 2) venha ANTES
-#   do título da Seção 3 (que está na Col 3).
-# - PARSER: Usa lista canônica de 13 títulos para fatiar o texto linearizado.
+# Versão v106 - "Safety Margin 67%" (Correção da Invasão de Coluna)
+# - COLUNAS: A fronteira entre Coluna 2 e 3 foi movida para 67% da largura.
+#   Isso garante que textos da Coluna 2 (mesmo que indentados para a direita)
+#   não caiam no balde da Coluna 3.
+# - FLUXO: Mantém a ordem rigorosa: Texto Col 1 -> Texto Col 2 -> Texto Col 3.
+# - PARSER: Mantém a lista canônica e o parser de Máquina de Estados.
 
 import re
 import difflib
@@ -208,7 +209,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS (ABSOLUTE COLUMN FLOW) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS AJUSTADA (67% LIMIT) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -225,12 +226,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # LIMITES RÍGIDOS DE COLUNA (Baseado no layout visual da Belfar)
-                        # Col 1: Esquerda (0% - 31%)
-                        # Col 2: Meio (31% - 64%)
-                        # Col 3: Direita (64% - 100%)
-                        limite_1 = width * 0.31
-                        limite_2 = width * 0.64
+                        # LIMITES AJUSTADOS (SAFETY MARGIN)
+                        # Col 1: Esquerda < 32%
+                        # Col 2: Meio < 67% (Aumentei de 64% para 67% para pegar textos desalinhados)
+                        # Col 3: Direita >= 67%
+                        limite_1 = width * 0.32
+                        limite_2 = width * 0.67
                         
                         col_1, col_2, col_3 = [], [], []
                         cabecalhos = []
@@ -241,29 +242,27 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                                     x0 = b[0] # Ponto de partida esquerdo da linha
                                     block_width = b[2] - b[0]
                                     
-                                    # Se for muito largo (>85%) e estiver no topo, é cabeçalho global (ex: logo)
+                                    # Cabeçalho global apenas se for MUITO largo (>85%) e no topo
                                     if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
                                         cabecalhos.append(b)
                                     else:
-                                        # Classifica na coluna correta pela posição X inicial
+                                        # CLASSIFICAÇÃO PELO INÍCIO DA LINHA (x0)
                                         if x0 < limite_1:
                                             col_1.append(b)
                                         elif x0 < limite_2:
+                                            # Aqui cai o texto amarelo, mesmo que esteja um pouco pra direita
                                             col_2.append(b)
                                         else:
+                                            # Aqui cai o titulo da Seção 3
                                             col_3.append(b)
                         
-                        # ORDENAÇÃO CRÍTICA:
-                        # 1. Cabeçalhos globais (se houver)
-                        # 2. TODA a Coluna 1 (Topo -> Baixo)
-                        # 3. TODA a Coluna 2 (Topo -> Baixo) -> AQUI está o fim da Seção 2
-                        # 4. TODA a Coluna 3 (Topo -> Baixo) -> AQUI começa a Seção 3
-                        
+                        # Ordenação Vertical
                         cabecalhos.sort(key=lambda x: x[1])
                         col_1.sort(key=lambda x: x[1])
                         col_2.sort(key=lambda x: x[1])
                         col_3.sort(key=lambda x: x[1])
                         
+                        # CONCATENAÇÃO RIGOROSA: Col 2 Inteira -> DEPOIS Col 3
                         for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
@@ -300,14 +299,8 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- PARSER "STATE MACHINE" (ABSOLUTO) -----------------
+# ----------------- PARSER "STATE MACHINE" -----------------
 def fatiar_texto_state_machine(texto):
-    """
-    Parser de Máquina de Estados:
-    - Estado Inicial: None (ou acumulando lixo do topo)
-    - Transição: Encontrou TÍTULO CANÔNICO -> Muda o Estado para esse título.
-    - Ação: Adiciona a linha ao conteúdo do Estado Atual.
-    """
     linhas = texto.split('\n')
     secoes_esperadas = get_canonical_sections()
     secoes_norm = {normalizar_titulo_para_comparacao(s): s for s in secoes_esperadas}
@@ -319,13 +312,10 @@ def fatiar_texto_state_machine(texto):
         linha_limpa = linha.strip()
         if not linha_limpa: continue
         
-        # Tenta identificar se a linha é um título
         norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
         titulo_encontrado = None
         
-        # Verifica match exato ou muito próximo (sem "achismos" parciais)
         for s_norm, s_canon in secoes_norm.items():
-            # Match exato ou fuzzy muito alto (95%+)
             if s_norm == norm_linha or (len(s_norm) > 10 and norm_linha.startswith(s_norm)):
                 titulo_encontrado = s_canon
                 break
@@ -334,14 +324,11 @@ def fatiar_texto_state_machine(texto):
                 break
         
         if titulo_encontrado:
-            # Mudança de estado: Nova seção detectada
             secao_atual = titulo_encontrado
         else:
-            # Continua na seção atual
             if secao_atual:
                 conteudo_mapeado[secao_atual].append(linha)
     
-    # Junta as linhas em texto único por seção
     return {k: "\n".join(v).strip() for k, v in conteudo_mapeado.items()}
 
 # ----------------- VERIFICAÇÃO -----------------
@@ -564,7 +551,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v105)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v106)")
 st.markdown("Sistema com Fluxo de Colunas Absoluto (1-2-3) e Parser por Máquina de Estados.")
 
 st.divider()
@@ -607,4 +594,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v105 | Base v104 + Absolute Column Flow.")
+st.caption("Sistema de Auditoria de Bulas v106 | Base v105 + Safety Margin.")
