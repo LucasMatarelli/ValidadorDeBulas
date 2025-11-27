@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v109 - Correção de NameError e Limpeza Gráfica Profunda
-# - CORREÇÃO BUG: Garante que 'gerar_relatorio_final' esteja definida antes do uso.
-# - LIMPEZA AVANÇADA: Remove lixos específicos da prova "Gibran" (tabelas de aprovação, medidas, emails).
-# - ESTRUTURA: Mantém a leitura por colunas para suportar layouts de 45cm.
+# Versão v106 - Limpeza de Provas Gráficas (Gibran/CV)
+# - NOVO: Remoção agressiva de metadados de impressão (Medidas, Tipologia, Provas).
+# - NOVO: Correção de OCR específico ("Malcato" -> "Maleato").
+# - MANTIDO: Lógica estrutural das versões anteriores.
 
 import re
 import difflib
@@ -118,139 +118,147 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (v109 - Provas Gráficas) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v106) -----------------
+
 def limpar_lixo_grafico(texto):
-    """Remove lixo técnico, anotações de prova gráfica e dimensões."""
+    """Remove lixo técnico e fragmentos específicos de provas gráficas."""
     texto_limpo = texto
     
     # 1. Frases/Padrões Literais Longos
     lixo_frases = [
-        "MEDICAMENTO ?", "DEVO USAR ESTE", "mma USO ORAL mm USO ADULTO",
-        "mem CSA comprimido", "MMA 1250 - 12/25", "Medida da bula", "19 , 0 cm x 45 , 0 cm"
+        "MEDICAMENTO ?", 
+        "DEVO USAR ESTE", 
+        "mma USO ORAL mm USO ADULTO",
+        "mem CSA comprimido",
+        "MMA 1250 - 12/25",
+        "Medida da bula",
+        "19 , 0 cm x 45 , 0 cm",
+        "Can Phete", "gbrangrafica", "Gibran"
     ]
     for item in lixo_frases:
         texto_limpo = texto_limpo.replace(item, "")
 
     # 2. Tokens curtos/soltos
-    tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm", "mma", "gibran"]
-    pattern_tokens = r'\b(' + '|'.join(tokens_lixo) + r')\b'
-    texto_limpo = re.sub(pattern_tokens, '', texto_limpo, flags=re.IGNORECASE)
+    tokens_lixo = ["MM", "mm", "pe", "BRR", "EE", "gm", "cm", "mma", "mg"]
+    # Remover apenas se estiverem soltos e não forem parte de dosagem (ex: 50 mg é util, mas mg solto no rodape não)
+    # A logica abaixo é um pouco agressiva, vamos refinar para não matar dosagens
+    # pattern_tokens = r'\b(' + '|'.join(tokens_lixo) + r')\b'
+    # texto_limpo = re.sub(pattern_tokens, '', texto_limpo, flags=re.IGNORECASE)
 
-    # 3. Limpezas Específicas (Regex)
+    # 3. Limpezas Específicas (Regex) - FOCADO NAS BULAS ANEXADAS
     padroes_especificos = [
-        # --- LIXO DE PROVA GRÁFICA (Gibran/Belfar) ---
-        r'.*PROVA\s*\d{2}/\d{2}/\d{4}.*',  # 1a. PROVA 03/10/2025
-        r'.*Favor\s*conferir.*',           # Favor conferir e enviar aprovação...
-        r'.*Autorizado\s*Sim\s*Não.*',     # Checkbox de aprovação
-        r'.*Atenção:\s*não\s*autoriz.*',   # Avisos de gráfica
-        r'.*Assinatura:.*',                # Campos de assinatura
-        r'.*gibrangrafica.*',              # Emails de gráfica
-        r'.*Versão\s*0\d+.*',              # Versão 06 solta
-        r'.*Verso\s*Bula.*',               # Cabeçalhos soltos
-        r'.*Frente\s*Bula.*',
-        r'.*Após\s*aprovação\s*assinada.*',
-        r'.*não\s*poderá\s*haver\s*reclamações.*',
+        # Medidas numéricas soltas e dimensões de arquivo
+        r'^\s*\d{1,3}\s*,\s*00\s*$',
+        r'^\s*\d{1,3}\s*[xX]\s*\d{1,3}\s*$',
+        r'^\s*\d{1,3}\s*[\.,]\s*\d{1,2}\s*cm\s*$', # ex: 19.00 cm
+        r'^\s*[\d\.,]+\s*mm\s*$', # ex: 30 mm
         
-        # Dimensões e Medidas
-        r'^\s*\d{1,3}\s*,\s*00\s*$',       # 210, 00 isolado
-        r'^\s*:\s*\d{1,3}\s*[xX]\s*\d{1,3}\s*$', # : 15 X 21
-        r'.*:\s*19\s*,\s*0\s*x\s*45\s*,\s*0.*',
-        r'\b\d{1,3}\s*cm\b', r'\b\d{1,3}\s*mm\b',
+        # Cabeçalhos técnicos de prova
+        r'^.*Medida da bula:.*$',
+        r'^.*Tipologia da bula:.*$',
+        r'^.*impressas 1x0.*$',
+        r'^.*cor-frente/verso.*$',
+        r'^.*papel Ap \d+gr.*$',
+        r'^.*Times New Roman.*$', # Nome da fonte no meio do texto
+        r'^.*Negrito.*Corpo.*$',
+        r'^.*PROVA \d+/\d+/\d+.*$',
+        r'^.*Favor conferir e enviar aprovação.*$',
+        r'^.*Autorizado Sim Não.*$',
+        r'^.*Atenção: não autoriz.*$',
+        r'^.*Assinatura:.*$',
+        r'^.*Resastres.*Aguarde NOVA PROVA.*$',
+        r'^.*Gibran.*$', # Nome da gráfica
         
-        # Lixo Técnico Geral
+        # Lixo comum
         r"\s+'\s+", 
         r'.*\(?\s*31\s*\)?\s*3514\s*-\s*2900.*',
         r'^\s*contato\s*$',
+        r'.*:\s*19\s*,\s*0\s*x\s*45\s*,\s*0.*',
         r'.*(?:—\s*)+\s*>\s*>\s*>\s*».*',
         r'.*gm\s*>\s*>\s*>.*',              
         r'.*_{3,}.*gm.*', 
         r'.*MMA\s+\d{4}\s*-\s*\d{1,2}/\d{2,4}.*',
         r'^\s*MEDICAMENTO\s*\?\s*$',
         r'^\s*DEVO\s*USAR\s*ESTE\s*$',
-        r'.*Tipologia.*',                   
-        r'.*Normal\s+e.*',                  
+        r'.*PROVA\s*-\s*[\d\s/]+.*',       
+        r'.*Tipologia.*',                  
+        r'.*Normal\s+e.*',                 
         r'^\s*Belcomplex\s+B\s+comprimido\s*$',
         r'^\s*Belcomplex:\s*$',
         r'.*Impress[ãa]o:.*',
-        r'.*Negrito\s*[\.,]?\s*Corpo\s*\d+.*',
         r'.*artes.*belfar.*',
-        r'^contato:.*',                     
-        r'.*BUL\d+[A-Z0-9]*.*',
+        r'^contato:.*',                    
+        r'.*BUL\d+[A-Z0-9]*.*', # Códigos de bula ex: BUL22130V06
         r'.*\(\s*\d+\s*\)\s*BELFAR.*',
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
+        r'^\s*Verso Bula\s*$', r'^\s*Frente Bula\s*$',
         r'.*Cor:\s*Preta.*', r'.*Papel:.*', r'.*Ap\s*\d+gr.*', 
         r'.*bula do paciente.*', r'.*página \d+\s*de\s*\d+.*', 
-        r'.*Times New Roman.*', r'.*Arial.*', r'.*Helvética.*', 
+        r'.*Arial.*', r'.*Helvética.*', 
         r'.*Cores?:.*', r'.*Preto.*', r'.*Pantone.*', 
         r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$',
         r'.*CNPJ:.*', r'.*SAC:.*', r'.*Farm\. Resp\..*', 
         r'.*Laetus.*', r'.*Pharmacode.*', 
         r'.*\b\d{6,}\s*-\s*\d{2}/\d{2}\b.*', 
         r'.*BUL_CLORIDRATO.*',
-        r'^\s*450\s*$'
+        r'^\s*450\s*$',
+        r'^\s*22142800\s*$', # Código numérico solto
+        
+        # Checkboxes unicode
+        r'.*☑.*', r'.*☐.*'
     ]
     
     for p in padroes_especificos:
-        try: texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
-        except: pass
-        if p == r"\s+'\s+": texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE)
+        try:
+            # Tenta remover linha inteira primeiro
+            texto_limpo = re.sub(r'(?m)^' + p + r'$', '', texto_limpo, flags=re.IGNORECASE)
+        except Exception:
+            pass
+            
+        # Se sobrar, remove inline (exceto aspas)
+        if p == r"\s+'\s+":
+             texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE)
         else:
+             # Remove inline apenas se não for um padrão restrito a linha inteira
              if not p.startswith(r'^\s*'): 
                 texto_limpo = re.sub(p, '', texto_limpo, flags=re.IGNORECASE)
 
+    # Limpa linhas vazias ou com pontuação que sobraram
     texto_limpo = re.sub(r'^\s*[-_.,|:;]\s*$', '', texto_limpo, flags=re.MULTILINE)
+    
+    # Corrige "se a administrado"
     texto_limpo = texto_limpo.replace(" se a administrado ", " se administrado ")
+
     return texto_limpo
 
 def corrigir_padroes_bula(texto):
-    """Corrige erros de OCR comuns."""
+    """Corrige erros de OCR (Malcato, 300, Guarde-o)."""
     if not texto: return ""
+    
+    # 0. CORREÇÕES ESPECÍFICAS DESTA BULA (Gibran)
+    texto = re.sub(r'\bMalcato\b', 'Maleato', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'\benalaprii\b', 'enalapril', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'\bRonam\b', 'Roman', texto, flags=re.IGNORECASE)
+    
+    # 1. TEMPERATURA E SÍMBOLOS
     texto = re.sub(r'(\d+)\s*Ca\s*(\d+)', r'\1°C a \2', texto)
     texto = re.sub(r'(\d+)\s*C\b', r'\1°C', texto)
     texto = re.sub(r'(\d+)\s*["”]\s*[Cc]', r'\1°C', texto)
     texto = re.sub(r'(15|25)\s*[°"”]?\s*[Cc]?\s*a\s*300\b', r'\1°C a 30°C', texto)
     texto = re.sub(r'\b300\b', r'30°C', texto) 
+    
+    # 2. PALAVRAS QUEBRADAS
     texto = re.sub(r'\bGuarde\s*-\s*o\b', 'Guarde-o', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bGuardeo\b', 'Guarde-o', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\butilizá\s*-\s*lo\b', 'utilizá-lo', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bUtilizalo\b', 'utilizá-lo', texto, flags=re.IGNORECASE)
+    
+    # 3. PONTUAÇÃO
     texto = re.sub(r'\s+([.,;?!])', r'\1', texto)
+    
     return texto
 
-# ----------------- CORREÇÕES ESTRUTURAIS -----------------
-def corrigir_ordem_blocos_especificos(texto):
-    """Move 'Informações ao paciente...' para antes da Seção 3."""
-    padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
-    match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
-    match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
-    
-    if match_bloco and match_sec3:
-        if match_sec3.start() < match_bloco.start(): 
-            bloco_content = match_bloco.group(1)
-            texto_limpo = texto[:match_bloco.start()] + texto[match_bloco.end():] 
-            match_sec3_novo = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto_limpo, re.IGNORECASE)
-            if match_sec3_novo:
-                pos_insercao = match_sec3_novo.start()
-                novo_texto = texto_limpo[:pos_insercao] + "\n" + bloco_content + "\n\n" + texto_limpo[pos_insercao:]
-                return novo_texto
-    return texto
-
-def corrigir_deslocamento_interacoes(texto):
-    """Move 'Interações medicamentosas' para antes da Seção 5."""
-    padrao_interacoes = r'(Interações\s*medicamentosas:.*?Pode\s*ser\s*perigoso\s*para\s*a\s*sua\s*saúde\.?)'
-    match_inter = re.search(padrao_interacoes, texto, re.IGNORECASE | re.DOTALL)
-    match_sec5 = re.search(r'5\.\s*ONDE', texto, re.IGNORECASE)
-    
-    if match_inter and match_sec5:
-        if match_inter.start() > match_sec5.start():
-            bloco_inter = match_inter.group(1)
-            texto_sem_inter = texto[:match_inter.start()] + texto[match_inter.end():]
-            match_sec5_novo = re.search(r'5\.\s*ONDE', texto_sem_inter, re.IGNORECASE)
-            if match_sec5_novo:
-                pos = match_sec5_novo.start()
-                texto_final = texto_sem_inter[:pos] + "\n" + bloco_inter + "\n\n" + texto_sem_inter[pos:]
-                return texto_final
-    return texto
+# ----------------- EXTRAÇÃO -----------------
 
 def forcar_titulos_bula(texto):
     substituicoes = [
@@ -261,49 +269,13 @@ def forcar_titulos_bula(texto):
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
         (r"(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?\n"),
+        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
-
-# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS & HÍBRIDO) -----------------
-def organizar_por_colunas(page):
-    """
-    Agrupa blocos de texto por proximidade horizontal (colunas)
-    e ordena: Coluna 1 (Top->Down) -> Coluna 2 (Top->Down) -> ...
-    """
-    blocks = page.get_text("blocks", sort=False)
-    text_blocks = [b for b in blocks if b[6] == 0]
-    
-    if not text_blocks: return ""
-
-    text_blocks.sort(key=lambda b: b[0])
-    columns = []
-    TOLERANCIA_X = 100 
-    
-    for b in text_blocks:
-        placed = False
-        for col in columns:
-            avg_x = sum(cb[0] for cb in col) / len(col)
-            if abs(b[0] - avg_x) < TOLERANCIA_X:
-                col.append(b)
-                placed = True
-                break
-        if not placed:
-            columns.append([b])
-    
-    columns.sort(key=lambda c: sum(b[0] for b in c)/len(c))
-    
-    final_text = ""
-    for col in columns:
-        col.sort(key=lambda b: b[1])
-        for b in col:
-            final_text += b[4] + "\n"
-            
-    return final_text
 
 def executar_ocr(arquivo_bytes):
     texto_ocr = ""
@@ -316,17 +288,13 @@ def executar_ocr(arquivo_bytes):
     return texto_ocr
 
 def verifica_qualidade_texto(texto):
-    """Verifica se o texto extraído tem palavras-chave de bula suficientes."""
-    if not texto or len(texto) < 100: return False
+    if not texto: return False
     t_limpo = re.sub(r'\s+', '', unicodedata.normalize('NFD', texto).lower())
-    keywords = ["paraqueeste", "comodevousar", "dizereslegais", "quandonaodevo", "composicao", "medicamento"]
+    keywords = ["paraqueeste", "comodevousar", "dizereslegais", "quandonaodevo", "composicao"]
     hits = sum(1 for k in keywords if k in t_limpo)
-    return hits >= 2 
+    return hits >= 2
 
 def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
-    """
-    Tenta extração nativa. Se falhar (texto vazio ou ruim), usa OCR.
-    """
     if arquivo is None: return "", "Arquivo não enviado."
     try:
         arquivo.seek(0)
@@ -337,7 +305,15 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_nativo = ""
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 for page in doc:
-                    texto_nativo += organizar_por_colunas(page)
+                    # Tenta extrair em blocos para PDFs de MKT ou Provas Gráficas (que têm colunas e metadados)
+                    # Mesmo para referência, se for uma prova gráfica (Gibran), melhor usar blocos para isolar margens
+                    blocks = page.get_text("blocks")
+                    blocks.sort(key=lambda b: (b[1], b[0])) # Ordena verticalmente, depois horizontalmente
+                    for b in blocks:
+                        # Filtra blocos muito pequenos (lixo de impressão) ou metadados laterais
+                        # b[0]=x0, b[1]=y0, b[2]=x1, b[3]=y1, b[4]=text, b[5]=block_no, b[6]=block_type
+                        if b[6] == 0: 
+                            texto_nativo += b[4] + "\n"
             
             if verifica_qualidade_texto(texto_nativo):
                 texto_completo = texto_nativo
@@ -353,13 +329,12 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             
+            # 1. LIMPEZA CIRÚRGICA (IMPORTANTE: Antes de tudo para juntar frases)
             texto_completo = limpar_lixo_grafico(texto_completo)
+            # 2. CORREÇÃO
             texto_completo = corrigir_padroes_bula(texto_completo)
+            # 3. ESTRUTURA
             texto_completo = forcar_titulos_bula(texto_completo)
-            
-            texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
-            texto_completo = corrigir_deslocamento_interacoes(texto_completo)
-            
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
@@ -438,14 +413,12 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
         best_score = 0; best_canon = None
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
         numeric = int(mnum.group(1)) if mnum else None
-        
         for t_possivel, t_canon in titulos_possiveis.items():
             t_norm = titulos_norm.get(t_possivel, "")
             if not t_norm: continue
             score = fuzz.token_set_ratio(t_norm, norm)
             if t_norm in norm: score = max(score, 95)
             if score > best_score: best_score = score; best_canon = t_canon
-        
         is_candidate = False
         if numeric is not None: is_candidate = True
         elif best_score >= 88: is_candidate = True
@@ -454,69 +427,33 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
     unique = {c.index: c for c in candidates}
     return sorted(unique.values(), key=lambda x: x.index)
 
-# ----------------- MAPEAMENTO COM TRAVA NUMÉRICA -----------------
 def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     linhas = texto_completo.split('\n')
     aliases = obter_aliases_secao()
     candidates = construir_heading_candidates(linhas, secoes_esperadas, aliases)
     mapa = []
     last_idx = -1
-    
-    # --- HELPER: Trava Numérica ---
-    def get_canonical_number(sec_name):
-        match = re.search(r'^(\d{1,2})\.', sec_name)
-        return int(match.group(1)) if match else None
-
-    def validar_candidato(cand, canon_number):
-        if canon_number is not None:
-            if cand.numeric is not None:
-                if cand.numeric != canon_number:
-                    return False
-        return True
-
-    for sec in secoes_esperadas:
+    for sec_idx, sec in enumerate(secoes_esperadas):
         sec_norm = normalizar_titulo_para_comparacao(sec)
-        canon_num = get_canonical_number(sec)
         found = None
-        
-        # 1. Busca Exata
         for c in candidates:
             if c.index <= last_idx: continue
-            if c.matched_canon == sec:
-                if validar_candidato(c, canon_num): found = c; break
-        
-        # 2. Busca Numérica
-        if not found and canon_num is not None:
-            for c in candidates:
-                if c.index <= last_idx: continue
-                if c.numeric == canon_num: found = c; break
-        
-        # 3. Busca Fuzzy/Texto com Trava
+            if c.matched_canon == sec: found = c; break
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
-                if sec_norm and sec_norm in c.norm:
-                    if validar_candidato(c, canon_num): found = c; break
-        
+                if c.numeric == (sec_idx + 1): found = c; break
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
-                if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
-                    if validar_candidato(c, canon_num): found = c; break
-        
-        # 4. Busca Global com Trava
+                if sec_norm and sec_norm in c.norm: found = c; break
         if not found:
             for c in candidates:
-                match_canon = (c.matched_canon == sec)
-                match_num = (canon_num is not None and c.numeric == canon_num)
-                match_text = (sec_norm and sec_norm in c.norm)
-                if match_canon or match_num or match_text:
-                    if validar_candidato(c, canon_num):
-                        if match_num or c.score > 95: found = c; break
+                if c.matched_canon == sec or (c.numeric == (sec_idx + 1)):
+                    if c.numeric == (sec_idx + 1) or c.score > 95: found = c; break
         if found:
             mapa.append({'canonico': sec, 'titulo_encontrado': found.raw, 'linha_inicio': found.index})
             if found.index > last_idx: last_idx = found.index
-            
     mapa = sorted(mapa, key=lambda x: x['linha_inicio'])
     return mapa, candidates, linhas
 
@@ -748,26 +685,27 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v109)")
-st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v106)")
+st.markdown("Sistema com validação RÍGIDA: Limpeza aprimorada para provas gráficas (Gibran/CV).")
 
 st.divider()
-tipo_bula_selecionado = "Paciente"
+tipo_bula_selecionado = "Paciente" # Fixo
 
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arquivo ANVISA")
+    st.subheader("📄 Arte Vigente")
     pdf_ref = st.file_uploader("PDF/DOCX Referência", type=["pdf", "docx"], key="ref")
 with col2:
-    st.subheader("📄 Arquivo MKT")
-    pdf_belfar = st.file_uploader("PDF/DOCX Belfar", type=["pdf", "docx"], key="belfar")
+    st.subheader("📄 PDF da Gráfica")
+    pdf_belfar = st.file_uploader("PDF vindo da Gráfica", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
         with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
-            texto_ref_raw, erro_ref = extrair_texto_hibrido(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
+            # Ambos usam block-sort agora para lidar melhor com provas gráficas cheias de colunas
+            texto_ref_raw, erro_ref = extrair_texto_hibrido(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
             texto_belfar_raw, erro_belfar = extrair_texto_hibrido(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
 
             if erro_ref or erro_belfar:
@@ -792,4 +730,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v109 | Correção NameError + Limpeza Gráfica.")
+st.caption("Sistema de Auditoria v106 | Especializado em Provas Gráficas.")
