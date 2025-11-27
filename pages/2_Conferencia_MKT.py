@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v91 - "Left-Edge Sorting" & "Fuzzy Stop"
-# - EXTRAÇÃO: Usa a coordenada X0 (Margem Esquerda) para definir colunas. Muito mais preciso que o centro.
-# - FLUXO: Concatena Coluna 1 -> Coluna 2 -> Coluna 3 de forma bruta.
-# - STOP: Regex flexível para detectar títulos (aceita falta de espaço, traços, etc).
+# Versão v92 - "Wide Middle Track" Adjustment
+# - COLUNAS: Aumentado o limite da Coluna 2 para 70% da largura (width * 0.70).
+#   Isso evita que textos do meio (como "Informações ao Paciente") caiam na Coluna 3
+#   e sejam lidos fora de ordem (após o título da Seção 3).
+# - ORDENAÇÃO: Refinamento na ordenação Y-Axis dentro de cada coluna.
 
 import re
 import difflib
@@ -96,7 +97,6 @@ def normalizar_texto(texto):
 
 def normalizar_titulo_para_comparacao(texto):
     texto_norm = normalizar_texto(texto or "")
-    # Remove numeração inicial para comparar apenas o texto chave
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
 
@@ -146,44 +146,32 @@ def limpar_lixo_grafico(texto):
     return texto_limpo
 
 def forcar_titulos_bula(texto):
-    """
-    Garante que os títulos estejam em linhas próprias e corrige títulos 'colados'.
-    """
     substituicoes = [
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
          r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
-
         (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
          r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
-
         (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-          
         (r"(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-          
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
-          
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", 
          r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
-    
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS "LEFT-EDGE SORT" -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS AJUSTADA -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -198,29 +186,29 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
-                        # ESTRATÉGIA V91: LEFT-EDGE BUCKETING
-                        # Usa a coordenada x0 (onde a linha começa) para decidir a coluna.
-                        # Col 1: começa em 0% a 32% da largura
-                        # Col 2: começa em 32% a 65% da largura
-                        # Col 3: começa em > 65% da largura
+                        # ESTRATÉGIA V92: WIDE MIDDLE TRACK
+                        # Ajustamos os limiares para garantir que a coluna do meio capture tudo
+                        # que não esteja explicitamente na direita extrema.
                         
                         blocks = page.get_text("blocks") 
                         
-                        # Limiares ajustados para margem esquerda
+                        # Limiares ajustados:
+                        # Limite 1 (Esq -> Meio): 32% (Padrão)
+                        # Limite 2 (Meio -> Dir): 70% (AUMENTADO de 65% para 70%)
+                        # Isso garante que se o texto "Informações..." começar em 66% da página,
+                        # ele ainda cairá na Coluna 2, e não na 3.
                         limite_1 = width * 0.32
-                        limite_2 = width * 0.65
+                        limite_2 = width * 0.70
                         
                         col_1 = []
                         col_2 = []
                         col_3 = []
                         
                         for b in blocks:
-                            # b = (x0, y0, x1, y1, text, block_no, type)
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0 = b[0] # Ponto de partida da linha (esquerda)
+                                    x0 = b[0] # Margem esquerda do bloco
                                     
-                                    # Distribuição baseada na margem esquerda
                                     if x0 < limite_1:
                                         col_1.append(b)
                                     elif x0 < limite_2:
@@ -228,19 +216,18 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                                     else:
                                         col_3.append(b)
                         
-                        # Ordena cada coluna de cima para baixo
-                        col_1.sort(key=lambda x: x[1])
-                        col_2.sort(key=lambda x: x[1])
-                        col_3.sort(key=lambda x: x[1])
+                        # Ordenação rigorosa por Y (topo para baixo) e depois X (esquerda para direita)
+                        # para garantir que linhas na mesma altura fiquem ordenadas.
+                        col_1.sort(key=lambda x: (x[1], x[0]))
+                        col_2.sort(key=lambda x: (x[1], x[0]))
+                        col_3.sort(key=lambda x: (x[1], x[0]))
                         
-                        # Concatenação Pura: Col 1 -> Col 2 -> Col 3
-                        # Isso garante fluxo contínuo para seções quebradas
+                        # Concatenação: Col 1 -> Col 2 -> Col 3
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
                         for b in col_3: texto_completo += b[4] + "\n"
                         
                     else:
-                        # ANVISA (Texto corrido)
                         blocks = page.get_text("blocks", sort=True)
                         for b in blocks:
                             if b[6] == 0:
@@ -269,27 +256,15 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     except Exception as e:
         return "", f"Erro: {e}"
 
-# ----------------- RECONSTRUÇÃO DE PARÁGRAFOS -----------------
+# ----------------- VERIFICADOR DE TÍTULOS -----------------
 def is_real_section_title(linha):
-    """
-    FREIO DE MÃO (STOP CONDITION)
-    Retorna True apenas se a linha for CLARAMENTE um novo título de seção (Numérico ou Dizeres).
-    Regex flexível para erros de OCR (ex: '3 QUANDO', '3.QUANDO', '3- QUANDO').
-    """
     ln = linha.strip()
     if len(ln) < 4: return False
     
-    # Regex Flexível:
-    # ^\d{1,2}  -> Começa com 1 ou 2 dígitos
-    # \s* -> Opcional espaço
-    # [\.\)\-]  -> Separador (ponto, parentese, traço)
-    # ?         -> O separador é OPCIONAL (para pegar '3 QUANDO')
-    # \s* -> Espaço opcional
-    # [A-Z]     -> Letra Maiúscula
+    # Regex flexível para número + separador + letra
     if re.match(r'^\d{1,2}\s*[\.\)\-]?\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', ln):
         return True
         
-    # Títulos Específicos sem número
     upper_ln = ln.upper()
     if "DIZERES LEGAIS" in upper_ln: return True
     if "APRESENTAÇÕES" in upper_ln and len(ln) < 20: return True
@@ -315,7 +290,6 @@ def reconstruir_paragrafos(texto):
                 linhas_out.append("")
             continue
             
-        # Usa o verificador reforçado para quebra
         if is_real_section_title(l_strip):
             if buffer: linhas_out.append(buffer); buffer = ""
             linhas_out.append(l_strip)
@@ -386,7 +360,6 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
         if not raw: continue
         norm = normalizar_titulo_para_comparacao(raw)
         
-        # Detecção de número (1., 2., 3)
         mnum = re.match(r'^\s*(\d{1,2})', raw)
         numeric = int(mnum.group(1)) if mnum else None
         
@@ -410,14 +383,11 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
             candidates.append(HeadingCandidate(index=i, raw=raw, norm=norm, numeric=numeric, matched_canon=best_canon if best_score >= 85 else None, score=best_score))
 
     mapa = []
-    # 1. Tenta encontrar cada seção pelo melhor match
     for sec_idx, sec in enumerate(secoes_esperadas):
         found = None
-        # A. Match por Texto Forte
         possibles = [c for c in candidates if c.matched_canon == sec and c.score >= 90]
         if possibles: found = possibles[0]
         
-        # B. Match por Número (Backup)
         if not found:
             match_num = re.search(r'^(\d+)\.', sec)
             if match_num:
@@ -440,14 +410,10 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     
     conteudo_lines = []
     
-    # Lê até o final do texto OU encontrar outro título REAL (Start with Number)
     for i in range(linha_inicio + 1, len(linhas_texto)):
         line = linhas_texto[i]
-        
-        # FREIO DE MÃO REFORÇADO: 
         if is_real_section_title(line):
             break
-            
         conteudo_lines.append(line)
         
     conteudo_final = "\n".join(conteudo_lines).strip()
@@ -703,8 +669,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v91)")
-st.markdown("Sistema com Extração de Borda Esquerda (X0) e Detecção Flexível de Títulos.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v92)")
+st.markdown("Sistema com Trilho do Meio Alargado (70% Width) e Ordenação Y-Axis Rigorosa.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -749,4 +715,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v91 | Base v90 + Left-Edge Sort.")
+st.caption("Sistema de Auditoria de Bulas v92 | Base v91 + Wide Middle Track.")
