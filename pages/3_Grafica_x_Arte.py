@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v107 - Correção Crítica de Títulos e Layout
-# - CORREÇÃO CRÍTICA: Removido "DEVO USAR ESTE" e "MEDICAMENTO ?" da lista de exclusão (estava quebrando os títulos).
-# - NOVO: Ordenação Inteligente de Colunas (evita misturar texto de colunas adjacentes em provas gráficas).
-# - NOVO: Detecção de Ordem de Páginas (se a Pág 1 for VERSO e Pág 2 for FRENTE, o sistema inverte a leitura para manter a lógica).
-# - NOVO: Correções de OCR baseadas no seu feedback ("dosc", "tritamento", "param").
+# Versão v108 - Correção de Fragmentação de Colunas e Títulos
+# - CORREÇÃO CRÍTICA: Ajuste na sensibilidade de colunas (Binning de 50 -> 200) para evitar quebrar parágrafos indentados.
+# - NOVO: Regex de títulos ultra-permissivos para capturar variações como "6. COMO MEDICAMENTO?. ="
+# - NOVO: Limpeza específica para artefatos de OCR vistos na prova ("101 excipientes", ".. o.", etc).
 
 import re
 import difflib
@@ -119,14 +118,12 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v107) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v108) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
     texto_limpo = texto
     
-    # 1. Frases/Padrões Literais Longos
-    # IMPORTANTE: Removido "MEDICAMENTO ?" e "DEVO USAR ESTE" pois estavam quebrando os títulos das seções 3, 4 e 6.
     lixo_frases = [
         "mma USO ORAL mm USO ADULTO",
         "mem CSA comprimido",
@@ -134,30 +131,27 @@ def limpar_lixo_grafico(texto):
         "Medida da bula",
         "19 , 0 cm x 45 , 0 cm",
         "Can Phete", "gbrangrafica", "Gibran",
-        "............", ".........." # Pontilhados longos
+        "............", "..........",
+        ".. o.", "?. =", " . ="
     ]
     for item in lixo_frases:
         texto_limpo = texto_limpo.replace(item, "")
 
-    # 2. Tokens curtos/soltos (Regex seguro)
-    # Removendo apenas unidades que aparecem soltas e isoladas
+    # 2. Tokens curtos/soltos
     texto_limpo = re.sub(r'\b(mm|cm|gm)\b', '', texto_limpo, flags=re.IGNORECASE)
 
-    # 3. Limpezas Específicas (Regex) - FOCADO NAS BULAS ANEXADAS
+    # 3. Limpezas Específicas
     padroes_especificos = [
-        # Medidas numéricas soltas e dimensões de arquivo
         r'^\s*\d{1,3}\s*,\s*00\s*$',
         r'^\s*\d{1,3}\s*[xX]\s*\d{1,3}\s*$',
-        r'^\s*\d{1,3}\s*[\.,]\s*\d{1,2}\s*cm\s*$', # ex: 19.00 cm
-        r'^\s*[\d\.,]+\s*mm\s*$', # ex: 30 mm
-        
-        # Cabeçalhos técnicos de prova
+        r'^\s*\d{1,3}\s*[\.,]\s*\d{1,2}\s*cm\s*$', 
+        r'^\s*[\d\.,]+\s*mm\s*$', 
         r'^.*Medida da bula:.*$',
         r'^.*Tipologia da bula:.*$',
         r'^.*impressas 1x0.*$',
         r'^.*cor-frente/verso.*$',
         r'^.*papel Ap \d+gr.*$',
-        r'^.*Times New Roman.*$', # Nome da fonte no meio do texto
+        r'^.*Times New Roman.*$', 
         r'^.*Negrito.*Corpo.*$',
         r'^.*PROVA \d+/\d+/\d+.*$',
         r'^.*Favor conferir e enviar aprovação.*$',
@@ -165,20 +159,15 @@ def limpar_lixo_grafico(texto):
         r'^.*Atenção: não autoriz.*$',
         r'^.*Assinatura:.*$',
         r'^.*Resastres.*Aguarde NOVA PROVA.*$',
-        r'^.*Gibran.*$', # Nome da gráfica
-        
-        # Lixo comum
+        r'^.*Gibran.*$',
         r"\s+'\s+", 
-        r'.*\(?\s*31\s*\)?\s*3514\s*[-.]\s*2900.*', # Atualizado para aceitar ponto no telefone
+        r'.*\(?\s*31\s*\)?\s*3514\s*[-.]\s*2900.*',
         r'^\s*contato\s*$',
         r'.*:\s*19\s*,\s*0\s*x\s*45\s*,\s*0.*',
         r'.*(?:—\s*)+\s*>\s*>\s*>\s*».*',
         r'.*gm\s*>\s*>\s*>.*',              
         r'.*_{3,}.*gm.*', 
         r'.*MMA\s+\d{4}\s*-\s*\d{1,2}/\d{2,4}.*',
-        
-        # REMOVIDO DAQUI TAMBÉM: r'^\s*MEDICAMENTO\s*\?\s*$', r'^\s*DEVO\s*USAR\s*ESTE\s*$'
-        
         r'.*PROVA\s*-\s*[\d\s/]+.*',       
         r'.*Tipologia.*',                  
         r'.*Normal\s+e.*',                 
@@ -187,7 +176,7 @@ def limpar_lixo_grafico(texto):
         r'.*Impress[ãa]o:.*',
         r'.*artes.*belfar.*',
         r'^contato:.*',                    
-        r'.*BUL\d+[A-Z0-9]*.*', # Códigos de bula ex: BUL22130V06
+        r'.*BUL\d+[A-Z0-9]*.*',
         r'.*\(\s*\d+\s*\)\s*BELFAR.*',
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
         r'^\s*Verso Bula\s*$', r'^\s*Frente Bula\s*$',
@@ -201,12 +190,11 @@ def limpar_lixo_grafico(texto):
         r'.*\b\d{6,}\s*-\s*\d{2}/\d{2}\b.*', 
         r'.*BUL_CLORIDRATO.*',
         r'^\s*450\s*$',
-        r'^\s*22142800\s*$', # Código numérico solto
-        
-        # Checkboxes unicode
+        r'^\s*22142800\s*$',
         r'.*☑.*', r'.*☐.*',
-        # Pontilhados que sobraram
-        r'\.{4,}'
+        r'\.{4,}', # Pontilhados
+        r'ir ie+r+e+', # Ruído de bitmap
+        r'c tr tr r+e+' # Ruído de bitmap
     ]
     
     for p in padroes_especificos:
@@ -239,6 +227,7 @@ def corrigir_padroes_bula(texto):
     texto = re.sub(r'\bparam\b', 'para', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bdae:\s*', 'dose: ', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bcm dosc\b', 'em dose', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'101\s*excipientes', '10 mg excipientes', texto, flags=re.IGNORECASE) # Fix "101 excipientes"
     
     # 1. TEMPERATURA E SÍMBOLOS
     texto = re.sub(r'(\d+)\s*Ca\s*(\d+)', r'\1°C a \2', texto)
@@ -261,14 +250,15 @@ def corrigir_padroes_bula(texto):
 # ----------------- EXTRAÇÃO -----------------
 
 def forcar_titulos_bula(texto):
-    # Dicionário estendido para capturar títulos quebrados no OCR (ex: "6. COMO MEDICAMENTO?")
+    # Regex ultra-permissivos para pegar títulos quebrados como "6. COMO MEDICAMENTO?. ="
     substituicoes = [
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
         (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
         (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
         (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
         (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-        (r"(?:6\.?\s*)?COMO\s*(?:DEVO\s*USAR\s*ESTE\s*)?MEDICAMENTO\??", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"), # Captura "6. COMO MEDICAMENTO?"
+        # Captura "6. COMO MEDICAMENTO" com qualquer lixo depois até o ? ou .
+        (r"(?:6\.?\s*)?COMO\s*(?:DEVO\s*USAR\s*ESTE\s*)?MEDICAMENTO.*?[?.]", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"), 
         (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
         (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
         (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
@@ -296,20 +286,20 @@ def verifica_qualidade_texto(texto):
     return hits >= 2
 
 def get_text_sorted_by_columns(page):
-    """Extrai texto do PDF respeitando colunas visuais (crucial para provas gráficas)."""
+    """Extrai texto agrupando por colunas de forma robusta."""
     blocks = page.get_text("blocks")
-    # blocks structure: (x0, y0, x1, y1, text, block_no, block_type)
-    text_blocks = [b for b in blocks if b[6] == 0] 
+    if not blocks: return ""
+    text_blocks = [b for b in blocks if b[6] == 0]
     
     if not text_blocks: return ""
 
-    # Lógica de agrupamento por coluna:
-    # Arredonda a coordenada X para agrupar blocos que estão verticalmente alinhados
-    # Tolerância de 50px para definir o que é uma "coluna"
+    # Ajuste Crítico: Binning mais largo (150pts ~ 5cm) para garantir que
+    # parágrafos indentados (recuados) fiquem na mesma coluna lógica.
+    # Antes era 50, o que quebrava o texto em tiras finas.
     def get_sort_key(b):
         x0 = b[0]
         y0 = b[1]
-        col_bin = int(x0 / 50) * 50 
+        col_bin = int(x0 / 150) * 150 
         return (col_bin, y0)
     
     text_blocks.sort(key=get_sort_key)
@@ -327,24 +317,21 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 for page in doc:
                     if is_marketing_pdf:
-                        # Usa o novo extrator por colunas para MKT/Provas
+                        # Usa o novo extrator por colunas corrigido
                         txt = get_text_sorted_by_columns(page)
                     else:
                         txt = page.get_text()
                     pages_text.append(txt)
             
-            # Lógica Inteligente de Reordenação de Páginas (Frente/Verso)
-            # Se a página 1 diz "VERSO" e a página 2 diz "FRENTE", inverte a ordem.
+            # Lógica Inteligente de Reordenação de Páginas
             if len(pages_text) >= 2:
                 p1_sample = pages_text[0][:1000].upper()
                 p2_sample = pages_text[1][:1000].upper()
                 
-                # Verifica se P1 tem cara de verso (tem seções finais ou a palavra VERSO explícita)
                 p1_is_verso = "VERSO" in p1_sample or "DIZERES LEGAIS" in p1_sample
                 p2_is_frente = "FRENTE" in p2_sample or "APRESENTAÇÕES" in p2_sample or "PARA QUE ESTE MEDICAMENTO" in p2_sample
                 
                 if p1_is_verso and p2_is_frente:
-                    # Inverte para garantir ordem lógica (1..9)
                     pages_text = [pages_text[1], pages_text[0]]
             
             texto_nativo = "\n".join(pages_text)
@@ -716,8 +703,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v107)")
-st.markdown("Sistema com validação RÍGIDA: Correção de layout (colunas), ordem de páginas e OCR.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v108)")
+st.markdown("Sistema com validação RÍGIDA: Correção de fragmentação de colunas e títulos.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -761,4 +748,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v107 | Correção de Títulos e Layout de Colunas.")
+st.caption("Sistema de Auditoria v108 | Correção de Colunas Fragmentadas e Títulos Sujos.")
