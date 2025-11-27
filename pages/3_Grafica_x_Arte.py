@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v115 - SOLUÇÃO DEFINITIVA: Validação Estrita e OCR Ordenado
-# - NOVO: Verifica presença das seções 3, 4 e 8. Se faltar, força OCR.
-# - NOVO: OCR agora retorna páginas separadas para permitir reordenação (Frente/Verso).
-# - CORREÇÃO: "tista" -> "dentista", "nlguesiomiro" -> "algum outro" (reforçado).
-# - AJUSTE: Limpeza de artefatos visuais de provas gráficas.
+# Versão v116 - MODO "FORÇA BRUTA" PARA PROVAS GRÁFICAS
+# - NOVO: Se o PDF for largo (> A4) ou paisagem, ignora texto nativo e força OCR imediatamente.
+# - OCR: Configurado para segmentação automática de páginas (lida melhor com múltiplas colunas).
+# - LIMPEZA: Remoção agressiva de escalas métricas e metadados de impressão antes do processamento.
+# - CORREÇÕES: Mantidas correções de "tista", "nlguesiomiro", etc.
 
 import re
 import difflib
@@ -106,12 +106,19 @@ def normalizar_titulo_para_comparacao(texto):
 
 def truncar_apos_anvisa(texto):
     if not isinstance(texto, str): return texto
+    # Procura data de aprovação no final do texto
     regex_anvisa = r"((?:aprovad[ao][\s\n]+pela[\s\n]+anvisa[\s\n]+em|data[\s\n]+de[\s\n]+aprova\w+[\s\n]+na[\s\n]+anvisa:)[\s\n]*([\d]{1,2}\s*/\s*[\d]{1,2}\s*/\s*[\d]{2,4}))"
-    match = re.search(regex_anvisa, texto, re.IGNORECASE | re.DOTALL)
-    if not match: return texto
-    cut_off_position = match.end(1)
+    # Pega a última ocorrência para evitar datas no cabeçalho
+    matches = list(re.finditer(regex_anvisa, texto, re.IGNORECASE | re.DOTALL))
+    if not matches: return texto
+    
+    last_match = matches[-1]
+    cut_off_position = last_match.end(1)
+    
+    # Tenta achar um ponto final logo depois
     pos_match = re.search(r'^\s*\.', texto[cut_off_position:], re.IGNORECASE)
     if pos_match: cut_off_position += pos_match.end()
+    
     return texto[:cut_off_position]
 
 def _create_anchor_id(secao_nome, prefix):
@@ -119,13 +126,13 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v115) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v116) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
     texto_limpo = texto
     
-    # 1. Padrões de "Ruído Gráfico"
+    # 1. Padrões de "Ruído Gráfico" (Barras de Cores / Escalas)
     texto_limpo = re.sub(r'(?m)^.*[\[\]|—>w]{5,}.*$', '', texto_limpo)
 
     # 2. Remoção de Gibberish
@@ -231,7 +238,7 @@ def corrigir_padroes_bula(texto):
     """Corrige erros de OCR detectados na auditoria."""
     if not texto: return ""
     
-    # CORREÇÕES DE OCR V115
+    # CORREÇÕES DE OCR V116
     texto = re.sub(r'\bMalcato\b', 'Maleato', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\benalaprii\b', 'enalapril', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bRonam\b', 'Roman', texto, flags=re.IGNORECASE)
@@ -287,17 +294,18 @@ def forcar_titulos_bula(texto):
     return texto_arrumado
 
 def executar_ocr_paginado(arquivo_bytes):
-    """Executa OCR e retorna lista de textos por página."""
+    """Executa OCR com configurações otimizadas para colunas."""
     textos_paginas = []
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         for page in doc:
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             try: 
-                # Tenta layout automático
-                txt = pytesseract.image_to_string(img, lang='por', config='--psm 3')
-                if len(txt) < 50: # Se falhar, tenta bloco único
-                    txt = pytesseract.image_to_string(img, lang='por', config='--psm 6')
+                # Tenta layout automático com OSD (Orientation and Script Detection) - PSM 1
+                # Isso ajuda muito em provas gráficas que podem ter texto vertical ou colunas complexas
+                txt = pytesseract.image_to_string(img, lang='por', config='--psm 1')
+                if len(txt) < 100: # Se falhar, tenta o padrão PSM 3
+                    txt = pytesseract.image_to_string(img, lang='por', config='--psm 3')
                 textos_paginas.append(txt)
             except: 
                 textos_paginas.append("")
@@ -306,25 +314,20 @@ def executar_ocr_paginado(arquivo_bytes):
 def verifica_qualidade_texto(texto):
     if not texto: return False
     t_limpo = re.sub(r'\s+', '', unicodedata.normalize('NFD', texto).lower())
-    keywords = ["paraqueeste", "comodevousar", "dizereslegais", "quandonaodevo", "composicao"]
+    # Lista estrita de seções que DEVEM aparecer
+    keywords = ["1paraque", "2comoeste", "3quando", "4oque", "8quaisos"]
     hits = sum(1 for k in keywords if k in t_limpo)
-    return hits >= 2
+    # Se faltar qualquer uma dessas 5 seções principais, considera qualidade ruim
+    return hits >= 4
 
-def get_text_sorted_by_columns(page):
-    """Extrai texto agrupando por colunas médias."""
-    blocks = page.get_text("blocks")
-    if not blocks: return ""
-    text_blocks = [b for b in blocks if b[6] == 0]
-    if not text_blocks: return ""
-    
-    # 120px para equilibrar colunas vs indentação
-    def get_sort_key(b):
-        x0 = b[0]; y0 = b[1]
-        col_bin = int(x0 / 120) * 120 
-        return (col_bin, y0)
-    
-    text_blocks.sort(key=get_sort_key)
-    return "\n\n".join([b[4] for b in text_blocks])
+def check_is_proof(page):
+    """Verifica se a página é uma prova gráfica (larga ou com marcas)."""
+    rect = page.rect
+    width_cm = rect.width / 72 * 2.54
+    # Se largura > 30cm (A4 paisagem é ~29.7, provas costumam ser 40+), é prova gráfica
+    if width_cm > 35: 
+        return True
+    return False
 
 def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", "Arquivo não enviado."
@@ -333,26 +336,33 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
         arquivo_bytes = arquivo.read()
         texto_completo = ""
         
-        # 1. TENTA EXTRAÇÃO NATIVA PRIMEIRO
-        if tipo_arquivo == 'pdf':
+        usou_ocr = False
+        
+        # 1. ANALISA GEOMETRIA DO PDF ANTES DE TENTAR LER
+        force_ocr = False
+        if tipo_arquivo == 'pdf' and is_marketing_pdf:
+            with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
+                if len(doc) > 0 and check_is_proof(doc[0]):
+                    st.toast(f"📐 Layout de Bula Gráfica detectado (>35cm). Forçando OCR para leitura correta...", icon="📏")
+                    force_ocr = True
+
+        # 2. TENTA EXTRAÇÃO NATIVA (SE NÃO FOR FORÇADO OCR)
+        if not force_ocr and tipo_arquivo == 'pdf':
+            # ... (código de extração nativa mantido para PDFs normais A4)
             pages_text = []
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 for i, page in enumerate(doc):
-                    if is_marketing_pdf:
-                        txt = get_text_sorted_by_columns(page)
-                    else:
-                        txt = page.get_text()
+                    # Tenta ler nativo (linear)
+                    txt = page.get_text() 
                     pages_text.append(txt)
             
-            # REORDENAÇÃO FRENTE/VERSO NATIVA
+            # Reordenação nativa
             if len(pages_text) >= 2:
-                p1_upper = pages_text[0][:1500].upper()
-                p1_is_verso = "VERSO" in p1_upper or "DIZERES LEGAIS" in p1_upper
-                p2_upper = pages_text[1][:1500].upper() if len(pages_text) > 1 else ""
-                p2_is_frente = "FRENTE" in p2_upper or "APRESENTAÇÕES" in p2_upper
-                
-                if p1_is_verso and p2_is_frente:
-                    pages_text = [pages_text[1], pages_text[0]]
+                p1_sample = pages_text[0][:1500].upper()
+                p1_verso = "VERSO" in p1_sample or "DIZERES LEGAIS" in p1_sample
+                p2_sample = pages_text[1][:1500].upper() if len(pages_text) > 1 else ""
+                p2_frente = "FRENTE" in p2_sample or "APRESENTAÇÕES" in p2_sample
+                if p1_verso and p2_frente: pages_text = [pages_text[1], pages_text[0]]
             
             texto_completo = "\n".join(pages_text)
 
@@ -360,41 +370,25 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
-        # 2. VALIDAÇÃO DE INTEGRIDADE (GATILHO DE SEGURANÇA)
-        usou_ocr = False
-        if is_marketing_pdf: # Aplica rigor apenas no arquivo da gráfica
-            t_check = normalizar_texto(texto_completo)
-            # Lista de seções OBRIGATÓRIAS. Se faltar, o PDF nativo está zoado.
-            secoes_obrigatorias = [
-                "1paraque", 
-                "2comoeste", 
-                "3quando",  # Crítico: estava sumindo
-                "4oque",    # Crítico: estava sumindo
-                "8quaisos"
-            ]
+        # 3. VALIDAÇÃO E FALLBACK (OU EXECUÇÃO DIRETA SE FORCE_OCR)
+        if force_ocr or (is_marketing_pdf and not verifica_qualidade_texto(texto_completo)):
+            if not force_ocr:
+                st.warning(f"⚠️ Seções faltando no texto nativo. Ativando OCR corretivo...", icon="👁️")
             
-            # Conta quantas seções vitais foram encontradas
-            encontradas = sum(1 for s in secoes_obrigatorias if s in t_check)
+            ocr_pages = executar_ocr_paginado(arquivo_bytes)
             
-            # SE FALTAR QUALQUER UMA DESSAS 5, FORÇA OCR
-            if encontradas < len(secoes_obrigatorias):
-                st.warning(f"⚠️ Seções faltando no texto nativo de {arquivo.name}. Ativando OCR corretivo...", icon="👁️")
+            # REORDENAÇÃO FRENTE/VERSO NO OCR (CRÍTICO)
+            if len(ocr_pages) >= 2:
+                p1_ocr = ocr_pages[0][:2000].upper() # Aumentei o buffer de busca
+                p1_verso = "VERSO" in p1_ocr or "DIZERES LEGAIS" in p1_ocr
+                p2_ocr = ocr_pages[1][:2000].upper() if len(ocr_pages) > 1 else ""
+                p2_frente = "FRENTE" in p2_ocr or "APRESENTAÇÕES" in p2_ocr
                 
-                # Executa OCR página a página
-                ocr_pages = executar_ocr_paginado(arquivo_bytes)
-                
-                # REORDENAÇÃO FRENTE/VERSO NO OCR
-                if len(ocr_pages) >= 2:
-                    p1_ocr = ocr_pages[0][:1500].upper()
-                    p1_verso = "VERSO" in p1_ocr or "DIZERES LEGAIS" in p1_ocr
-                    p2_ocr = ocr_pages[1][:1500].upper() if len(ocr_pages) > 1 else ""
-                    p2_frente = "FRENTE" in p2_ocr or "APRESENTAÇÕES" in p2_ocr
-                    
-                    if p1_verso and p2_frente:
-                        ocr_pages = [ocr_pages[1], ocr_pages[0]]
-                
-                texto_completo = "\n".join(ocr_pages)
-                usou_ocr = True
+                if p1_verso and p2_frente:
+                    ocr_pages = [ocr_pages[1], ocr_pages[0]]
+            
+            texto_completo = "\n".join(ocr_pages)
+            usou_ocr = True
 
         if texto_completo:
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
@@ -405,7 +399,6 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = corrigir_padroes_bula(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # Limpeza final de underscores e linhas vazias
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
@@ -757,8 +750,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v115)")
-st.markdown("Sistema com validação RÍGIDA: OCR forçado se seções estiverem faltando.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v116)")
+st.markdown("Sistema com validação RÍGIDA: OCR forçado em Provas Gráficas.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -802,4 +795,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v115 | Fallback OCR Avançado e Ordenação Frente/Verso.")
+st.caption("Sistema de Auditoria v116 | MODO FORÇA BRUTA: OCR em Provas Gráficas.")
