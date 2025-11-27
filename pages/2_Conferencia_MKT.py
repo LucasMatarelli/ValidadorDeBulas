@@ -1,8 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v84 - Base v83 + Remoção de Lixo Específico (- Negrito. Corpo 14)
-# - LIMPEZA: Adicionado regex r'.*Negrito\.\s*Corpo\s*14.*' para remover a especificação de fonte que estava vazando.
-# - MANTIDO: Todas as correções anteriores (19,00 cm, Seção 9, Blocos).
+# Versão v85 - Base v84 + Suporte a Layout de 3 Colunas (Maleato de Enalapril)
+# - ESTRUTURA: Lógica de extração de PDF atualizada para suportar 3 colunas verticais automaticamente.
+# - LIMPEZA: Novos regex para sujeiras de layout detectadas (Merlidu, Fuenteerso, Altefar).
 
 import re
 import difflib
@@ -120,9 +120,17 @@ def _create_anchor_id(secao_nome, prefix):
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos de texto de borda."""
     padroes_lixo = [
-        # --- REMOÇÃO ESPECÍFICA DE DIMENSÕES (19, 00 cm) ---
+        # --- REMOÇÃO ESPECÍFICA DE DIMENSÕES ---
         r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b',  # Remove "19, 00 cm", "30,00 cm"
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',  # Remove milímetros também
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',  # Remove milímetros
+        
+        # --- LIXOS DE LAYOUT (Belfar/Maleato) ---
+        r'Merlidu\s*sa.*',          # Erro de OCR comum para "Medida da"
+        r'Fuenteerso',              # Erro de OCR para "Frente/Verso"
+        r'Tipologia\s*da\s*bula.*', 
+        r'ALTEFAR',
+        r'Impressão:.*',
+        r'Cor:\s*Phats.*',          # Erro de OCR para "Preto" ou similar
         
         # --- LIXOS SOLICITADOS ANTERIORMENTE ---
         r'.*31\s*2105.*',        # Remove telefones quebrados (31 2105 - 1123)
@@ -201,7 +209,7 @@ def forcar_titulos_bula(texto):
         
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO (SPLIT COLUMN) -----------------
+# ----------------- EXTRAÇÃO (SPLIT COLUMN DINÂMICO) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -212,38 +220,46 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
                     rect = page.rect
+                    width = rect.width
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
-                        # Lógica Híbrida v82:
-                        # Mantém a lógica de separar Esquerda/Direita (que funcionava bem para organizar seções),
-                        # mas usa BLOCOS (blocks) para não cortar palavras no meio.
+                        # Lógica Tripla v85 (Suporte a 3 Colunas - Maleato Enalapril):
+                        # Em vez de dividir apenas em Esq/Dir, dividimos em 3 "baldes" verticais.
+                        # Coluna 1: x < 33% | Coluna 2: 33% <= x < 66% | Coluna 3: x >= 66%
+                        # Isso funciona para 2 colunas também (o texto cairá na Col 1 e Col 3).
                         
-                        meio_x = rect.width / 2
-                        blocks = page.get_text("blocks") # Extrai blocos inteiros
+                        limite_1 = width * 0.33
+                        limite_2 = width * 0.66
+
+                        blocks = page.get_text("blocks") # Extrai blocos
                         
-                        col_esq = []
-                        col_dir = []
+                        col_1 = []
+                        col_2 = []
+                        col_3 = []
                         
                         for b in blocks:
                             # b = (x0, y0, x1, y1, text, block_no, block_type)
-                            if b[6] == 0: # Apenas blocos de texto
-                                # Verifica margem vertical
+                            if b[6] == 0: # Apenas texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    # Classifica pela posição do centro do bloco
                                     b_center_x = (b[0] + b[2]) / 2
-                                    if b_center_x < meio_x:
-                                        col_esq.append(b)
+                                    
+                                    if b_center_x < limite_1:
+                                        col_1.append(b)
+                                    elif b_center_x < limite_2:
+                                        col_2.append(b)
                                     else:
-                                        col_dir.append(b)
+                                        col_3.append(b)
                         
-                        # Ordena cada coluna de cima para baixo (eixo Y)
-                        col_esq.sort(key=lambda x: x[1])
-                        col_dir.sort(key=lambda x: x[1])
+                        # Ordena cada coluna de cima para baixo
+                        col_1.sort(key=lambda x: x[1])
+                        col_2.sort(key=lambda x: x[1])
+                        col_3.sort(key=lambda x: x[1])
                         
-                        # Reconstrói o texto
-                        for b in col_esq: texto_completo += b[4] + "\n"
-                        for b in col_dir: texto_completo += b[4] + "\n"
+                        # Reconstrói: Col 1 -> Col 2 -> Col 3
+                        for b in col_1: texto_completo += b[4] + "\n"
+                        for b in col_2: texto_completo += b[4] + "\n"
+                        for b in col_3: texto_completo += b[4] + "\n"
                         
                     else:
                         blocks = page.get_text("blocks", sort=True)
@@ -708,8 +724,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v77)")
-st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v85)")
+st.markdown("Sistema com suporte a layout de 3 Colunas (Maleato de Enalapril).")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -754,4 +770,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v77 | Base v75 + Correção Pontual de Lixo e Títulos.")
+st.caption("Sistema de Auditoria de Bulas v85 | Base v84 + Suporte 3 Colunas.")
