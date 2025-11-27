@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v87 - Correção Crítica de Colunas + Trava Numérica
-# - CORREÇÃO DE EXTRAÇÃO: Removida divisão forçada no meio da página (quebrava layouts de 3 colunas).
-#   Agora usa ordenação nativa (sort=True) para suportar qualquer qtd de colunas.
-# - CORREÇÃO DE MAPEAMENTO: Adicionada 'Trava Numérica'. O sistema agora rejeita candidatos
-#   cujo número (ex: "9.") não bata com a seção esperada (ex: Seção 7), impedindo trocas grotescas.
+# Versão v88 - Correção Definitiva de Colunas (Clusterização Vertical)
+# - NOVO ALGORITMO: 'organizar_por_colunas'. Agrupa blocos de texto verticalmente alinhados
+#   antes de ordenar, impedindo que textos de colunas vizinhas se misturem (o erro da Seção 6 puxando a 8).
+# - MANTIDO: Trava Numérica e correções de blocos específicos.
 
 import re
 import difflib
@@ -117,7 +116,6 @@ def _create_anchor_id(secao_nome, prefix):
 
 # ----------------- FILTRO DE LIXO -----------------
 def limpar_lixo_grafico(texto):
-    """Remove lixo técnico, cabeçalhos repetitivos e fragmentos de borda."""
     padroes_lixo = [
         r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b', 
         r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',
@@ -137,7 +135,6 @@ def limpar_lixo_grafico(texto):
         r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
         r'.*Impress[ãa]o.*'
     ]
-    
     texto_limpo = texto
     for p in padroes_lixo:
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
@@ -192,12 +189,54 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO (SORT NATIVO) -----------------
+# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS) -----------------
+def organizar_por_colunas(page):
+    """
+    Agrupa blocos de texto por proximidade horizontal (colunas)
+    e ordena: Coluna 1 (Top->Down) -> Coluna 2 (Top->Down) -> ...
+    Isso evita que o texto da Coluna 1 misture com a Coluna 2.
+    """
+    blocks = page.get_text("blocks", sort=False)
+    # Filtra apenas blocos de texto (tipo 0)
+    text_blocks = [b for b in blocks if b[6] == 0]
+    
+    if not text_blocks: return ""
+
+    # Ordena inicialmente por X para facilitar agrupamento
+    text_blocks.sort(key=lambda b: b[0])
+    
+    columns = []
+    
+    # Tolerância de 100pts (aprox 3.5cm) para considerar mesma coluna
+    # Isso lida com indentação de parágrafos
+    TOLERANCIA_X = 100 
+    
+    for b in text_blocks:
+        placed = False
+        for col in columns:
+            # Pega o X médio da coluna atual
+            avg_x = sum(cb[0] for cb in col) / len(col)
+            # Se o bloco estiver perto da média X da coluna, adiciona
+            if abs(b[0] - avg_x) < TOLERANCIA_X:
+                col.append(b)
+                placed = True
+                break
+        if not placed:
+            columns.append([b])
+    
+    # Ordena as colunas da Esquerda para a Direita (pelo X médio)
+    columns.sort(key=lambda c: sum(b[0] for b in c)/len(c))
+    
+    final_text = ""
+    for col in columns:
+        # Ordena blocos DENTRO da coluna de Cima para Baixo
+        col.sort(key=lambda b: b[1])
+        for b in col:
+            final_text += b[4] + "\n"
+            
+    return final_text
+
 def extrair_texto(arquivo, tipo_arquivo):
-    """
-    Usa 'sort=True' do PyMuPDF que é robusto para 2 ou 3 colunas,
-    evitando a quebra de texto que ocorria com a divisão forçada no meio.
-    """
     if arquivo is None: return "", f"Arquivo não enviado."
     try:
         arquivo.seek(0)
@@ -209,13 +248,9 @@ def extrair_texto(arquivo, tipo_arquivo):
                     rect = page.rect
                     margem_y = rect.height * 0.01 
                     
-                    # Usa blocks com ordenação automática (Top-Down, Left-Right)
-                    blocks = page.get_text("blocks", sort=True) 
-                    
-                    for b in blocks:
-                        if b[6] == 0: # Apenas texto
-                            if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                texto_completo += b[4] + "\n"
+                    # Usa a nova função de organização por colunas
+                    texto_pagina = organizar_por_colunas(page)
+                    texto_completo += texto_pagina
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -349,7 +384,6 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     # --- HELPER: Validação Numérica Rigorosa ---
     def validar_candidato(cand, sec_index_esperado):
         # Se o candidato TEM número, ele OBRIGATORIAMENTE deve bater com o esperado.
-        # Ex: Candidato "9. O QUE FAZER" (num=9) não pode casar com Seção 7 (idx 6+1=7).
         if cand.numeric is not None:
             if cand.numeric != (sec_index_esperado + 1):
                 return False
@@ -360,7 +394,6 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
         sec_norm = normalizar_titulo_para_comparacao(sec)
         found = None
         
-        # Tentativa 1: Busca Sequencial
         for c in candidates:
             if c.index <= last_idx: continue
             if c.matched_canon == sec:
@@ -383,19 +416,14 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
                     if validar_candidato(c, sec_idx): found = c; break
         
-        # Tentativa 2: Busca Global (Resgate)
         if not found:
             for c in candidates:
-                # Verifica match exato ou numérico
                 match_canon = (c.matched_canon == sec)
                 match_num = (c.numeric == (sec_idx + 1))
                 match_text = (sec_norm and sec_norm in c.norm)
-                
                 if match_canon or match_num or match_text:
-                    # Aplica a trava numérica novamente
                     if validar_candidato(c, sec_idx):
-                        if match_num or c.score > 95: # Só aceita se for muito forte
-                            found = c; break
+                        if match_num or c.score > 95: found = c; break
         
         if found:
             mapa.append({'canonico': sec, 'titulo_encontrado': found.raw, 'linha_inicio': found.index, 'score': found.score})
@@ -671,7 +699,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v87)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v88)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -715,4 +743,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v87 | Proteção Numérica + Extração Universal.")
+st.caption("Sistema de Auditoria de Bulas v88 | Correção Definitiva de Colunas.")
