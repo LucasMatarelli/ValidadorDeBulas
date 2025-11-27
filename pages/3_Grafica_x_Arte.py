@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v114 - Modo de Segurança OCR e Reconstrução de Títulos
-# - NOVO: Fallback automático para OCR se seções críticas estiverem vazias.
-# - NOVO: Reconstrução agressiva de títulos quebrados/incompletos (ex: "8. OS MALES...").
-# - AJUSTE: Binning de 120px para melhor separação de colunas.
+# Versão v114 - FALLBACK PARA OCR E CORREÇÃO DE COLUNAS
+# - NOVO: Se o texto nativo vier quebrado ou sem seções, força o uso do OCR (Tesseract).
+# - CORREÇÃO: "tista" -> "dentista", "nlguesiomiro" -> "algum outro".
+# - AJUSTE: Reconstrução de títulos parciais (ex: "8. OS MALES").
 
 import re
 import difflib
@@ -310,7 +310,7 @@ def get_text_sorted_by_columns(page):
     
     if not text_blocks: return ""
 
-    # AJUSTE V114: Binning de 120 (aprox 4.2cm) - Equilíbrio fino
+    # Ajuste V114: Binning de 120 (aprox 4.2cm) - Equilíbrio fino
     def get_sort_key(b):
         x0 = b[0]
         y0 = b[1]
@@ -360,13 +360,18 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             doc = docx.Document(io.BytesIO(arquivo_bytes))
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
-        # VALIDAÇÃO PÓS-EXTRAÇÃO: SE FALTAR SEÇÕES, FORÇA OCR
-        if texto_completo and not usou_ocr:
+        # === VALIDAÇÃO PÓS-EXTRAÇÃO (GATILHO DE SEGURANÇA) ===
+        # Se as seções 1 e 2 não aparecerem no texto extraído, assume erro de coluna e força OCR.
+        if texto_completo and not usou_ocr and is_marketing_pdf:
             t_check = normalizar_texto(texto_completo)
-            secoes_criticas = ["comodevousar", "quaisosmales"]
-            if not any(k in t_check for k in secoes_criticas):
-                st.toast(f"⚠️ Texto incompleto em {arquivo.name}. Forçando OCR...", icon="🔄")
-                texto_completo = executar_ocr(arquivo_bytes)
+            # Verifica se trechos chave estão presentes e em ordem razoável
+            secoes_chave = ["1paraque", "2comoeste", "8quaisos"]
+            hits = sum(1 for s in secoes_chave if s in t_check)
+            
+            if hits < 2: # Se menos de 2 seções chave forem encontradas
+                st.warning(f"⚠️ Detecção automática: Layout complexo detectado em {arquivo.name}. Ativando leitura visual (OCR) para garantir integridade...", icon="👁️")
+                arquivo.seek(0)
+                texto_completo = executar_ocr(arquivo.read())
 
         if texto_completo:
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
@@ -727,8 +732,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v113)")
-st.markdown("Sistema com validação RÍGIDA: Correção de fragmentação de colunas e títulos.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v114)")
+st.markdown("Sistema com validação RÍGIDA: Fallback automático para OCR se seções falharem.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -772,4 +777,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v113 | Correção de Colunas Fragmentadas e Títulos Sujos.")
+st.caption("Sistema de Auditoria v114 | Fallback automático para OCR e Correção de Títulos.")
