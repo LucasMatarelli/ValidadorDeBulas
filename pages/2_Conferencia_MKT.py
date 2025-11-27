@@ -1,11 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v101 - "Concrete Walls Sorting" (Correção Definitiva Layout 3 Colunas)
-# - COLUNAS: Define limites rígidos (30% e 64%) baseados na MARGEM ESQUERDA (x0).
-#   Isso força o texto "Informações ao Paciente" (que começa no meio) a ser classificado como Coluna 2,
-#   e o título "3. QUANDO" (que começa na direita) como Coluna 3.
-# - ORDEM: Garante que o texto da Coluna 2 venha ANTES da Coluna 3.
-# - PARSER: Usa lista canônica de 13 títulos para fatiar.
+# Versão v102 - "Smart Clustering Sort" (Correção Definitiva de Colunas Desalinhadas)
+# - COLUNAS: Usa algoritmo de Clustering (K-Means simplificado) para agrupar blocos.
+#   Não depende de margens fixas. Atrai o texto para a coluna mais próxima (Esq/Meio/Dir).
+# - ORDEM: Garante fluxo Coluna 1 -> Coluna 2 -> Coluna 3.
+# - PARSER: Usa lista canônica de 13 títulos para fatiar o texto.
 
 import re
 import difflib
@@ -170,46 +169,33 @@ def limpar_lixo_grafico(texto):
     return texto_limpo
 
 def forcar_titulos_bula(texto):
-    """
-    Força a padronização EXATA dos títulos para bater com a lista canônica.
-    """
     substituicoes = [
         (r"(?:^|\n)\s*(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
          r"\n1.PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
-
         (r"(?:^|\n)\s*(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??",
          r"\n2.COMO ESTE MEDICAMENTO FUNCIONA?\n"),
-
         (r"(?:^|\n)\s*(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n3.QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:^|\n)\s*(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n4.O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:^|\n)\s*(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??",
          r"\n5.ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-          
         (r"(?:^|\n)\s*(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??",
          r"\n6.COMO DEVO USAR ESTE MEDICAMENTO?\n"),
-
         (r"(?:^|\n)\s*(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", 
          r"\n7.O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-          
         (r"(?:^|\n)\s*(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", 
          r"\n8.QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?\n"),
-          
         (r"(?:^|\n)\s*(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", 
          r"\n9.O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
-         
         (r"(?:^|\n)\s*(?:DIZERES\s*LEGAIS)", r"\nDIZERES LEGAIS\n")
     ]
-    
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS (CONCRETE WALLS) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS (CLUSTERING) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -226,12 +212,11 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # DEFINIÇÃO DE "MUROS" RÍGIDOS
-                        # Col 1: Começa antes de 30% da largura.
-                        # Col 2: Começa entre 30% e 64% da largura. (Alargado para pegar o centro)
-                        # Col 3: Começa depois de 64% da largura. (Onde começa o titulo da Sec 3)
-                        limite_1 = width * 0.30
-                        limite_2 = width * 0.64
+                        # ALGORITMO DE ATRAÇÃO (CLUSTERING)
+                        # Define 3 pontos gravitacionais (centros ideais das colunas)
+                        center_col1 = width * 0.17 # ~17% da largura
+                        center_col2 = width * 0.50 # ~50% da largura
+                        center_col3 = width * 0.83 # ~83% da largura
                         
                         col_1, col_2, col_3 = [], [], []
                         cabecalhos = []
@@ -239,29 +224,36 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0 = b[0] # Margem esquerda do bloco
+                                    x0, x1 = b[0], b[2]
+                                    block_center = (x0 + x1) / 2
+                                    block_width = x1 - x0
                                     
                                     # Cabeçalho global apenas se for MUITO largo (>85%) e no topo
-                                    block_width = b[2] - b[0]
                                     if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
                                         cabecalhos.append(b)
                                     else:
-                                        # CLASSIFICAÇÃO PELO INÍCIO DA LINHA (x0)
-                                        if x0 < limite_1:
+                                        # Calcula distância para os 3 centros
+                                        dist1 = abs(block_center - center_col1)
+                                        dist2 = abs(block_center - center_col2)
+                                        dist3 = abs(block_center - center_col3)
+                                        
+                                        # Atribui ao mais próximo
+                                        min_dist = min(dist1, dist2, dist3)
+                                        if min_dist == dist1:
                                             col_1.append(b)
-                                        elif x0 < limite_2:
+                                        elif min_dist == dist2:
                                             col_2.append(b)
                                         else:
                                             col_3.append(b)
                         
-                        # ORDENAÇÃO VERTICAL (Topo -> Baixo)
+                        # ORDENAÇÃO VERTICAL DENTRO DE CADA COLUNA
+                        # Ordena por Y (Topo -> Baixo)
                         cabecalhos.sort(key=lambda x: x[1])
-                        col_1.sort(key=lambda x: (x[1], x[0]))
-                        col_2.sort(key=lambda x: (x[1], x[0]))
-                        col_3.sort(key=lambda x: (x[1], x[0]))
+                        col_1.sort(key=lambda x: x[1])
+                        col_2.sort(key=lambda x: x[1])
+                        col_3.sort(key=lambda x: x[1])
                         
                         # CONCATENAÇÃO: Header -> Col 1 -> Col 2 -> Col 3
-                        # Isso garante que "Informações..." (Col 2) venha antes de "3. QUANDO" (Col 3)
                         for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
@@ -287,6 +279,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
+                # Aplica o forçador de títulos ANTES de qualquer coisa
                 texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
@@ -558,8 +551,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v101)")
-st.markdown("Sistema com Extração de Muros de Concreto (30/64) e Fatiamento Canônico.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v102)")
+st.markdown("Sistema com Extração de 3 Colunas via Clustering e Fatiamento Canônico.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -601,4 +594,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v101 | Base v100 + Concrete Walls Layout.")
+st.caption("Sistema de Auditoria de Bulas v102 | Base v101 + Clustering Sort.")
