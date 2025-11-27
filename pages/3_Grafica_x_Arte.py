@@ -1,9 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v117 - RESGATE DE TÍTULOS PERDIDOS E OCR OTIMIZADO
-# - NOVO: Função 'recuperar_titulos_perdidos' que usa Fuzzy Matching para achar títulos sujos de OCR no meio do texto.
-# - MELHORIA: Regex "Vale-Tudo" para as seções 3, 4 e 8 (que estavam sumindo).
-# - OCR: Prioridade total para PSM 1 (melhor para layouts complexos/largos).
+# Versão v118 - CORREÇÃO DE "SANGRIA" DE TÍTULOS
+# - FIX: Regex de títulos agora consomem a linha inteira até a interrogação (?) para não deixar pedaços no texto.
+# - NOVO: Função 'limpar_restos_de_titulo' para remover fragmentos que escaparem.
+# - OCR: Correção para "Iquer" -> "Qualquer".
 
 import re
 import difflib
@@ -119,7 +119,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v117) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v118) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
@@ -231,6 +231,7 @@ def corrigir_padroes_bula(texto):
     """Corrige erros de OCR detectados na auditoria."""
     if not texto: return ""
     
+    # CORREÇÕES DE OCR V118
     texto = re.sub(r'\bMalcato\b', 'Maleato', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\benalaprii\b', 'enalapril', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\bRonam\b', 'Roman', texto, flags=re.IGNORECASE)
@@ -243,6 +244,8 @@ def corrigir_padroes_bula(texto):
     texto = re.sub(r'\bnlguesiomiro\b', 'algum outro', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\brenda uso\b', 'fazendo uso', texto, flags=re.IGNORECASE)
     texto = re.sub(r'\btista\b', 'dentista', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'\bIquer\b', 'Qualquer', texto, flags=re.IGNORECASE) # Fix "Iquer"
+    
     texto = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', texto) 
     texto = texto.replace('excipientes ” q', 'excipientes q.s.p.')
     texto = re.sub(r'101\s*excipientes', '10 mg excipientes', texto, flags=re.IGNORECASE)
@@ -267,32 +270,29 @@ def corrigir_padroes_bula(texto):
 
 def recuperar_titulos_perdidos(texto):
     """
-    Tenta encontrar títulos que foram 'comidos' pelo OCR ou grudados no texto anterior.
-    Usa Regex muito permissivo e insere quebras de linha para destacar o título.
+    Recupera títulos perdidos garantindo que consumam toda a linha até o '?'
     """
     if not texto: return ""
     
-    # Mapa de "Tokens Chave" -> Título Correto
-    # Procura por pedaços chave que identificam o início de uma seção, mesmo com lixo em volta
+    # O padrão agora usa '.*?' até encontrar uma interrogação ou ponto final, garantindo que o resto da linha seja engolido pelo título
     mapa_recuperacao = [
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*QUANDO\s+N[ÃA]O\s+DEVO\s+USAR)", r"\n\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES)", r"\n\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*ONDE\s*,?\s*COMO\s+E\s+POR\s+QUANTO)", r"\n\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*COMO\s+DEVO\s+USAR)", r"\n\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO)", r"\n\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*QUAIS\s+OS\s+MALES)", r"\n\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
-        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M)", r"\n\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*QUANDO\s+N[ÃA]O\s+DEVO\s+USAR.*?(?:\?|\.))", r"\n\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+DEVO\s+SABER\s+ANTES.*?(?:\?|\.))", r"\n\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*ONDE\s*,?\s*COMO\s+E\s+POR\s+QUANTO.*?(?:\?|\.))", r"\n\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*COMO\s+DEVO\s+USAR.*?(?:\?|\.))", r"\n\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+DEVO\s+FAZER\s+QUANDO.*?(?:\?|\.))", r"\n\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*QUAIS\s+OS\s+MALES.*?(?:\?|\.))", r"\n\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE ME CAUSAR?\n"),
+        (r"(?i)(?:^|\n|[\.\?\!])\s*(\d?\s*O\s+QUE\s+FAZER\s+SE\s+ALGU[EÉ]M.*?(?:\?|\.))", r"\n\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
     ]
     
     texto_recuperado = texto
     for padrao, substituicao in mapa_recuperacao:
-        # Só substitui se encontrar o padrão
-        texto_recuperado = re.sub(padrao, substituicao, texto_recuperado)
+        texto_recuperado = re.sub(padrao, substituicao, texto_recuperado, flags=re.DOTALL)
         
     return texto_recuperado
 
 def forcar_titulos_bula(texto):
-    # Regex ultra-permissivos para padronizar o que já foi pré-processado ou lido quase corretamente
+    # Regex ultra-permissivos para padronizar e limpar restos
     substituicoes = [
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
         (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
@@ -308,6 +308,20 @@ def forcar_titulos_bula(texto):
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
+
+def limpar_restos_de_titulo(texto):
+    """Remove fragmentos de títulos que podem ter sobrado no início dos parágrafos."""
+    restos = [
+        r"^DE\s*USAR\s*ESTE\s*MEDICAMENTO\s*\?\s*",
+        r"^ESTE\s*MEDICAMENTO\s*\?\s*",
+        r"^GUARDAR\s*ESTE\s*MEDICAMENTO\s*\?\s*",
+        r"^MEDICAMENTO\s*PODE\s*ME\s*CAUSAR\s*\?\s*",
+        r"^sino\s*"
+    ]
+    texto_limpo = texto
+    for resto in restos:
+        texto_limpo = re.sub(resto, "", texto_limpo, flags=re.MULTILINE | re.IGNORECASE)
+    return texto_limpo
 
 def executar_ocr_paginado(arquivo_bytes):
     """Executa OCR e retorna lista de textos por página."""
@@ -402,9 +416,10 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             # Limpeza e Correção
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = corrigir_padroes_bula(texto_completo)
-            # NOVO: Tenta recuperar títulos antes da formatação final
+            
             texto_completo = recuperar_titulos_perdidos(texto_completo) 
             texto_completo = forcar_titulos_bula(texto_completo)
+            texto_completo = limpar_restos_de_titulo(texto_completo) # Limpeza final
             
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
@@ -757,8 +772,8 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v117)")
-st.markdown("Sistema com validação RÍGIDA: OCR forçado em Provas Gráficas + Resgate de Títulos.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v118)")
+st.markdown("Sistema com validação RÍGIDA: Correção de Títulos Sangrados e OCR.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -802,4 +817,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v117 | RESGATE DE TÍTULOS PERDIDOS + OCR OTIMIZADO.")
+st.caption("Sistema de Auditoria v118 | RESGATE DE TÍTULOS E CORREÇÃO DE CONTEÚDO.")
