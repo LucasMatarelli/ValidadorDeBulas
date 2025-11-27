@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v109 - "Right-Shifted Sorting" & "Aggressive Splitter"
-# - EXTRAÇÃO: Fronteira da Coluna 3 movida para 68% (Width * 0.68).
-#   Isso força qualquer coisa no meio (até 68% da página) a ficar na Coluna 2.
-#   Garante que o texto "Informações..." (Sec 2) venha antes de "3. QUANDO" (Sec 3).
-# - SPLITTER: Regex super permissivo para detectar títulos de seção e cortar o texto imediatamente.
+# Versão v110 - "Heuristic Rescue" (Correção Cirúrgica para Belfar)
+# - COLUNAS: Fronteira da direita movida para 72% (width * 0.72).
+# - RESGATE: Se o bloco contém "Informações ao paciente", força para Coluna 2.
+# - ORDEM: Mantém concatenação Col 1 -> Col 2 -> Col 3.
+# - PARSER: Mantém a lista canônica de 13 títulos.
 
 import re
 import difflib
@@ -195,7 +195,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS (RIGHT-SHIFTED) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS (CIRÚRGICA) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -212,13 +212,12 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # --- ESTRATÉGIA V109: RIGHT-SHIFTED WALLS ---
-                        # Para garantir que a "Caixa Preta" (Seção 2, Meio) não invada a Direita:
+                        # LIMITES 3 COLUNAS (EMPURRADO PARA A DIREITA)
                         # Col 1 (Esq): < 32%
-                        # Col 2 (Meio): 32% até 68% (Aumentado de 66% para 68% para pegar o quadrado inteiro)
-                        # Col 3 (Dir): >= 68% (Só texto muito à direita)
+                        # Col 2 (Meio): 32% até 72% (Aumentado drasticamente para garantir que o quadrado preto fique aqui)
+                        # Col 3 (Dir): > 72% (Apenas o que estiver MUITO à direita, como o titulo "3. QUANDO")
                         limite_1 = width * 0.32
-                        limite_2 = width * 0.68
+                        limite_2 = width * 0.72
                         
                         col_1, col_2, col_3 = [], [], []
                         cabecalhos = []
@@ -226,35 +225,42 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0 = b[0] # Usa borda esquerda
+                                    x0 = b[0] # Início da linha
+                                    block_text = b[4].strip().lower()
                                     block_width = b[2] - b[0]
                                     
-                                    # Cabeçalho global (Topão)
+                                    # --- REGRAS DE EXCEÇÃO (HEURÍSTICA) ---
+                                    # Se contiver texto chave da caixa preta, FORÇA para Coluna 2
+                                    if "informações ao paciente" in block_text or "pressão alta" in block_text:
+                                        col_2.append(b)
+                                        continue
+
+                                    # Se for cabeçalho global (muito largo no topo)
                                     if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
                                         cabecalhos.append(b)
+                                        continue
+                                        
+                                    # Distribuição Normal baseada em X
+                                    if x0 < limite_1:
+                                        col_1.append(b)
+                                    elif x0 < limite_2:
+                                        col_2.append(b)
                                     else:
-                                        # Distribuição
-                                        if x0 < limite_1:
-                                            col_1.append(b)
-                                        elif x0 < limite_2:
-                                            col_2.append(b) # Aqui cai o Quadrado Preto e o fim da Seção 2
-                                        else:
-                                            col_3.append(b) # Aqui cai "3. QUANDO"
+                                        col_3.append(b)
                         
-                        # Ordenação Vertical (Topo -> Baixo)
+                        # Ordenação e Concatenação
                         cabecalhos.sort(key=lambda x: x[1])
                         col_1.sort(key=lambda x: x[1])
                         col_2.sort(key=lambda x: x[1])
                         col_3.sort(key=lambda x: x[1])
                         
-                        # Concatenação: Força leitura sequencial das colunas
+                        # FORÇA: Header -> Col 1 -> Col 2 -> Col 3
                         for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
                         for b in col_3: texto_completo += b[4] + "\n"
                         
                     else:
-                        # ANVISA (Texto corrido)
                         blocks = page.get_text("blocks", sort=True)
                         for b in blocks:
                             if b[6] == 0:
@@ -273,7 +279,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
-                # Aplica o forçador de títulos ANTES de qualquer coisa
                 texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
@@ -285,22 +290,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
         return "", f"Erro: {e}"
 
 # ----------------- PARSER "STATE MACHINE" -----------------
-def is_new_section_header(line):
-    """
-    Retorna True se a linha for inequivocamente um novo título de seção.
-    Regex agressivo para "Número + Texto Maiúsculo".
-    """
-    # Ex: "3. QUANDO", "3-QUANDO", "3 QUANDO", "DIZERES LEGAIS"
-    if re.match(r'^\d{1,2}[\s\.\-\)]+\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]{3,}', line.strip()):
-        return True
-    if "DIZERES LEGAIS" in line.upper():
-        return True
-    if "APRESENTAÇÕES" in line.upper() and len(line) < 30:
-        return True
-    if "COMPOSIÇÃO" in line.upper() and len(line) < 30:
-        return True
-    return False
-
 def fatiar_texto_state_machine(texto):
     linhas = texto.split('\n')
     secoes_esperadas = get_canonical_sections()
@@ -313,22 +302,16 @@ def fatiar_texto_state_machine(texto):
         linha_limpa = linha.strip()
         if not linha_limpa: continue
         
-        # Verifica se é título
         norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
         titulo_encontrado = None
         
-        # Se parecer título visualmente (Regex) OU bater com lista canônica
-        possible_header = is_new_section_header(linha_limpa)
-        
-        if possible_header:
-            # Tenta casar com a lista oficial
-            for s_norm, s_canon in secoes_norm.items():
-                if s_norm in norm_linha: # Contém o título
-                    titulo_encontrado = s_canon
-                    break
-                if fuzz.ratio(s_norm, norm_linha) > 90:
-                    titulo_encontrado = s_canon
-                    break
+        for s_norm, s_canon in secoes_norm.items():
+            if s_norm == norm_linha:
+                titulo_encontrado = s_canon
+                break
+            if len(norm_linha) > 10 and fuzz.ratio(s_norm, norm_linha) > 98:
+                titulo_encontrado = s_canon
+                break
         
         if titulo_encontrado:
             secao_atual = titulo_encontrado
@@ -555,8 +538,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v109)")
-st.markdown("Sistema com Extração de Coluna Deslocada (68%) e Corte de Seção Agressivo.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v110)")
+st.markdown("Sistema com Correção Cirúrgica para Layout de 3 Colunas e Bordas.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -598,4 +581,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v109 | Base v108 + Aggressive Splitter.")
+st.caption("Sistema de Auditoria de Bulas v110 | Base v109 + Heuristic Rescue.")
