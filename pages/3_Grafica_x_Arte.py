@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v108 - Solução Definitiva para Provas Gráficas (Híbrido OCR + Colunas)
-# - NOVO: 'extrair_texto_hibrido' verifica se o PDF tem texto legível. Se não, ativa OCR automaticamente.
-# - LIMPEZA: Remove lixos de gráfica ("1a PROVA", "Gibran", medidas, assinaturas).
-# - ESTRUTURA: Lê por colunas verticais para não misturar texto em PDFs largos.
-# - INTEGRIDADE: Mantém a trava numérica (Seção 2 não mistura com 4).
+# Versão v109 - Correção de NameError e Limpeza Gráfica Profunda
+# - CORREÇÃO BUG: Garante que 'gerar_relatorio_final' esteja definida antes do uso.
+# - LIMPEZA AVANÇADA: Remove lixos específicos da prova "Gibran" (tabelas de aprovação, medidas, emails).
+# - ESTRUTURA: Mantém a leitura por colunas para suportar layouts de 45cm.
 
 import re
 import difflib
@@ -119,7 +118,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA DE PROVAS GRÁFICAS -----------------
+# ----------------- LIMPEZA CIRÚRGICA (v109 - Provas Gráficas) -----------------
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico, anotações de prova gráfica e dimensões."""
     texto_limpo = texto
@@ -139,7 +138,7 @@ def limpar_lixo_grafico(texto):
 
     # 3. Limpezas Específicas (Regex)
     padroes_especificos = [
-        # --- LIXO DE PROVA GRÁFICA (IDENTIFICADO NAS IMAGENS) ---
+        # --- LIXO DE PROVA GRÁFICA (Gibran/Belfar) ---
         r'.*PROVA\s*\d{2}/\d{2}/\d{4}.*',  # 1a. PROVA 03/10/2025
         r'.*Favor\s*conferir.*',           # Favor conferir e enviar aprovação...
         r'.*Autorizado\s*Sim\s*Não.*',     # Checkbox de aprovação
@@ -149,6 +148,8 @@ def limpar_lixo_grafico(texto):
         r'.*Versão\s*0\d+.*',              # Versão 06 solta
         r'.*Verso\s*Bula.*',               # Cabeçalhos soltos
         r'.*Frente\s*Bula.*',
+        r'.*Após\s*aprovação\s*assinada.*',
+        r'.*não\s*poderá\s*haver\s*reclamações.*',
         
         # Dimensões e Medidas
         r'^\s*\d{1,3}\s*,\s*00\s*$',       # 210, 00 isolado
@@ -273,7 +274,6 @@ def organizar_por_colunas(page):
     """
     Agrupa blocos de texto por proximidade horizontal (colunas)
     e ordena: Coluna 1 (Top->Down) -> Coluna 2 (Top->Down) -> ...
-    Isso evita que texto de colunas vizinhas se misturem.
     """
     blocks = page.get_text("blocks", sort=False)
     text_blocks = [b for b in blocks if b[6] == 0]
@@ -299,7 +299,7 @@ def organizar_por_colunas(page):
     
     final_text = ""
     for col in columns:
-        col.sort(key=lambda b: b[1]) # Ordena verticalmente dentro da coluna
+        col.sort(key=lambda b: b[1])
         for b in col:
             final_text += b[4] + "\n"
             
@@ -319,10 +319,9 @@ def verifica_qualidade_texto(texto):
     """Verifica se o texto extraído tem palavras-chave de bula suficientes."""
     if not texto or len(texto) < 100: return False
     t_limpo = re.sub(r'\s+', '', unicodedata.normalize('NFD', texto).lower())
-    # Palavras-chave obrigatórias em qualquer bula
     keywords = ["paraqueeste", "comodevousar", "dizereslegais", "quandonaodevo", "composicao", "medicamento"]
     hits = sum(1 for k in keywords if k in t_limpo)
-    return hits >= 2 # Se encontrar pelo menos 2, assume que o texto é válido
+    return hits >= 2 
 
 def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
     """
@@ -338,14 +337,11 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_nativo = ""
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 for page in doc:
-                    # [IMPORTANTE] Usa algoritmo de colunas SEMPRE para PDFs
                     texto_nativo += organizar_por_colunas(page)
             
-            # Verifica se precisa de OCR
             if verifica_qualidade_texto(texto_nativo):
                 texto_completo = texto_nativo
             else:
-                # Se a extração nativa falhou, tenta OCR
                 texto_completo = executar_ocr(arquivo_bytes)
 
         elif tipo_arquivo == 'docx':
@@ -357,14 +353,10 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             
-            # 1. LIMPEZA CIRÚRGICA
             texto_completo = limpar_lixo_grafico(texto_completo)
-            # 2. CORREÇÃO PADRÕES
             texto_completo = corrigir_padroes_bula(texto_completo)
-            # 3. ESTRUTURA
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # Aplica correções estruturais de blocos deslocados
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             
@@ -756,7 +748,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v108)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v109)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -775,7 +767,6 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
         with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
-            # AQUI ESTÁ A MUDANÇA PRINCIPAL: USA 'extrair_texto_hibrido' EM VEZ DE 'extrair_texto'
             texto_ref_raw, erro_ref = extrair_texto_hibrido(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf', is_marketing_pdf=False)
             texto_belfar_raw, erro_belfar = extrair_texto_hibrido(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf', is_marketing_pdf=True)
 
@@ -801,4 +792,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v108 | Solução Definitiva para Provas Gráficas.")
+st.caption("Sistema de Auditoria de Bulas v109 | Correção NameError + Limpeza Gráfica.")
