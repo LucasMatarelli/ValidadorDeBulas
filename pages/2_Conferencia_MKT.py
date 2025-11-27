@@ -1,12 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v99 - "Concrete Walls Layout" (Força Bruta na Divisão de Colunas)
-# - COLUNAS: Define limites rígidos baseados na MARGEM ESQUERDA (x0).
-#   - Col 1: x0 < 30% da página.
-#   - Col 2: 30% <= x0 < 62% da página (Recuado para evitar misturar com a 3).
-#   - Col 3: x0 >= 62% da página.
-# - ORDEM: Garante que TODO o texto da Col 2 seja processado antes de qualquer texto da Col 3.
-# - PARSER: Mantém a lista canônica de 13 títulos.
+# Versão v100 - "Centroid-Based Column Sorting"
+# - EXTRAÇÃO: Usa algoritmo de centróides (Clustering) para atribuir colunas.
+#   Calcula a distância do centro do bloco para [16% W, 50% W, 83% W].
+#   O bloco vai para a coluna mais próxima. Isso resolve desalinhamentos.
+# - FLUXO: Garante a ordem Col 1 -> Col 2 -> Col 3.
+# - PARSER: Usa lista canônica e ignora subtítulos internos.
 
 import re
 import difflib
@@ -213,7 +212,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS ("CONCRETE WALLS" / FORÇA BRUTA) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS (CENTROID SORT) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -230,11 +229,13 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # "MUROS DE CONCRETO"
-                        # Limite 1: 30% da página. (Col 1 termina aqui)
-                        # Limite 2: 62% da página. (Col 2 termina aqui - ANTES da Col 3 começar)
-                        limite_1 = width * 0.30
-                        limite_2 = width * 0.62
+                        # DEFINIÇÃO DE CENTROIDES (Centros Ideais das Colunas)
+                        # Col 1: ~16% da largura (Centro do primeiro terço)
+                        # Col 2: ~50% da largura (Centro do segundo terço)
+                        # Col 3: ~83% da largura (Centro do terceiro terço)
+                        c1 = width * 0.166
+                        c2 = width * 0.500
+                        c3 = width * 0.833
                         
                         col_1, col_2, col_3 = [], [], []
                         cabecalhos = []
@@ -242,35 +243,43 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0 = b[0] # Usa SEMPRE a borda esquerda para decidir
+                                    x0, x1 = b[0], b[2]
+                                    center_x = (x0 + x1) / 2
+                                    block_width = x1 - x0
                                     
-                                    # Cabeçalho global apenas se for MUITO largo e estiver no TOPO
-                                    # (Evita pegar titulos de seção que ocupam 1 coluna mas parecem largos)
-                                    block_width = b[2] - b[0]
-                                    if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
+                                    # Se for muito largo (>85%), é cabeçalho global
+                                    if block_width > (width * 0.85):
                                         cabecalhos.append(b)
                                     else:
-                                        # Distribuição RÍGIDA
-                                        if x0 < limite_1: 
+                                        # CLASSIFICAÇÃO POR PROXIMIDADE (Distância ao Centróide)
+                                        # Calcula a distância do centro do bloco para cada centróide
+                                        d1 = abs(center_x - c1)
+                                        d2 = abs(center_x - c2)
+                                        d3 = abs(center_x - c3)
+                                        
+                                        # Atribui ao mais próximo
+                                        min_dist = min(d1, d2, d3)
+                                        if min_dist == d1:
                                             col_1.append(b)
-                                        elif x0 < limite_2: 
-                                            col_2.append(b)
-                                        else: 
+                                        elif min_dist == d2:
+                                            col_2.append(b) # "Informações..." cairá aqui com certeza
+                                        else:
                                             col_3.append(b)
                         
-                        # Ordena cada coluna verticalmente (Topo -> Baixo)
+                        # ORDENAÇÃO: Topo->Baixo dentro de cada coluna
                         cabecalhos.sort(key=lambda x: x[1])
-                        col_1.sort(key=lambda x: x[1])
-                        col_2.sort(key=lambda x: x[1])
-                        col_3.sort(key=lambda x: x[1])
+                        col_1.sort(key=lambda x: (x[1], x[0]))
+                        col_2.sort(key=lambda x: (x[1], x[0]))
+                        col_3.sort(key=lambda x: (x[1], x[0]))
                         
-                        # Montagem Final: Header -> Esq -> Meio -> Dir
+                        # CONCATENAÇÃO: Header -> Col 1 -> Col 2 -> Col 3
                         for b in cabecalhos: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
-                        for b in col_2: texto_completo += b[4] + "\n"
-                        for b in col_3: texto_completo += b[4] + "\n"
+                        for b in col_2: texto_completo += b[4] + "\n" # Garante que "Informações..." (Sec 2) venha antes...
+                        for b in col_3: texto_completo += b[4] + "\n" # ...de "3. QUANDO" (Sec 3)
                         
                     else:
+                        # ANVISA (Texto corrido)
                         blocks = page.get_text("blocks", sort=True)
                         for b in blocks:
                             if b[6] == 0:
@@ -314,9 +323,11 @@ def identificar_ancoras_secoes(texto):
         
         matched_canon = None
         for s_norm, s_canon in secoes_norm.items():
+            # Match exato ou inicio
             if s_norm == norm_linha or (len(s_norm) > 10 and norm_linha.startswith(s_norm)):
                 matched_canon = s_canon
                 break
+            # Fuzzy match mais tolerante
             if fuzz.ratio(s_norm, norm_linha) > 88:
                 matched_canon = s_canon
                 break
@@ -561,8 +572,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v99)")
-st.markdown("Sistema com Extração de Muros de Concreto (30/62) e Fatiamento Canônico.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v100)")
+st.markdown("Sistema com Extração de Colunas por Centróide (Robustez Total).")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -604,4 +615,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v99 | Base v98 + Concrete Walls Layout.")
+st.caption("Sistema de Auditoria de Bulas v100 | Base v99 + Centroid Layout.")
