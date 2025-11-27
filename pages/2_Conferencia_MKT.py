@@ -2,9 +2,9 @@
 #
 # Versão v96 - "Strict Thirds" + "Header Force"
 # - COLUNAS: Divisão estrita em 33% e 66% da largura da página. Isso corrige o problema
-#   de títulos da coluna da direita caírem na coluna do meio.
+#   de títulos da coluna da direita (Seção 8) caírem na coluna do meio (Seção 6).
 # - TITULOS: Regex mais agressivo para garantir que "6.COMO" vire "6. COMO" e seja reconhecido.
-# - PARSER: Usa apenas a lista oficial de seções para fatiar o texto.
+# - PARSER: Usa apenas a lista oficial de seções para fatiar o texto (ignora subtítulos).
 
 import re
 import difflib
@@ -87,6 +87,10 @@ nlp = carregar_modelo_spacy()
 
 # ----------------- LISTA MESTRA DE SEÇÕES (HARDCODED) -----------------
 def get_canonical_sections():
+    """
+    Lista oficial de títulos. O sistema só vai quebrar o texto se encontrar
+    exatamente um destes (com tolerância a OCR).
+    """
     return [
         "APRESENTAÇÕES",
         "COMPOSIÇÃO",
@@ -119,6 +123,7 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
+    # Remove numeração inicial para comparar apenas o texto chave
     texto_norm = normalizar_texto(texto or "")
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
@@ -171,6 +176,7 @@ def limpar_lixo_grafico(texto):
 def forcar_titulos_bula(texto):
     """
     Padronização agressiva dos títulos. Garante que existam quebras de linha antes e depois.
+    Resolve problemas de títulos colados como "6.COMO".
     """
     substituicoes = [
         (r"(?:^|\n)\s*(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
@@ -279,7 +285,7 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
-                # Aplica o forçador de títulos e limpezas
+                # Aplica o forçador de títulos ANTES de qualquer coisa
                 texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
