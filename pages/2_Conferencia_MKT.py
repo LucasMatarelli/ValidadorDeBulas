@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v88 - Correção Definitiva de Colunas (Clusterização Vertical)
-# - NOVO ALGORITMO: 'organizar_por_colunas'. Agrupa blocos de texto verticalmente alinhados
-#   antes de ordenar, impedindo que textos de colunas vizinhas se misturem (o erro da Seção 6 puxando a 8).
-# - MANTIDO: Trava Numérica e correções de blocos específicos.
+# Versão v89 - Correção de Integridade Numérica (Trava Absoluta)
+# - CORREÇÃO CRÍTICA: O sistema agora extrai o número do Título Canônico (ex: "2.") 
+#   e PROÍBE o mapeamento com qualquer candidato que tenha um número diferente (ex: "4.").
+#   Isso impede que a Seção 2 seja comparada com a Seção 4, mesmo se o texto for idêntico.
+# - MANTIDO: Algoritmo de colunas e limpezas anteriores.
 
 import re
 import difflib
@@ -191,49 +192,24 @@ def forcar_titulos_bula(texto):
 
 # ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS) -----------------
 def organizar_por_colunas(page):
-    """
-    Agrupa blocos de texto por proximidade horizontal (colunas)
-    e ordena: Coluna 1 (Top->Down) -> Coluna 2 (Top->Down) -> ...
-    Isso evita que o texto da Coluna 1 misture com a Coluna 2.
-    """
     blocks = page.get_text("blocks", sort=False)
-    # Filtra apenas blocos de texto (tipo 0)
     text_blocks = [b for b in blocks if b[6] == 0]
-    
     if not text_blocks: return ""
-
-    # Ordena inicialmente por X para facilitar agrupamento
     text_blocks.sort(key=lambda b: b[0])
-    
     columns = []
-    
-    # Tolerância de 100pts (aprox 3.5cm) para considerar mesma coluna
-    # Isso lida com indentação de parágrafos
     TOLERANCIA_X = 100 
-    
     for b in text_blocks:
         placed = False
         for col in columns:
-            # Pega o X médio da coluna atual
             avg_x = sum(cb[0] for cb in col) / len(col)
-            # Se o bloco estiver perto da média X da coluna, adiciona
             if abs(b[0] - avg_x) < TOLERANCIA_X:
-                col.append(b)
-                placed = True
-                break
-        if not placed:
-            columns.append([b])
-    
-    # Ordena as colunas da Esquerda para a Direita (pelo X médio)
+                col.append(b); placed = True; break
+        if not placed: columns.append([b])
     columns.sort(key=lambda c: sum(b[0] for b in c)/len(c))
-    
     final_text = ""
     for col in columns:
-        # Ordena blocos DENTRO da coluna de Cima para Baixo
         col.sort(key=lambda b: b[1])
-        for b in col:
-            final_text += b[4] + "\n"
-            
+        for b in col: final_text += b[4] + "\n"
     return final_text
 
 def extrair_texto(arquivo, tipo_arquivo):
@@ -241,17 +217,10 @@ def extrair_texto(arquivo, tipo_arquivo):
     try:
         arquivo.seek(0)
         texto_completo = ""
-
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    rect = page.rect
-                    margem_y = rect.height * 0.01 
-                    
-                    # Usa a nova função de organização por colunas
-                    texto_pagina = organizar_por_colunas(page)
-                    texto_completo += texto_pagina
-
+                    texto_completo += organizar_por_colunas(page)
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
@@ -260,17 +229,14 @@ def extrair_texto(arquivo, tipo_arquivo):
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
-
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
-            
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
             return texto_completo.strip(), None
-
     except Exception as e:
         return "", f"Erro: {e}"
 
@@ -290,7 +256,6 @@ def reconstruir_paragrafos(texto):
     linhas_out = []
     buffer = ""
     padrao_tabela = re.compile(r'\.{3,}|_{3,}|q\.s\.p|^\s*[-•]\s+')
-
     for linha in linhas:
         l_strip = linha.strip()
         if not l_strip or (len(l_strip) < 3 and not re.match(r'^\d+\.?$', l_strip)):
@@ -342,7 +307,7 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO (COM TRAVA NUMÉRICA) -----------------
+# ----------------- MAPEAMENTO (COM TRAVA NUMÉRICA CORRIGIDA) -----------------
 HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
 
 def construir_heading_candidates(linhas, secoes_esperadas, aliases):
@@ -381,48 +346,66 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     mapa = []
     last_idx = -1
     
+    # --- HELPER: Extrai o número da SEÇÃO ESPERADA (Canonical) ---
+    def get_canonical_number(sec_name):
+        match = re.search(r'^(\d{1,2})\.', sec_name)
+        return int(match.group(1)) if match else None
+
     # --- HELPER: Validação Numérica Rigorosa ---
-    def validar_candidato(cand, sec_index_esperado):
-        # Se o candidato TEM número, ele OBRIGATORIAMENTE deve bater com o esperado.
-        if cand.numeric is not None:
-            if cand.numeric != (sec_index_esperado + 1):
-                return False
+    def validar_candidato(cand, canon_number):
+        # Se a seção esperada tem número (ex: "2."), o candidato OBRIGATORIAMENTE
+        # precisa ter o mesmo número.
+        if canon_number is not None:
+            # Se o candidato tem número, compara.
+            if cand.numeric is not None:
+                if cand.numeric != canon_number:
+                    return False
+            # Se o candidato NÃO tem número (ex: título quebrado), 
+            # confiamos no score de texto, mas com cautela (não implementado bloqueio aqui,
+            # apenas se TIVER número diferente).
         return True
     # -------------------------------------------
 
-    for sec_idx, sec in enumerate(secoes_esperadas):
+    for sec in secoes_esperadas:
         sec_norm = normalizar_titulo_para_comparacao(sec)
+        canon_num = get_canonical_number(sec) # Ex: Pega 2 de "2.COMO..."
+        
         found = None
         
+        # 1. Busca Exata
         for c in candidates:
             if c.index <= last_idx: continue
             if c.matched_canon == sec:
-                if validar_candidato(c, sec_idx): found = c; break
+                if validar_candidato(c, canon_num): found = c; break
         
-        if not found:
+        # 2. Busca Numérica (Só se a seção esperada tiver número)
+        if not found and canon_num is not None:
             for c in candidates:
                 if c.index <= last_idx: continue
-                if c.numeric == (sec_idx + 1): found = c; break
+                if c.numeric == canon_num: found = c; break
         
+        # 3. Busca Fuzzy/Texto
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
                 if sec_norm and sec_norm in c.norm:
-                    if validar_candidato(c, sec_idx): found = c; break
+                    if validar_candidato(c, canon_num): found = c; break
         
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
-                    if validar_candidato(c, sec_idx): found = c; break
+                    if validar_candidato(c, canon_num): found = c; break
         
+        # 4. Busca Global (Resgate) com Trava Numérica
         if not found:
             for c in candidates:
                 match_canon = (c.matched_canon == sec)
-                match_num = (c.numeric == (sec_idx + 1))
+                match_num = (canon_num is not None and c.numeric == canon_num)
                 match_text = (sec_norm and sec_norm in c.norm)
+                
                 if match_canon or match_num or match_text:
-                    if validar_candidato(c, sec_idx):
+                    if validar_candidato(c, canon_num):
                         if match_num or c.score > 95: found = c; break
         
         if found:
@@ -699,7 +682,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v88)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v89)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -743,4 +726,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v88 | Correção Definitiva de Colunas.")
+st.caption("Sistema de Auditoria de Bulas v89 | Integridade Numérica Reforçada.")
