@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v102 - "Smart Clustering Sort" (Correção Definitiva de Colunas Desalinhadas)
-# - COLUNAS: Usa algoritmo de Clustering (K-Means simplificado) para agrupar blocos.
-#   Não depende de margens fixas. Atrai o texto para a coluna mais próxima (Esq/Meio/Dir).
-# - ORDEM: Garante fluxo Coluna 1 -> Coluna 2 -> Coluna 3.
-# - PARSER: Usa lista canônica de 13 títulos para fatiar o texto.
+# Versão v103 - "Vertical Column Force" (Correção Definitiva de Ordem de Leitura)
+# - ESTRATÉGIA: Ignora a altura (Y) globalmente. Divide a página em 3 fatias verticais estritas.
+# - ORDEM: Lê a Fatia 1 inteira -> Lê a Fatia 2 inteira -> Lê a Fatia 3 inteira.
+#   Isso força o texto do rodapé da Coluna 2 a vir ANTES do topo da Coluna 3.
+# - PARSER: Usa lista exata de títulos para separar o conteúdo.
 
 import re
 import difflib
@@ -169,6 +169,9 @@ def limpar_lixo_grafico(texto):
     return texto_limpo
 
 def forcar_titulos_bula(texto):
+    """
+    Garante que os títulos estejam isolados.
+    """
     substituicoes = [
         (r"(?:^|\n)\s*(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??",
          r"\n1.PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
@@ -195,7 +198,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.MULTILINE)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS (CLUSTERING) -----------------
+# ----------------- EXTRAÇÃO 3 COLUNAS ("FATIA VERTICAL") -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -212,49 +215,44 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     if is_marketing_pdf:
                         blocks = page.get_text("blocks") 
                         
-                        # ALGORITMO DE ATRAÇÃO (CLUSTERING)
-                        # Define 3 pontos gravitacionais (centros ideais das colunas)
-                        center_col1 = width * 0.17 # ~17% da largura
-                        center_col2 = width * 0.50 # ~50% da largura
-                        center_col3 = width * 0.83 # ~83% da largura
+                        # DIVISÃO RÍGIDA DE COLUNAS (SEM GLOBAL HEADER NO MEIO)
+                        # Col 1: 0% a 31%
+                        # Col 2: 31% a 64% (Aqui está o texto amarelo)
+                        # Col 3: 64% em diante (Aqui está o título da Seção 3)
+                        limite_1 = width * 0.31
+                        limite_2 = width * 0.64
                         
                         col_1, col_2, col_3 = [], [], []
-                        cabecalhos = []
+                        cabecalhos_topo = [] # Apenas o logotipo no topo absoluto
                         
                         for b in blocks:
                             if b[6] == 0: # Texto
                                 if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                                    x0, x1 = b[0], b[2]
-                                    block_center = (x0 + x1) / 2
-                                    block_width = x1 - x0
+                                    x0 = b[0] # Margem esquerda
                                     
-                                    # Cabeçalho global apenas se for MUITO largo (>85%) e no topo
-                                    if b[1] < (rect.height * 0.15) and block_width > (width * 0.85):
-                                        cabecalhos.append(b)
+                                    # Cabeçalho apenas se estiver no topo absoluto (primeiros 10% da pag)
+                                    if b[1] < (rect.height * 0.10) and (b[2]-b[0]) > (width * 0.8):
+                                        cabecalhos_topo.append(b)
                                     else:
-                                        # Calcula distância para os 3 centros
-                                        dist1 = abs(block_center - center_col1)
-                                        dist2 = abs(block_center - center_col2)
-                                        dist3 = abs(block_center - center_col3)
-                                        
-                                        # Atribui ao mais próximo
-                                        min_dist = min(dist1, dist2, dist3)
-                                        if min_dist == dist1:
+                                        # CLASSIFICAÇÃO RIGIDA
+                                        if x0 < limite_1: 
                                             col_1.append(b)
-                                        elif min_dist == dist2:
+                                        elif x0 < limite_2: 
                                             col_2.append(b)
-                                        else:
+                                        else: 
                                             col_3.append(b)
                         
-                        # ORDENAÇÃO VERTICAL DENTRO DE CADA COLUNA
-                        # Ordena por Y (Topo -> Baixo)
-                        cabecalhos.sort(key=lambda x: x[1])
+                        # Ordena cada coluna verticalmente (Topo -> Baixo)
+                        cabecalhos_topo.sort(key=lambda x: x[1])
                         col_1.sort(key=lambda x: x[1])
                         col_2.sort(key=lambda x: x[1])
                         col_3.sort(key=lambda x: x[1])
                         
-                        # CONCATENAÇÃO: Header -> Col 1 -> Col 2 -> Col 3
-                        for b in cabecalhos: texto_completo += b[4] + "\n"
+                        # CONCATENAÇÃO:
+                        # Header Topo -> TUDO da Col 1 -> TUDO da Col 2 -> TUDO da Col 3
+                        # Isso garante que o texto amarelo (final da Col 2) venha ANTES do título (inicio da Col 3)
+                        
+                        for b in cabecalhos_topo: texto_completo += b[4] + "\n"
                         for b in col_1: texto_completo += b[4] + "\n"
                         for b in col_2: texto_completo += b[4] + "\n"
                         for b in col_3: texto_completo += b[4] + "\n"
@@ -279,7 +277,6 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
             texto_completo = limpar_lixo_grafico(texto_completo)
             
             if is_marketing_pdf:
-                # Aplica o forçador de títulos ANTES de qualquer coisa
                 texto_completo = forcar_titulos_bula(texto_completo)
                 texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
                 texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
@@ -307,7 +304,7 @@ def identificar_ancoras_secoes(texto):
             if s_norm == norm_linha or (len(s_norm) > 10 and norm_linha.startswith(s_norm)):
                 matched_canon = s_canon
                 break
-            if fuzz.ratio(s_norm, norm_linha) > 88:
+            if fuzz.ratio(s_norm, norm_linha) > 90:
                 matched_canon = s_canon
                 break
                 
@@ -551,8 +548,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v102)")
-st.markdown("Sistema com Extração de 3 Colunas via Clustering e Fatiamento Canônico.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v103)")
+st.markdown("Sistema com Extração de 3 Colunas Vertical Forçada.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -594,4 +591,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v102 | Base v101 + Clustering Sort.")
+st.caption("Sistema de Auditoria de Bulas v103 | Base v102 + Vertical Column Force.")
