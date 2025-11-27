@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v94 - "Canonical Anchor Slicing" + Fix NameError
-# - CORREÇÃO: Restauradas as funções 'obter_secoes_ignorar_comparacao' e 'obter_secoes_ignorar_ortografia' que faltavam.
-# - LÓGICA: Mantém a estratégia v93 de usar APENAS a lista de 13 títulos para fatiar o texto.
-# - RESULTADO: O erro de NameError sumirá e a separação será rígida pelos títulos oficiais.
+# Versão v95 - "Canonical Anchor Slicing" + Auto Column Detection (2 vs 3)
+# - NOVO: Função detectar_num_colunas() para decidir automaticamente o layout.
+# - LÓGICA 3 COLUNAS: Suporte aprimorado para títulos largos e fluxo visual (Y-Axis primary).
+# - LÓGICA 2 COLUNAS: Mantém o padrão Esquerda/Direita para bulas comuns.
+# - PARSER: Mantém o fatiamento rígido por lista de 13 títulos (v94).
 
 import re
 import difflib
@@ -105,7 +106,7 @@ def get_canonical_sections():
         "DIZERES LEGAIS"
     ]
 
-# --- FUNÇÕES RESTAURADAS (FIX NAME ERROR) ---
+# --- FUNÇÕES DE IGNORAR ---
 def obter_secoes_ignorar_comparacao(): 
     return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 
@@ -212,7 +213,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO 3 COLUNAS AJUSTADA -----------------
+# ----------------- DETECÇÃO DE COLUNAS (NOVO) -----------------
 def detectar_num_colunas(page):
     """Detecta se a página tem 2 ou 3 colunas analisando a distribuição horizontal dos blocos."""
     rect = page.rect
@@ -246,6 +247,8 @@ def detectar_num_colunas(page):
         return 3
     
     return 2
+
+# ----------------- EXTRAÇÃO ADAPTATIVA (2 ou 3 COLUNAS) -----------------
 def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
     if arquivo is None: return "", f"Arquivo {tipo_arquivo} não enviado."
     try:
@@ -260,85 +263,81 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
                     margem_y = rect.height * 0.01 
                     
                     if is_marketing_pdf:
-                 # Detecta número de colunas automaticamente
-                 num_colunas = detectar_num_colunas(page)
-              blocks = page.get_text("blocks")
-    
-    if num_colunas == 3:
-        # Layout de 3 colunas com suporte a blocos multi-coluna
-        largura = rect.width
-        terco1 = largura / 3
-        terco2 = 2 * largura / 3
-        
-        # Lista única para blocos largos (títulos que ocupam 2-3 colunas)
-        blocos_ordenados = []
-        
-        for b in blocks:
-            if b[6] == 0:  # Apenas texto
-                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                    largura_bloco = b[2] - b[0]
-                    b_center_x = (b[0] + b[2]) / 2
-                    
-                    # Classifica o bloco:
-                    # - Blocos muito largos (>60% da página) = títulos de seção que ocupam múltiplas colunas
-                    # - Blocos largos (>40%) = podem ser sub-títulos ou parágrafos que cruzam 2 colunas
-                    # - Blocos normais = texto de coluna única
-                    
-                    if largura_bloco > largura * 0.6:
-                        # Título principal - ocupa 2-3 colunas
-                        tipo = 'titulo_largo'
-                        coluna = 0  # Primeira posição na ordenação
-                    elif largura_bloco > largura * 0.4:
-                        # Bloco médio - pode ocupar 2 colunas
-                        tipo = 'bloco_medio'
-                        # Define coluna pelo centro
-                        if b_center_x < terco1:
-                            coluna = 1
-                        elif b_center_x < terco2:
-                            coluna = 2
+                        # Detecta número de colunas automaticamente
+                        num_colunas = detectar_num_colunas(page)
+                        blocks = page.get_text("blocks")
+                        
+                        if num_colunas == 3:
+                            # Layout de 3 colunas com suporte a blocos multi-coluna
+                            largura = rect.width
+                            terco1 = largura / 3
+                            terco2 = 2 * largura / 3
+                            
+                            # Lista única para blocos ordenados
+                            blocos_ordenados = []
+                            
+                            for b in blocks:
+                                if b[6] == 0:  # Apenas texto
+                                    if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                                        largura_bloco = b[2] - b[0]
+                                        b_center_x = (b[0] + b[2]) / 2
+                                        
+                                        # Classifica o bloco:
+                                        if largura_bloco > largura * 0.6:
+                                            # Título principal - ocupa 2-3 colunas
+                                            tipo = 'titulo_largo'
+                                            coluna = 0  # Primeira posição na ordenação
+                                        elif largura_bloco > largura * 0.4:
+                                            # Bloco médio
+                                            tipo = 'bloco_medio'
+                                            if b_center_x < terco1: coluna = 1
+                                            elif b_center_x < terco2: coluna = 2
+                                            else: coluna = 3
+                                        else:
+                                            # Bloco normal - 1 coluna
+                                            tipo = 'normal'
+                                            if b_center_x < terco1: coluna = 1
+                                            elif b_center_x < terco2: coluna = 2
+                                            else: coluna = 3
+                                        
+                                        # Adiciona: (posição_Y, coluna, tipo, bloco)
+                                        blocos_ordenados.append((b[1], coluna, tipo, b))
+                            
+                            # Ordena por: 1) Posição Y (linha), 2) Coluna (esquerda para direita)
+                            blocos_ordenados.sort(key=lambda x: (x[0], x[1]))
+                            
+                            # Reconstrói o texto
+                            for _, _, _, b in blocos_ordenados:
+                                texto_completo += b[4] + "\n"
+                        
                         else:
-                            coluna = 3
+                            # Layout de 2 colunas (código original)
+                            meio_x = rect.width / 2
+                            col_esq = []
+                            col_dir = []
+                            
+                            for b in blocks:
+                                if b[6] == 0:
+                                    if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                                        b_center_x = (b[0] + b[2]) / 2
+                                        if b_center_x < meio_x:
+                                            col_esq.append(b)
+                                        else:
+                                            col_dir.append(b)
+                            
+                            col_esq.sort(key=lambda x: x[1])
+                            col_dir.sort(key=lambda x: x[1])
+                            
+                            for b in col_esq: texto_completo += b[4] + "\n"
+                            for b in col_dir: texto_completo += b[4] + "\n"
+                        
                     else:
-                        # Bloco normal - 1 coluna
-                        tipo = 'normal'
-                        if b_center_x < terco1:
-                            coluna = 1
-                        elif b_center_x < terco2:
-                            coluna = 2
-                        else:
-                            coluna = 3
-                    
-                    # Adiciona: (posição_Y, coluna, tipo, bloco)
-                    blocos_ordenados.append((b[1], coluna, tipo, b))
-        
-        # Ordena por: 1) Posição Y (linha), 2) Coluna (esquerda para direita)
-        # Isso garante que na mesma "linha" visual, lemos col1 -> col2 -> col3
-        blocos_ordenados.sort(key=lambda x: (x[0], x[1]))
-        
-        # Reconstrói o texto
-        for _, _, _, b in blocos_ordenados:
-            texto_completo += b[4] + "\n"
-    
-    else:
-        # Layout de 2 colunas (código original)
-        meio_x = rect.width / 2
-        col_esq = []
-        col_dir = []
-        
-        for b in blocks:
-            if b[6] == 0:
-                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
-                    b_center_x = (b[0] + b[2]) / 2
-                    if b_center_x < meio_x:
-                        col_esq.append(b)
-                    else:
-                        col_dir.append(b)
-        
-        col_esq.sort(key=lambda x: x[1])
-        col_dir.sort(key=lambda x: x[1])
-        
-        for b in col_esq: texto_completo += b[4] + "\n"
-        for b in col_dir: texto_completo += b[4] + "\n"
+                        # ANVISA (Texto corrido)
+                        blocks = page.get_text("blocks", sort=True)
+                        for b in blocks:
+                            if b[6] == 0:
+                                if b[1] >= margem_y and b[3] <= (rect.height - margem_y):
+                                    texto_completo += b[4] + "\n"
 
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
@@ -351,71 +350,55 @@ def extrair_texto(arquivo, tipo_arquivo, is_marketing_pdf=False):
 
             texto_completo = limpar_lixo_grafico(texto_completo)
             
-c
+            if is_marketing_pdf:
+                # Aplica o forçador de títulos ANTES de qualquer coisa
+                texto_completo = forcar_titulos_bula(texto_completo)
+                texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
+                texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
+
+            texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
+            return texto_completo.strip(), None
+
+    except Exception as e:
+        return "", f"Erro: {e}"
 
 # ----------------- PARSER BASEADO EM ÂNCORAS CANÔNICAS -----------------
 def identificar_ancoras_secoes(texto):
-    """
-    Varre o texto e retorna um dicionário {Nome_Seção: Indice_Linha}.
-    SÓ aceita matches que batem com a lista canônica.
-    """
     linhas = texto.split('\n')
     secoes_esperadas = get_canonical_sections()
     ancoras = {}
-    
-    # Normalização prévia das seções esperadas para busca
     secoes_norm = {normalizar_titulo_para_comparacao(s): s for s in secoes_esperadas}
     
     for i, linha in enumerate(linhas):
         linha_limpa = linha.strip()
         if len(linha_limpa) < 5: continue
-        
         norm_linha = normalizar_titulo_para_comparacao(linha_limpa)
-        
-        # 1. Match Exato ou Muito Próximo
         matched_canon = None
         for s_norm, s_canon in secoes_norm.items():
-            # Verifica se a linha NORMALIZADA é igual ao título NORMALIZADO
-            # Ou se a linha começa com o título (ex: "3. QUANDO..." e lixo depois)
             if s_norm == norm_linha or (len(s_norm) > 10 and norm_linha.startswith(s_norm)):
                 matched_canon = s_canon
                 break
-            # Fuzzy ratio alto (>95)
             if fuzz.ratio(s_norm, norm_linha) > 95:
                 matched_canon = s_canon
                 break
-                
         if matched_canon:
-            # Só registra se for a primeira vez que encontra (evita duplicatas falsas)
             if matched_canon not in ancoras:
                 ancoras[matched_canon] = i
-                
     return ancoras, linhas
 
 def fatiar_texto_por_ancoras(ancoras, linhas):
-    """
-    Usa os índices das âncoras para fatiar o texto.
-    Seção X = Texto entre (Linha da Seção X) e (Linha da Próxima Seção Encontrada).
-    """
     secoes_esperadas = get_canonical_sections()
     resultado = {}
-    
-    # Ordena as âncoras encontradas por linha
     ancoras_ordenadas = sorted(ancoras.items(), key=lambda x: x[1])
     
     for i in range(len(ancoras_ordenadas)):
         nome_secao, linha_inicio = ancoras_ordenadas[i]
-        
-        # Define o fim: é a linha da próxima seção ou o fim do arquivo
         if i < len(ancoras_ordenadas) - 1:
             linha_fim = ancoras_ordenadas[i+1][1]
         else:
             linha_fim = len(linhas)
-            
-        # Extrai conteúdo (pula a linha do título)
         conteudo_bruto = linhas[linha_inicio+1 : linha_fim]
         resultado[nome_secao] = "\n".join(conteudo_bruto).strip()
-        
     return resultado
 
 # ----------------- VERIFICAÇÃO -----------------
@@ -423,11 +406,9 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_esperadas = get_canonical_sections()
     ignore_comparison = [s.upper() for s in obter_secoes_ignorar_comparacao()]
     
-    # 1. Identificar Âncoras
     ancoras_ref, linhas_ref = identificar_ancoras_secoes(texto_ref)
     ancoras_bel, linhas_bel = identificar_ancoras_secoes(texto_belfar)
     
-    # 2. Fatiar Conteúdo
     conteudo_ref_map = fatiar_texto_por_ancoras(ancoras_ref, linhas_ref)
     conteudo_bel_map = fatiar_texto_por_ancoras(ancoras_bel, linhas_bel)
     
@@ -440,7 +421,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         cont_ref = conteudo_ref_map.get(sec)
         cont_bel = conteudo_bel_map.get(sec)
         
-        # Status de Encontrado
         encontrou_ref = (cont_ref is not None)
         encontrou_bel = (cont_bel is not None)
         
@@ -468,7 +448,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
             })
             continue
 
-        # Comparação
         norm_ref = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_ref or "")
         norm_bel = re.sub(r'([.,;?!()\[\]])', r' \1 ', cont_bel or "")
         norm_ref = normalizar_texto(norm_ref)
@@ -642,8 +621,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v94)")
-st.markdown("Sistema com Fatiamento por Âncoras Canônicas (Ignora subtítulos).")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v95)")
+st.markdown("Sistema com detecção automática de layout (2 ou 3 colunas) e Fatiamento Canônico.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente" # Fixo
@@ -687,4 +666,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v94 | Base v93 + Fix NameError.")
+st.caption("Sistema de Auditoria de Bulas v95 | Base v94 + Auto Column Detection.")
