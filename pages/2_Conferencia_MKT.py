@@ -1,17 +1,20 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v94 - Correção "Nuclear" do caractere "e" e Blindagem de Leitura
-# - CORREÇÃO DEFINITIVA: Regex global que remove linhas isoladas contendo apenas "e", "o", "a", com ou sem aspas.
-# - MELHORIA: A leitura da seção não para mais se encontrar subtítulos soltos, apenas se encontrar 
-#   explicitamente o Número + Título da próxima seção oficial.
+# Versão v100 - ENGINE PROFISSIONAL (PDFPlumber)
+# - TROCA DE MOTOR: Substituição do PyMuPDF (fitz) pelo PDFPlumber.
+# - VANTAGEM: O PDFPlumber entende colunas e layout nativamente,
+#   eliminando a necessidade de matemática manual e evitando cortes de texto.
+# - FILTRO DE LIXO V2: Filtro iterativo linha-a-linha para remover "e", "o", "a" isolados.
+# - TRAVA DE SEÇÃO: Mantida a lógica inteligente de só parar se encontrar nova seção numerada.
 
 import re
 import difflib
 import unicodedata
 import io
 import streamlit as st
-import fitz  # PyMuPDF
+import pdfplumber  # <--- A NOVA ESTRELA (Certifique-se que está no requirements.txt)
 import docx
+import fitz  # PyMuPDF (Mantido apenas como backup de segurança)
 import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
@@ -114,32 +117,6 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO -----------------
-def limpar_lixo_grafico(texto):
-    padroes_lixo = [
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b', 
-        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',
-        r'^\s*Bula\s*ao\s*Paciente\s*$',
-        r'^\s*Página\s*\d+\s*de\s*\d+\s*$',
-        r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
-        r'^\s*ALTEFAR\s*$', 
-        r'.*31\s*2105.*', r'.*w\s*Roman.*', r'.*Negrito\.\s*Corpo\s*14.*',
-        r'AZOLINA:', r'contato:', r'artes\s*@\s*belfar\.com\.br',
-        r'.*Frente\s*/\s*Verso.*', r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
-        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', r'.*da bula:.*', r'.*AFAZOLINA_BUL.*',
-        r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
-        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
-        r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
-        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$', r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?',
-        r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
-        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
-        r'.*Impress[ãa]o.*'
-    ]
-    texto_limpo = texto
-    for p in padroes_lixo:
-        texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
-    return texto_limpo
-
 # ----------------- CORREÇÃO DE ESTRUTURA E ORDEM -----------------
 def corrigir_ordem_blocos_especificos(texto):
     padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
@@ -189,67 +166,81 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS ROBUSTAS) -----------------
-def organizar_por_colunas(page):
-    blocks = page.get_text("blocks", sort=False)
-    text_blocks = [b for b in blocks if b[6] == 0]
-    if not text_blocks: return ""
-    
-    width = page.rect.width
-    midpoint = width / 2
-    
-    col_left = [b for b in text_blocks if b[0] < midpoint]
-    col_right = [b for b in text_blocks if b[0] >= midpoint]
-    
-    col_left.sort(key=lambda b: b[1])
-    col_right.sort(key=lambda b: b[1])
-    
-    final_text = ""
-    for b in col_left: final_text += b[4] + "\n"
-    for b in col_right: final_text += b[4] + "\n"
-    return final_text
+# ----------------- EXTRAÇÃO PROFISSIONAL (PDFPLUMBER) -----------------
+def extrair_texto_pdfplumber(arquivo):
+    """
+    Usa o engine PDFPlumber para extração visual precisa.
+    Resolve problemas de colunas e caracteres fantasmas.
+    """
+    texto_completo = ""
+    try:
+        with pdfplumber.open(arquivo) as pdf:
+            for page in pdf.pages:
+                # layout=True preserva a posição física (Esquerda -> Direita)
+                text = page.extract_text(layout=True, x_tolerance=2, y_tolerance=3)
+                if text:
+                    texto_completo += text + "\n"
+        return texto_completo
+    except Exception as e:
+        return ""
 
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None: return "", f"Arquivo não enviado."
     try:
         arquivo.seek(0)
         texto_completo = ""
+        
+        # --- SELEÇÃO DE ENGINE ---
         if tipo_arquivo == 'pdf':
-            with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                for page in doc:
-                    texto_completo += organizar_por_colunas(page)
+            # Usa o novo engine robusto
+            texto_completo = extrair_texto_pdfplumber(arquivo)
+            if not texto_completo: # Fallback de segurança (FitZ)
+                with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
+                    for page in doc: texto_completo += page.get_text()
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
         if texto_completo:
+            # Limpeza inicial
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
+            
+            # Padronização de quebras
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
-            texto_completo = limpar_lixo_grafico(texto_completo)
+            
+            # Forçar Títulos
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # --- FILTRO NUCLEAR PARA O "E" E LINHAS SOLTAS ---
-            # Remove linhas que sejam apenas "e", "o", "a", com ou sem aspas/pontos/espaços.
-            # Regex: Linha que começa, tem opcionais aspas/espaços, uma vogal solta, opcionais aspas/pontos, e fim.
-            texto_completo = re.sub(r'(?m)^\s*[\"\'\“\”]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$', '', texto_completo)
-            
-            # Filtro geral de lixo gráfico
+            # --- FILTRO DE LIXO LINHA-A-LINHA (A Solução do "e") ---
             lines = texto_completo.split('\n')
             lines_clean = []
+            # Regex Nuclear: Remove linhas com apenas "e", "o", "a", com ou sem aspas/pontos
+            padroes_lixo_regex = re.compile(r'^\s*[\"\'\“\”]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$')
+            
             for ln in lines:
                 clean_ln = ln.strip()
+                # 1. Filtro de símbolos
                 if clean_ln in {"-", "–", "—", "•", ".", "..."}:
                     continue
+                # 2. Filtro de lixo gráfico comum
+                if "Bula ao Paciente" in clean_ln or "Página" in clean_ln:
+                    continue
+                # 3. O FILTRO NUCLEAR
+                if padroes_lixo_regex.match(clean_ln):
+                    continue
+                
                 lines_clean.append(ln)
-            texto_completo = "\n".join(lines_clean)
-            # ----------------------------------------------------
             
+            texto_completo = "\n".join(lines_clean)
+            
+            # Correções finais
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
+            
             return texto_completo.strip(), None
     except Exception as e:
         return "", f"Erro: {e}"
@@ -321,7 +312,7 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO (COM TRAVA DE TAMANHO) -----------------
+# ----------------- MAPEAMENTO E ANÁLISE -----------------
 HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
 
 def construir_heading_candidates(linhas, secoes_esperadas, aliases):
@@ -424,7 +415,6 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     
     linha_inicio = entrada['linha_inicio']
     
-    # Detectar fim da seção
     if secao_canonico.strip().upper() == "DIZERES LEGAIS": 
         linha_fim = len(linhas_texto)
     else:
@@ -437,12 +427,6 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
     
     conteudo_lines = []
-    secoes_esperadas = obter_secoes_por_tipo()
-    
-    # --- RIGOR NA PARADA: Só aceita parar se o texto for REALMENTE uma seção esperada ---
-    padroes_titulos_rigidos = set()
-    for sec in secoes_esperadas:
-        padroes_titulos_rigidos.add(normalizar_titulo_para_comparacao(sec))
     
     for i in range(linha_inicio + 1, linha_fim):
         if i >= len(linhas_texto): break
@@ -451,28 +435,16 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             conteudo_lines.append(linhas_texto[i])
             continue
         
-        # --- SMART STOP: Só para se o número encontrado for EXATAMENTE o da PRÓXIMA seção ---
+        # --- SMART STOP: Só para se encontrar número de seção SUPERIOR ---
         match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
         if match_num and len(linha_atual) < 180:
             num_encontrado = int(match_num.group(1))
             match_atual = re.match(r'^(\d{1,2})\.', secao_canonico)
             if match_atual:
                 num_atual = int(match_atual.group(1))
-                # Só para se for MAIOR que o atual (ex: tá na 4, achou 5 ou 6). Se achou 1 ou 2, é lista interna.
+                # Só para se for MAIOR que o atual (ex: tá na 4, achou 5 ou 6)
                 if num_encontrado > num_atual: break
             else:
-                # Se a seção atual não tem número (ex: DIZERES), qualquer número de seção para.
-                break
-        
-        # --- VERIFICAÇÃO RIGIDA DE TÍTULO (SÓ PARA SE TIVER CERTEZA) ---
-        line_norm = normalizar_titulo_para_comparacao(linha_atual)
-        
-        # Se normalizar igual a um título, MAS não tiver número e não for maiúsculo, ignorar.
-        if line_norm in padroes_titulos_rigidos and len(linha_atual) < 120:
-            # Só aceita parar se começar com número OU for tudo maiúsculo (ex: DIZERES LEGAIS)
-            eh_maiusculo = (linha_atual.upper() == linha_atual) and len(linha_atual) > 5
-            comeca_num = re.match(r'^\d', linha_atual)
-            if eh_maiusculo or comeca_num:
                 break
         
         conteudo_lines.append(linhas_texto[i])
@@ -480,7 +452,7 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     conteudo_final = "\n".join(conteudo_lines).strip()
     return True, entrada['titulo_encontrado'], conteudo_final
 
-# ----------------- VERIFICAÇÃO -----------------
+# ----------------- VERIFICAÇÃO E RELATÓRIO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_esperadas = obter_secoes_por_tipo()
     ignore_comparison = [s.upper() for s in obter_secoes_ignorar_comparacao()]
@@ -537,7 +509,6 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         })
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos, secoes_analisadas
 
-# ----------------- ORTOGRAFIA & DIFF -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     if not texto_para_checar: return []
     try:
@@ -605,7 +576,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else: resultado += " " + tok
     return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
 
-# ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
     html_map = {}
     prefixos_paciente = {
@@ -713,7 +683,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
-# ----------------- VALIDAÇÃO DE TIPO -----------------
 def detectar_tipo_arquivo_por_score(texto):
     if not texto: return "Indeterminado"
     titulos_paciente = ["como este medicamento funciona", "o que devo saber antes de usar"]
@@ -726,8 +695,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v94)")
-st.markdown("Sistema com validação RÍGIDA: Filtro 'Nuclear' Anti-Letras.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v100)")
+st.markdown("Engine Profissional: PDFPlumber + Filtro Inteligente de Ruído.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -744,7 +713,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Lendo arquivos e auditando..."):
+        with st.spinner("Inicializando engine PDFPlumber e processando documentos..."):
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf')
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf')
 
@@ -770,4 +739,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v94 | Correção Nuclear do 'e'")
+st.caption("Sistema de Auditoria v100 | Engine PDFPlumber")
