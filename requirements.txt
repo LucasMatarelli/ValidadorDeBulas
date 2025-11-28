@@ -1,11 +1,13 @@
 streamlit
-unstructured[all-docs]
-unstructured-inference
-layoutparser
-tf-keras
-spacy
+spacy==3.7.2  <-- Mantenha esta versão
+PyMuPDF
+python-docx
 thefuzz
 pyspellchecker
-pymupdf
-python-docx
-https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.7.0/pt_core_news_lg-3.7.0.tar.gz
+numpy==1.26.4
+pytesseract
+Pillow<12
+https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.7.0/pt_core_news_lg-3.7.0-py3-none-any.whl
+pdfplumber
+thinc==8.2.3  <-- Adicionar: Garante compatibilidade
+pydantic < 2.0  <-- Adicionar: Evita conflitos internos no Streamlit
