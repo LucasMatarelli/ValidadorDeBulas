@@ -3,7 +3,7 @@
 # Versão v92 - Correção Definitiva de Corte de Texto + Filtro de Lixo
 # - CORREÇÃO: Filtro agressivo para remover linhas curtas (lixo como "e", ".", "-").
 # - CORREÇÃO: Lógica "Smart Stop" -> O robô agora aceita listas (1., 2.) dentro das seções
-#   e só para de ler se encontrar um número MAIOR que a seção atual (ex: Para a 4 só se ver a 5).
+#   e só para de ler se encontrar um número MAIOR que a seção atual.
 # - MANTIDO: Ordenação de colunas Esquerda -> Direita.
 
 import re
@@ -189,19 +189,21 @@ def forcar_titulos_bula(texto):
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
-# --- FILTRO DE LIXO (VERSÃO CORRIGIDA — NÃO REMOVE TEXTO VÁLIDO) ---
-            lines = texto_completo.split('\n')
-            lines_clean = []
-            for ln in lines:
-                clean_ln = ln.strip()
 
-                # remover apenas lixo gráfico real, nunca texto clínico
-                if clean_ln in {"-", "–", "—", "•", ".", "..."}:
-                    continue
-
-                lines_clean.append(ln)
-
-            texto_completo = "\n".join(lines_clean)
+# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS ROBUSTAS) -----------------
+def organizar_por_colunas(page):
+    blocks = page.get_text("blocks", sort=False)
+    # Filtra apenas blocos de texto (tipo 0)
+    text_blocks = [b for b in blocks if b[6] == 0]
+    if not text_blocks: return ""
+    
+    # --- Lógica de Colunas Robustas (Divisão pelo Meio) ---
+    width = page.rect.width
+    midpoint = width / 2
+    
+    # Separa em Esquerda e Direita com base no ponto médio
+    col_left = [b for b in text_blocks if b[0] < midpoint]
+    col_right = [b for b in text_blocks if b[0] >= midpoint]
     
     # Ordena cada coluna estritamente de Cima para Baixo (eixo Y -> b[1])
     col_left.sort(key=lambda b: b[1])
@@ -234,21 +236,17 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # --- FILTRO DE LIXO (VERSÃO CORRIGIDA — NÃO REMOVE TEXTO VÁLIDO) ---
-lines = texto_completo.split('
-')
-lines_clean = []
-for ln in lines:
-    clean_ln = ln.strip()
-
-    # remover apenas lixo gráfico real, nunca texto clínico
-    if clean_ln in {"-", "–", "—", "•", ".", "..."}:
-        continue
-
-    lines_clean.append(ln)
-
-texto_completo = "
-".join(lines_clean)
+            # --- FILTRO DE LIXO (VERSÃO CORRIGIDA) ---
+            # Remove linhas que são apenas ".", "-", "•", etc.
+            lines = texto_completo.split('\n')
+            lines_clean = []
+            for ln in lines:
+                clean_ln = ln.strip()
+                if clean_ln in {"-", "–", "—", "•", ".", "..."}:
+                    continue
+                lines_clean.append(ln)
+            texto_completo = "\n".join(lines_clean)
+            # -----------------------------------------
             
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
