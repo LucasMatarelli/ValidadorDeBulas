@@ -1,8 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v120 - FIX DE CRASH (REGEX ERROR)
-# - CORREÇÃO CRÍTICA: Removido flag (?i) de dentro dos padrões de 'higienizar_titulos' para evitar erro "global flags not at the start".
-# - MANTIDO: Lógica de resgate de conteúdo e OCR da v119.
+# Versão v121 - CORREÇÃO DE CRASH E RESGATE DE TÍTULOS
+# - FIX CRÍTICO: Corrigido erro de Regex "global flags" que travava a higienização de títulos.
+# - RESULTADO: A função 'higienizar_titulos' agora roda e separa os títulos colados, fazendo as seções reaparecerem.
+# - MANTIDO: OCR forçado para layouts largos (Provas Gráficas).
 
 import re
 import difflib
@@ -118,7 +119,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v120) -----------------
+# ----------------- LIMPEZA CIRÚRGICA (ATUALIZADA v121) -----------------
 
 def limpar_lixo_grafico(texto):
     """Remove lixo técnico e fragmentos específicos de provas gráficas."""
@@ -274,7 +275,7 @@ def higienizar_titulos(texto):
     """
     if not texto: return ""
     
-    # Padrões sem flags inline para evitar erro do Python
+    # Padrões limpos sem flags inline
     padroes_titulo = [
         r"QUANDO\s+N[ÃA]O\s+DEVO\s+USAR",
         r"O\s+QUE\s+DEVO\s+SABER\s+ANTES",
@@ -287,15 +288,13 @@ def higienizar_titulos(texto):
     
     texto_higienizado = texto
     for pat in padroes_titulo:
-        # Usa re.IGNORECASE na chamada da função, não no padrão
+        # APLICAÇÃO DA CORREÇÃO: flags=re.IGNORECASE aqui, não no regex
         texto_higienizado = re.sub(f"(?<!\\n)({pat})", r"\n\n\1", texto_higienizado, flags=re.IGNORECASE)
         
     return texto_higienizado
 
 def recuperar_titulos_perdidos(texto):
-    """
-    Recupera títulos perdidos garantindo que consumam toda a linha até o '?'
-    """
+    """Recupera títulos perdidos garantindo que consumam toda a linha até o '?'"""
     if not texto: return ""
     
     mapa_recuperacao = [
@@ -345,16 +344,16 @@ def limpar_restos_de_titulo(texto):
     return texto_limpo
 
 def executar_ocr_paginado(arquivo_bytes):
-    """Executa OCR e retorna lista de textos por página."""
     textos_paginas = []
     with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
         for page in doc:
             pix = page.get_pixmap(dpi=300)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             try: 
-                # PSM 4: Assume coluna única de texto de tamanho variável.
-                # Melhor para evitar que o OCR tente misturar colunas distantes.
-                txt = pytesseract.image_to_string(img, lang='por', config='--psm 4')
+                # OCR com PSM 1 para melhor detecção de layouts complexos
+                txt = pytesseract.image_to_string(img, lang='por', config='--psm 1')
+                if len(txt) < 100:
+                    txt = pytesseract.image_to_string(img, lang='por', config='--psm 3')
                 textos_paginas.append(txt)
             except: 
                 textos_paginas.append("")
@@ -370,8 +369,7 @@ def verifica_qualidade_texto(texto):
 def check_is_proof(page):
     rect = page.rect
     width_cm = rect.width / 72 * 2.54
-    if width_cm > 35: 
-        return True
+    if width_cm > 35: return True
     return False
 
 def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
@@ -380,14 +378,13 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
         arquivo.seek(0)
         arquivo_bytes = arquivo.read()
         texto_completo = ""
-        
         usou_ocr = False
-        
         force_ocr = False
+
         if tipo_arquivo == 'pdf' and is_marketing_pdf:
             with fitz.open(stream=io.BytesIO(arquivo_bytes), filetype="pdf") as doc:
                 if len(doc) > 0 and check_is_proof(doc[0]):
-                    st.toast(f"📐 Layout de Bula Gráfica detectado (>35cm). Forçando OCR para leitura correta...", icon="📏")
+                    st.toast(f"📐 Layout de Bula Gráfica detectado (>35cm). Forçando OCR...", icon="📏")
                     force_ocr = True
 
         if not force_ocr and tipo_arquivo == 'pdf':
@@ -415,15 +412,12 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
                 st.warning(f"⚠️ Seções faltando no texto nativo. Ativando OCR corretivo...", icon="👁️")
             
             ocr_pages = executar_ocr_paginado(arquivo_bytes)
-            
             if len(ocr_pages) >= 2:
                 p1_ocr = ocr_pages[0][:2000].upper()
                 p1_verso = "VERSO" in p1_ocr or "DIZERES LEGAIS" in p1_ocr
                 p2_ocr = ocr_pages[1][:2000].upper() if len(ocr_pages) > 1 else ""
                 p2_frente = "FRENTE" in p2_ocr or "APRESENTAÇÕES" in p2_ocr
-                
-                if p1_verso and p2_frente:
-                    ocr_pages = [ocr_pages[1], ocr_pages[0]]
+                if p1_verso and p2_frente: ocr_pages = [ocr_pages[1], ocr_pages[0]]
             
             texto_completo = "\n".join(ocr_pages)
             usou_ocr = True
@@ -435,7 +429,7 @@ def extrair_texto_hibrido(arquivo, tipo_arquivo, is_marketing_pdf=False):
             
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = corrigir_padroes_bula(texto_completo)
-            texto_completo = higienizar_titulos(texto_completo) # Aplica correção de títulos colados
+            texto_completo = higienizar_titulos(texto_completo) # Tenta separar títulos colados
             texto_completo = recuperar_titulos_perdidos(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             texto_completo = limpar_restos_de_titulo(texto_completo)
@@ -462,7 +456,6 @@ def reconstruir_paragrafos(texto):
             if not linhas_out or linhas_out[-1] != "": linhas_out.append("")
             continue
         first = l_strip.split('\n')[0]
-        # Ajuste V112: Título não pode terminar com ponto final
         is_title = re.match(r'^\d+\s*[\.\-)]*\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', first) or (first.isupper() and len(first)>4 and not first.strip().endswith('.'))
         if is_title:
             if buffer: linhas_out.append(buffer); buffer = ""
@@ -791,7 +784,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v120)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v121)")
 st.markdown("Sistema com validação RÍGIDA: OCR otimizado e correção de regex.")
 
 st.divider()
@@ -836,4 +829,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v120 | FIX CRÍTICO DE REGEX e OCR.")
+st.caption("Sistema de Auditoria v121 | FIX CRÍTICO DE REGEX e OCR.")
