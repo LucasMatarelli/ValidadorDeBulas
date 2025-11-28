@@ -1,19 +1,18 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v102 - CORREÇÃO DE COLUNAS (Lobotomia Vertical)
-# - CORREÇÃO CRÍTICA: O PDFPlumber agora é forçado a ler a metade ESQUERDA da página 
-#   e depois a metade DIREITA. Isso impede que ele leia linhas atravessadas.
-# - MANTIDO: Filtro nuclear para o "e" solto.
-# - MELHORIA: Regex de títulos mais flexível para achar seções mesmo com formatação estranha.
+# Versão v89 - Correção de Integridade Numérica (Trava Absoluta)
+# - CORREÇÃO CRÍTICA: O sistema agora extrai o número do Título Canônico (ex: "2.") 
+#   e PROÍBE o mapeamento com qualquer candidato que tenha um número diferente (ex: "4.").
+#   Isso impede que a Seção 2 seja comparada com a Seção 4, mesmo se o texto for idêntico.
+# - MANTIDO: Algoritmo de colunas e limpezas anteriores.
 
 import re
 import difflib
 import unicodedata
 import io
 import streamlit as st
-import pdfplumber
+import fitz  # PyMuPDF
 import docx
-import fitz  # Fallback
 import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
@@ -116,44 +115,7 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- EXTRAÇÃO INTELIGENTE (LOBOTOMIA DE COLUNAS) -----------------
-def extrair_texto_pdfplumber_colunas(arquivo):
-    """
-    Força a leitura em duas colunas (Esquerda -> Direita) cortando a página ao meio.
-    Isso evita que o PDFPlumber leia linhas atravessadas.
-    """
-    texto_completo = ""
-    try:
-        arquivo.seek(0)
-        with pdfplumber.open(arquivo) as pdf:
-            for page in pdf.pages:
-                width = page.width
-                height = page.height
-                midpoint = width / 2
-                
-                # Definir áreas de corte (Bouding Boxes)
-                # (x0, top, x1, bottom)
-                left_bbox = (0, 0, midpoint, height)
-                right_bbox = (midpoint, 0, width, height)
-                
-                # Extrair Esquerda
-                try:
-                    left_crop = page.crop(bbox=left_bbox)
-                    left_text = left_crop.extract_text(x_tolerance=1, y_tolerance=3) or ""
-                except: left_text = ""
-                
-                # Extrair Direita
-                try:
-                    right_crop = page.crop(bbox=right_bbox)
-                    right_text = right_crop.extract_text(x_tolerance=1, y_tolerance=3) or ""
-                except: right_text = ""
-                
-                texto_completo += left_text + "\n" + right_text + "\n"
-                
-        return texto_completo
-    except Exception as e:
-        return ""
-
+# ----------------- FILTRO DE LIXO -----------------
 def limpar_lixo_grafico(texto):
     padroes_lixo = [
         r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b', 
@@ -162,13 +124,14 @@ def limpar_lixo_grafico(texto):
         r'^\s*Página\s*\d+\s*de\s*\d+\s*$',
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
         r'^\s*ALTEFAR\s*$', 
+        r'.*31\s*2105.*', r'.*w\s*Roman.*', r'.*Negrito\.\s*Corpo\s*14.*',
         r'AZOLINA:', r'contato:', r'artes\s*@\s*belfar\.com\.br',
-        r'.*Frente\s*/\s*Verso.*', r'.*Cor:\s*Preta.*',
-        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', r'.*da bula:.*',
+        r'.*Frente\s*/\s*Verso.*', r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
+        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', r'.*da bula:.*', r'.*AFAZOLINA_BUL.*',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
-        r'Times New Roman', r'Myriad Pro', r'Arial',
+        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
-        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$', r'CNPJ:?', r'SAC:?',
+        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$', r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?',
         r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
         r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
         r'.*Impress[ãa]o.*'
@@ -177,6 +140,38 @@ def limpar_lixo_grafico(texto):
     for p in padroes_lixo:
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     return texto_limpo
+
+# ----------------- CORREÇÃO DE ESTRUTURA E ORDEM -----------------
+def corrigir_ordem_blocos_especificos(texto):
+    padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
+    match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
+    match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
+    
+    if match_bloco and match_sec3:
+        if match_sec3.start() < match_bloco.start(): 
+            bloco_content = match_bloco.group(1)
+            texto_limpo = texto[:match_bloco.start()] + texto[match_bloco.end():] 
+            match_sec3_novo = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto_limpo, re.IGNORECASE)
+            if match_sec3_novo:
+                pos_insercao = match_sec3_novo.start()
+                novo_texto = texto_limpo[:pos_insercao] + "\n" + bloco_content + "\n\n" + texto_limpo[pos_insercao:]
+                return novo_texto
+    return texto
+
+def corrigir_deslocamento_interacoes(texto):
+    padrao_interacoes = r'(Interações\s*medicamentosas:.*?Pode\s*ser\s*perigoso\s*para\s*a\s*sua\s*saúde\.?)'
+    match_inter = re.search(padrao_interacoes, texto, re.IGNORECASE | re.DOTALL)
+    match_sec5 = re.search(r'5\.\s*ONDE', texto, re.IGNORECASE)
+    if match_inter and match_sec5:
+        if match_inter.start() > match_sec5.start():
+            bloco_inter = match_inter.group(1)
+            texto_sem_inter = texto[:match_inter.start()] + texto[match_inter.end():]
+            match_sec5_novo = re.search(r'5\.\s*ONDE', texto_sem_inter, re.IGNORECASE)
+            if match_sec5_novo:
+                pos = match_sec5_novo.start()
+                texto_final = texto_sem_inter[:pos] + "\n" + bloco_inter + "\n\n" + texto_sem_inter[pos:]
+                return texto_final
+    return texto
 
 def forcar_titulos_bula(texto):
     substituicoes = [
@@ -195,18 +190,37 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
+# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS) -----------------
+def organizar_por_colunas(page):
+    blocks = page.get_text("blocks", sort=False)
+    text_blocks = [b for b in blocks if b[6] == 0]
+    if not text_blocks: return ""
+    text_blocks.sort(key=lambda b: b[0])
+    columns = []
+    TOLERANCIA_X = 100 
+    for b in text_blocks:
+        placed = False
+        for col in columns:
+            avg_x = sum(cb[0] for cb in col) / len(col)
+            if abs(b[0] - avg_x) < TOLERANCIA_X:
+                col.append(b); placed = True; break
+        if not placed: columns.append([b])
+    columns.sort(key=lambda c: sum(b[0] for b in c)/len(c))
+    final_text = ""
+    for col in columns:
+        col.sort(key=lambda b: b[1])
+        for b in col: final_text += b[4] + "\n"
+    return final_text
+
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None: return "", f"Arquivo não enviado."
     try:
+        arquivo.seek(0)
         texto_completo = ""
-        # --- SELEÇÃO DE ENGINE ---
         if tipo_arquivo == 'pdf':
-            # Usa LOBOTOMIA DE COLUNAS
-            texto_completo = extrair_texto_pdfplumber_colunas(arquivo)
-            if not texto_completo: 
-                arquivo.seek(0)
-                with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                    for page in doc: texto_completo += page.get_text()
+            with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
+                for page in doc:
+                    texto_completo += organizar_por_colunas(page)
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
@@ -217,18 +231,8 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
-            
-            # --- FILTRO NUCLEAR PARA "E" SOLTO ---
-            lines = texto_completo.split('\n')
-            lines_clean = []
-            padroes_lixo_regex = re.compile(r'^\s*[\"\'\“\”\•\-]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$')
-            for ln in lines:
-                clean_ln = ln.strip()
-                if clean_ln in {"-", "–", "—", "•", ".", "..."}: continue
-                if padroes_lixo_regex.match(clean_ln): continue
-                lines_clean.append(ln)
-            texto_completo = "\n".join(lines_clean)
-            
+            texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
+            texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
@@ -303,7 +307,7 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO E ANÁLISE -----------------
+# ----------------- MAPEAMENTO (COM TRAVA NUMÉRICA CORRIGIDA) -----------------
 HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
 
 def construir_heading_candidates(linhas, secoes_esperadas, aliases):
@@ -315,8 +319,6 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
     for i, linha in enumerate(linhas):
         raw = (linha or "").strip()
         if not raw: continue
-        if len(raw) > 120: continue 
-        
         norm = normalizar_titulo_para_comparacao(raw)
         best_score = 0; best_canon = None
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
@@ -344,31 +346,45 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     mapa = []
     last_idx = -1
     
+    # --- HELPER: Extrai o número da SEÇÃO ESPERADA (Canonical) ---
     def get_canonical_number(sec_name):
         match = re.search(r'^(\d{1,2})\.', sec_name)
         return int(match.group(1)) if match else None
 
+    # --- HELPER: Validação Numérica Rigorosa ---
     def validar_candidato(cand, canon_number):
+        # Se a seção esperada tem número (ex: "2."), o candidato OBRIGATORIAMENTE
+        # precisa ter o mesmo número.
         if canon_number is not None:
+            # Se o candidato tem número, compara.
             if cand.numeric is not None:
-                if cand.numeric != canon_number: return False
+                if cand.numeric != canon_number:
+                    return False
+            # Se o candidato NÃO tem número (ex: título quebrado), 
+            # confiamos no score de texto, mas com cautela (não implementado bloqueio aqui,
+            # apenas se TIVER número diferente).
         return True
+    # -------------------------------------------
 
     for sec in secoes_esperadas:
         sec_norm = normalizar_titulo_para_comparacao(sec)
-        canon_num = get_canonical_number(sec) 
+        canon_num = get_canonical_number(sec) # Ex: Pega 2 de "2.COMO..."
+        
         found = None
         
+        # 1. Busca Exata
         for c in candidates:
             if c.index <= last_idx: continue
             if c.matched_canon == sec:
                 if validar_candidato(c, canon_num): found = c; break
         
+        # 2. Busca Numérica (Só se a seção esperada tiver número)
         if not found and canon_num is not None:
             for c in candidates:
                 if c.index <= last_idx: continue
                 if c.numeric == canon_num: found = c; break
         
+        # 3. Busca Fuzzy/Texto
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
@@ -381,12 +397,13 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
                     if validar_candidato(c, canon_num): found = c; break
         
+        # 4. Busca Global (Resgate) com Trava Numérica
         if not found:
             for c in candidates:
-                if c.index <= last_idx: continue
                 match_canon = (c.matched_canon == sec)
                 match_num = (canon_num is not None and c.numeric == canon_num)
                 match_text = (sec_norm and sec_norm in c.norm)
+                
                 if match_canon or match_num or match_text:
                     if validar_candidato(c, canon_num):
                         if match_num or c.score > 95: found = c; break
@@ -403,45 +420,23 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     for m in mapa_secoes:
         if m['canonico'] == secao_canonico: entrada = m; break
     if not entrada: return False, None, ""
-    
     linha_inicio = entrada['linha_inicio']
-    
-    if secao_canonico.strip().upper() == "DIZERES LEGAIS": 
-        linha_fim = len(linhas_texto)
+    if secao_canonico.strip().upper() == "DIZERES LEGAIS": linha_fim = len(linhas_texto)
     else:
         sorted_map = sorted(mapa_secoes, key=lambda x: x['linha_inicio'])
         prox_idx = None
         for m in sorted_map:
-            if m['linha_inicio'] > linha_inicio: 
-                prox_idx = m['linha_inicio']
-                break
+            if m['linha_inicio'] > linha_inicio: prox_idx = m['linha_inicio']; break
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
-    
     conteudo_lines = []
-    
     for i in range(linha_inicio + 1, linha_fim):
-        if i >= len(linhas_texto): break
-        linha_atual = linhas_texto[i].strip()
-        if not linha_atual:
-            conteudo_lines.append(linhas_texto[i])
-            continue
-        
-        match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
-        if match_num and len(linha_atual) < 180:
-            num_encontrado = int(match_num.group(1))
-            match_atual = re.match(r'^(\d{1,2})\.', secao_canonico)
-            if match_atual:
-                num_atual = int(match_atual.group(1))
-                if num_encontrado > num_atual: break
-            else:
-                break
-        
+        line_norm = normalizar_titulo_para_comparacao(linhas_texto[i])
+        if line_norm in {normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()}: break
         conteudo_lines.append(linhas_texto[i])
-    
     conteudo_final = "\n".join(conteudo_lines).strip()
     return True, entrada['titulo_encontrado'], conteudo_final
 
-# ----------------- VERIFICAÇÃO E RELATÓRIO -----------------
+# ----------------- VERIFICAÇÃO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_esperadas = obter_secoes_por_tipo()
     ignore_comparison = [s.upper() for s in obter_secoes_ignorar_comparacao()]
@@ -498,6 +493,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         })
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos, secoes_analisadas
 
+# ----------------- ORTOGRAFIA & DIFF -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     if not texto_para_checar: return []
     try:
@@ -565,6 +561,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else: resultado += " " + tok
     return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
 
+# ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
     html_map = {}
     prefixos_paciente = {
@@ -672,6 +669,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
+# ----------------- VALIDAÇÃO DE TIPO -----------------
 def detectar_tipo_arquivo_por_score(texto):
     if not texto: return "Indeterminado"
     titulos_paciente = ["como este medicamento funciona", "o que devo saber antes de usar"]
@@ -684,8 +682,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v102)")
-st.markdown("Engine Profissional: PDFPlumber + Lobotomia Vertical de Colunas.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v89)")
+st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -702,7 +700,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Inicializando engine PDFPlumber (modo colunas) e processando..."):
+        with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf')
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf')
 
@@ -728,4 +726,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v102 | PDFPlumber + Lobotomia")
+st.caption("Sistema de Auditoria de Bulas v89 | Integridade Numérica Reforçada.")
