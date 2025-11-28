@@ -1,10 +1,11 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v89 - Correção de Integridade Numérica (Trava Absoluta)
-# - CORREÇÃO CRÍTICA: O sistema agora extrai o número do Título Canônico (ex: "2.") 
-#   e PROÍBE o mapeamento com qualquer candidato que tenha um número diferente (ex: "4.").
-#   Isso impede que a Seção 2 seja comparada com a Seção 4, mesmo se o texto for idêntico.
-# - MANTIDO: Algoritmo de colunas e limpezas anteriores.
+# Versão v107 - BASE v89 + CORREÇÃO DE "FALSO TÍTULO"
+# - BASE: Código v89 restaurado (que lê colunas corretamente: termina a esq, vai pra dir).
+# - CORREÇÃO DO "e": Adicionada validação de contexto ('validar_falso_positivo').
+#   Se o robô achar um título (ex: Seção 4) mas a linha seguinte for "e" ou "ou",
+#   ele sabe que é apenas uma referência cruzada dentro do texto e IGNORA,
+#   continuando a busca pelo título real.
 
 import re
 import difflib
@@ -190,7 +191,7 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS) -----------------
+# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS v89) -----------------
 def organizar_por_colunas(page):
     blocks = page.get_text("blocks", sort=False)
     text_blocks = [b for b in blocks if b[6] == 0]
@@ -307,7 +308,7 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO (COM TRAVA NUMÉRICA CORRIGIDA) -----------------
+# ----------------- MAPEAMENTO (COM DETECÇÃO DE FALSO TÍTULO) -----------------
 HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
 
 def construir_heading_candidates(linhas, secoes_esperadas, aliases):
@@ -323,14 +324,12 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
         best_score = 0; best_canon = None
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
         numeric = int(mnum.group(1)) if mnum else None
-        
         for t_possivel, t_canon in titulos_possiveis.items():
             t_norm = titulos_norm.get(t_possivel, "")
             if not t_norm: continue
             score = fuzz.token_set_ratio(t_norm, norm)
             if t_norm in norm: score = max(score, 95)
             if score > best_score: best_score = score; best_canon = t_canon
-        
         is_candidate = False
         if numeric is not None: is_candidate = True
         elif best_score >= 88: is_candidate = True
@@ -346,67 +345,75 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     mapa = []
     last_idx = -1
     
-    # --- HELPER: Extrai o número da SEÇÃO ESPERADA (Canonical) ---
     def get_canonical_number(sec_name):
         match = re.search(r'^(\d{1,2})\.', sec_name)
         return int(match.group(1)) if match else None
 
-    # --- HELPER: Validação Numérica Rigorosa ---
     def validar_candidato(cand, canon_number):
-        # Se a seção esperada tem número (ex: "2."), o candidato OBRIGATORIAMENTE
-        # precisa ter o mesmo número.
         if canon_number is not None:
-            # Se o candidato tem número, compara.
             if cand.numeric is not None:
-                if cand.numeric != canon_number:
-                    return False
-            # Se o candidato NÃO tem número (ex: título quebrado), 
-            # confiamos no score de texto, mas com cautela (não implementado bloqueio aqui,
-            # apenas se TIVER número diferente).
+                if cand.numeric != canon_number: return False
         return True
-    # -------------------------------------------
+
+    # --- NOVIDADE v107: Validação de Falso Positivo (Reference Check) ---
+    def validar_falso_positivo(cand_index):
+        # Verifica as linhas seguintes ao título encontrado
+        # Se a linha seguinte começa com "e " ou "ou " ou é só "e", é uma referência!
+        MAX_LOOKAHEAD = 2
+        for i in range(1, MAX_LOOKAHEAD + 1):
+            if cand_index + i >= len(linhas): break
+            prox_linha = linhas[cand_index + i].strip().lower()
+            # O "e" problemático da seção 3 está aqui:
+            if prox_linha == "e" or prox_linha.startswith("e ") or prox_linha.startswith("ou "):
+                return False # É falso positivo (referência cruzada)
+        return True
 
     for sec in secoes_esperadas:
         sec_norm = normalizar_titulo_para_comparacao(sec)
-        canon_num = get_canonical_number(sec) # Ex: Pega 2 de "2.COMO..."
-        
+        canon_num = get_canonical_number(sec) 
         found = None
         
-        # 1. Busca Exata
         for c in candidates:
             if c.index <= last_idx: continue
             if c.matched_canon == sec:
-                if validar_candidato(c, canon_num): found = c; break
+                if validar_candidato(c, canon_num): 
+                    if validar_falso_positivo(c.index):
+                        found = c; break
         
-        # 2. Busca Numérica (Só se a seção esperada tiver número)
         if not found and canon_num is not None:
             for c in candidates:
                 if c.index <= last_idx: continue
-                if c.numeric == canon_num: found = c; break
+                if c.numeric == canon_num: 
+                    if validar_falso_positivo(c.index):
+                        found = c; break
         
-        # 3. Busca Fuzzy/Texto
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
                 if sec_norm and sec_norm in c.norm:
-                    if validar_candidato(c, canon_num): found = c; break
+                    if validar_candidato(c, canon_num): 
+                        if validar_falso_positivo(c.index):
+                            found = c; break
         
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
-                    if validar_candidato(c, canon_num): found = c; break
+                    if validar_candidato(c, canon_num): 
+                        if validar_falso_positivo(c.index):
+                            found = c; break
         
-        # 4. Busca Global (Resgate) com Trava Numérica
         if not found:
             for c in candidates:
+                if c.index <= last_idx: continue
                 match_canon = (c.matched_canon == sec)
                 match_num = (canon_num is not None and c.numeric == canon_num)
                 match_text = (sec_norm and sec_norm in c.norm)
-                
                 if match_canon or match_num or match_text:
                     if validar_candidato(c, canon_num):
-                        if match_num or c.score > 95: found = c; break
+                        if match_num or c.score > 95: 
+                            if validar_falso_positivo(c.index):
+                                found = c; break
         
         if found:
             mapa.append({'canonico': sec, 'titulo_encontrado': found.raw, 'linha_inicio': found.index, 'score': found.score})
@@ -431,6 +438,14 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     conteudo_lines = []
     for i in range(linha_inicio + 1, linha_fim):
         line_norm = normalizar_titulo_para_comparacao(linhas_texto[i])
+        # TRAVA NUMÉRICA DE CONTEÚDO: Se achar um número de seção maior, para.
+        match_num = re.match(r'^(\d{1,2})\.', linhas_texto[i].strip())
+        if match_num:
+            num_enc = int(match_num.group(1))
+            match_atual = re.match(r'^(\d{1,2})\.', secao_canonico)
+            if match_atual:
+                if num_enc > int(match_atual.group(1)): break
+        
         if line_norm in {normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()}: break
         conteudo_lines.append(linhas_texto[i])
     conteudo_final = "\n".join(conteudo_lines).strip()
@@ -669,7 +684,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
-# ----------------- VALIDAÇÃO DE TIPO -----------------
 def detectar_tipo_arquivo_por_score(texto):
     if not texto: return "Indeterminado"
     titulos_paciente = ["como este medicamento funciona", "o que devo saber antes de usar"]
@@ -682,8 +696,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v89)")
-st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v107)")
+st.markdown("Sistema com validação RÍGIDA (v89) + Correção de Falso Positivo 'e'.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -726,4 +740,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v89 | Integridade Numérica Reforçada.")
+st.caption("Sistema de Auditoria de Bulas v107 | Correção 'e' via Contexto")
