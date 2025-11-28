@@ -2,4 +2,4 @@ tesseract-ocr
 libtesseract-dev
 poppler-utils
 libmagick-dev
-tesseract-ocr-por  <-- NOVA LINHA ADICIONADA
+tesseract-ocr-por
