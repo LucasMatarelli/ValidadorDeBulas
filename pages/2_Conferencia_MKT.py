@@ -446,7 +446,7 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
         # Adicionar versão normalizada
         padroes_titulos.add(normalizar_titulo_para_comparacao(sec))
         # Extrair número se existir (ex: "4." de "4.O QUE DEVO SABER...")
-        match = re.match(r'^(\d{1,2})\.\s*(.+), sec)
+        match = re.match(r'^(\d{1,2})\.\s*(.+)', sec)
         if match:
             num = match.group(1)
             padroes_titulos.add(num)
