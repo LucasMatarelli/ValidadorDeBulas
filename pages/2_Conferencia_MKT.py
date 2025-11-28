@@ -189,21 +189,19 @@ def forcar_titulos_bula(texto):
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
+# --- FILTRO DE LIXO (VERSÃO CORRIGIDA — NÃO REMOVE TEXTO VÁLIDO) ---
+            lines = texto_completo.split('\n')
+            lines_clean = []
+            for ln in lines:
+                clean_ln = ln.strip()
 
-# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS ROBUSTAS) -----------------
-def organizar_por_colunas(page):
-    blocks = page.get_text("blocks", sort=False)
-    # Filtra apenas blocos de texto (tipo 0)
-    text_blocks = [b for b in blocks if b[6] == 0]
-    if not text_blocks: return ""
-    
-    # --- Lógica de Colunas Robustas (Divisão pelo Meio) ---
-    width = page.rect.width
-    midpoint = width / 2
-    
-    # Separa em Esquerda e Direita com base no ponto médio
-    col_left = [b for b in text_blocks if b[0] < midpoint]
-    col_right = [b for b in text_blocks if b[0] >= midpoint]
+                # remover apenas lixo gráfico real, nunca texto clínico
+                if clean_ln in {"-", "–", "—", "•", ".", "..."}:
+                    continue
+
+                lines_clean.append(ln)
+
+            texto_completo = "\n".join(lines_clean)
     
     # Ordena cada coluna estritamente de Cima para Baixo (eixo Y -> b[1])
     col_left.sort(key=lambda b: b[1])
