@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v89 - Correção de Integridade Numérica (Trava Absoluta)
-# - CORREÇÃO CRÍTICA: O sistema agora extrai o número do Título Canônico (ex: "2.") 
-#   e PROÍBE o mapeamento com qualquer candidato que tenha um número diferente (ex: "4.").
-#   Isso impede que a Seção 2 seja comparada com a Seção 4, mesmo se o texto for idêntico.
-# - MANTIDO: Algoritmo de colunas e limpezas anteriores.
+# Versão v90 - Correção de Corte de Texto + Integridade Numérica
+# - CORREÇÃO: Adicionada verificação de comprimento de linha (max 180 chars) para detecção de títulos.
+#   Isso impede que parágrafos longos iniciados por números sejam confundidos com novas seções.
+# - MANTIDO: Lógica de integridade numérica (v89).
 
 import re
 import difflib
@@ -307,7 +306,7 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO (COM TRAVA NUMÉRICA CORRIGIDA) -----------------
+# ----------------- MAPEAMENTO (COM TRAVA DE TAMANHO) -----------------
 HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
 
 def construir_heading_candidates(linhas, secoes_esperadas, aliases):
@@ -319,6 +318,11 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
     for i, linha in enumerate(linhas):
         raw = (linha or "").strip()
         if not raw: continue
+        
+        # --- CORREÇÃO: Títulos reais raramente têm mais de 180 caracteres ---
+        if len(raw) > 180: continue 
+        # --------------------------------------------------------------------
+
         norm = normalizar_titulo_para_comparacao(raw)
         best_score = 0; best_canon = None
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
@@ -353,22 +357,16 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
 
     # --- HELPER: Validação Numérica Rigorosa ---
     def validar_candidato(cand, canon_number):
-        # Se a seção esperada tem número (ex: "2."), o candidato OBRIGATORIAMENTE
-        # precisa ter o mesmo número.
         if canon_number is not None:
-            # Se o candidato tem número, compara.
             if cand.numeric is not None:
                 if cand.numeric != canon_number:
                     return False
-            # Se o candidato NÃO tem número (ex: título quebrado), 
-            # confiamos no score de texto, mas com cautela (não implementado bloqueio aqui,
-            # apenas se TIVER número diferente).
         return True
     # -------------------------------------------
 
     for sec in secoes_esperadas:
         sec_norm = normalizar_titulo_para_comparacao(sec)
-        canon_num = get_canonical_number(sec) # Ex: Pega 2 de "2.COMO..."
+        canon_num = get_canonical_number(sec) 
         
         found = None
         
@@ -378,7 +376,7 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
             if c.matched_canon == sec:
                 if validar_candidato(c, canon_num): found = c; break
         
-        # 2. Busca Numérica (Só se a seção esperada tiver número)
+        # 2. Busca Numérica
         if not found and canon_num is not None:
             for c in candidates:
                 if c.index <= last_idx: continue
@@ -397,7 +395,7 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
                     if validar_candidato(c, canon_num): found = c; break
         
-        # 4. Busca Global (Resgate) com Trava Numérica
+        # 4. Busca Global
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
@@ -443,10 +441,8 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     # Criar set de padrões de títulos para detecção rápida
     padroes_titulos = set()
     for sec in secoes_esperadas:
-        # Adicionar versão normalizada
         padroes_titulos.add(normalizar_titulo_para_comparacao(sec))
-        # Extrair número se existir (ex: "4." de "4.O QUE DEVO SABER...")
-        match = re.match(r'^(\d{1,2})\.\s*(.+)', sec)
+        match = re.match(r'^(\d{1,2})\.\s*(.+)', sec) # Sintaxe corrigida aqui
         if match:
             num = match.group(1)
             padroes_titulos.add(num)
@@ -463,11 +459,10 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             conteudo_lines.append(linhas_texto[i])
             continue
         
-        # Verificar se é início de outra seção numerada (ex: "5.", "6.", "8.")
+        # --- CORREÇÃO: Só considera início de nova seção se a linha for curta (< 180 chars) ---
         match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
-        if match_num:
+        if match_num and len(linha_atual) < 180:
             num_encontrado = match_num.group(1)
-            # Se o número for diferente do número da seção atual, parar
             match_atual = re.match(r'^(\d{1,2})\.', secao_canonico)
             if match_atual:
                 num_atual = match_atual.group(1)
@@ -476,12 +471,11 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             else:
                 break
         
-        # Verificar se é um título conhecido
+        # Verificar se é um título conhecido (com trava de tamanho)
         line_norm = normalizar_titulo_para_comparacao(linha_atual)
-        if line_norm in padroes_titulos:
+        if line_norm in padroes_titulos and len(linha_atual) < 180:
             break
         
-        # Adicionar linha ao conteúdo
         conteudo_lines.append(linhas_texto[i])
     
     conteudo_final = "\n".join(conteudo_lines).strip()
@@ -733,7 +727,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v89)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v90)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -777,4 +771,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v89 | Integridade Numérica Reforçada.")
+st.caption("Sistema de Auditoria de Bulas v90 | Correção de Corte de Texto")
