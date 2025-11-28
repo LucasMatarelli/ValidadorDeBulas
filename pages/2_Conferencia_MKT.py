@@ -1,18 +1,19 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v101 - BLINDADA (Engine PDFPlumber)
-# - MOTOR: PDFPlumber para extração visualmente consciente de layout.
-# - FILTROS: Regex Nuclear para remoção de lixo persistente ("e", "o", "a" isolados).
-# - LÓGICA DE SEÇÃO: Smart Stop aprimorado.
+# Versão v102 - CORREÇÃO DE COLUNAS (Lobotomia Vertical)
+# - CORREÇÃO CRÍTICA: O PDFPlumber agora é forçado a ler a metade ESQUERDA da página 
+#   e depois a metade DIREITA. Isso impede que ele leia linhas atravessadas.
+# - MANTIDO: Filtro nuclear para o "e" solto.
+# - MELHORIA: Regex de títulos mais flexível para achar seções mesmo com formatação estranha.
 
 import re
 import difflib
 import unicodedata
 import io
 import streamlit as st
-import pdfplumber  # Engine principal (Já instalada no seu requirements.txt)
+import pdfplumber
 import docx
-import fitz  # PyMuPDF (Fallback)
+import fitz  # Fallback
 import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
@@ -115,7 +116,44 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
-# ----------------- FILTRO DE LIXO -----------------
+# ----------------- EXTRAÇÃO INTELIGENTE (LOBOTOMIA DE COLUNAS) -----------------
+def extrair_texto_pdfplumber_colunas(arquivo):
+    """
+    Força a leitura em duas colunas (Esquerda -> Direita) cortando a página ao meio.
+    Isso evita que o PDFPlumber leia linhas atravessadas.
+    """
+    texto_completo = ""
+    try:
+        arquivo.seek(0)
+        with pdfplumber.open(arquivo) as pdf:
+            for page in pdf.pages:
+                width = page.width
+                height = page.height
+                midpoint = width / 2
+                
+                # Definir áreas de corte (Bouding Boxes)
+                # (x0, top, x1, bottom)
+                left_bbox = (0, 0, midpoint, height)
+                right_bbox = (midpoint, 0, width, height)
+                
+                # Extrair Esquerda
+                try:
+                    left_crop = page.crop(bbox=left_bbox)
+                    left_text = left_crop.extract_text(x_tolerance=1, y_tolerance=3) or ""
+                except: left_text = ""
+                
+                # Extrair Direita
+                try:
+                    right_crop = page.crop(bbox=right_bbox)
+                    right_text = right_crop.extract_text(x_tolerance=1, y_tolerance=3) or ""
+                except: right_text = ""
+                
+                texto_completo += left_text + "\n" + right_text + "\n"
+                
+        return texto_completo
+    except Exception as e:
+        return ""
+
 def limpar_lixo_grafico(texto):
     padroes_lixo = [
         r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b', 
@@ -124,14 +162,13 @@ def limpar_lixo_grafico(texto):
         r'^\s*Página\s*\d+\s*de\s*\d+\s*$',
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
         r'^\s*ALTEFAR\s*$', 
-        r'.*31\s*2105.*', r'.*w\s*Roman.*', r'.*Negrito\.\s*Corpo\s*14.*',
         r'AZOLINA:', r'contato:', r'artes\s*@\s*belfar\.com\.br',
-        r'.*Frente\s*/\s*Verso.*', r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
-        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', r'.*da bula:.*', r'.*AFAZOLINA_BUL.*',
+        r'.*Frente\s*/\s*Verso.*', r'.*Cor:\s*Preta.*',
+        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', r'.*da bula:.*',
         r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
-        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
+        r'Times New Roman', r'Myriad Pro', r'Arial',
         r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', r'Pantone',
-        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$', r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?',
+        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$', r'CNPJ:?', r'SAC:?',
         r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
         r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
         r'.*Impress[ãa]o.*'
@@ -140,38 +177,6 @@ def limpar_lixo_grafico(texto):
     for p in padroes_lixo:
         texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
     return texto_limpo
-
-# ----------------- CORREÇÃO DE ESTRUTURA E ORDEM -----------------
-def corrigir_ordem_blocos_especificos(texto):
-    padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
-    match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
-    match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
-    
-    if match_bloco and match_sec3:
-        if match_sec3.start() < match_bloco.start(): 
-            bloco_content = match_bloco.group(1)
-            texto_limpo = texto[:match_bloco.start()] + texto[match_bloco.end():] 
-            match_sec3_novo = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto_limpo, re.IGNORECASE)
-            if match_sec3_novo:
-                pos_insercao = match_sec3_novo.start()
-                novo_texto = texto_limpo[:pos_insercao] + "\n" + bloco_content + "\n\n" + texto_limpo[pos_insercao:]
-                return novo_texto
-    return texto
-
-def corrigir_deslocamento_interacoes(texto):
-    padrao_interacoes = r'(Interações\s*medicamentosas:.*?Pode\s*ser\s*perigoso\s*para\s*a\s*sua\s*saúde\.?)'
-    match_inter = re.search(padrao_interacoes, texto, re.IGNORECASE | re.DOTALL)
-    match_sec5 = re.search(r'5\.\s*ONDE', texto, re.IGNORECASE)
-    if match_inter and match_sec5:
-        if match_inter.start() > match_sec5.start():
-            bloco_inter = match_inter.group(1)
-            texto_sem_inter = texto[:match_inter.start()] + texto[match_inter.end():]
-            match_sec5_novo = re.search(r'5\.\s*ONDE', texto_sem_inter, re.IGNORECASE)
-            if match_sec5_novo:
-                pos = match_sec5_novo.start()
-                texto_final = texto_sem_inter[:pos] + "\n" + bloco_inter + "\n\n" + texto_sem_inter[pos:]
-                return texto_final
-    return texto
 
 def forcar_titulos_bula(texto):
     substituicoes = [
@@ -190,36 +195,15 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO PROFISSIONAL (PDFPLUMBER) -----------------
-def extrair_texto_pdfplumber(arquivo):
-    """
-    Usa o engine PDFPlumber para extração visual precisa.
-    """
-    texto_completo = ""
-    try:
-        # Requer reset do ponteiro do arquivo
-        arquivo.seek(0)
-        with pdfplumber.open(arquivo) as pdf:
-            for page in pdf.pages:
-                # layout=True tenta preservar a ordem visual
-                text = page.extract_text(layout=True, x_tolerance=2, y_tolerance=3)
-                if text:
-                    texto_completo += text + "\n"
-        return texto_completo
-    except Exception as e:
-        return ""
-
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None: return "", f"Arquivo não enviado."
     try:
         texto_completo = ""
-        
         # --- SELEÇÃO DE ENGINE ---
         if tipo_arquivo == 'pdf':
-            # 1. Tenta PDFPlumber (Engine Principal)
-            texto_completo = extrair_texto_pdfplumber(arquivo)
+            # Usa LOBOTOMIA DE COLUNAS
+            texto_completo = extrair_texto_pdfplumber_colunas(arquivo)
             if not texto_completo: 
-                # 2. Fallback de segurança (FitZ)
                 arquivo.seek(0)
                 with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                     for page in doc: texto_completo += page.get_text()
@@ -228,43 +212,26 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
         if texto_completo:
-            # Limpeza inicial
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
-            
-            # Forçar Títulos
+            texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # --- FILTRO NUCLEAR PARA "E", "O", "A" ---
+            # --- FILTRO NUCLEAR PARA "E" SOLTO ---
             lines = texto_completo.split('\n')
             lines_clean = []
-            # Regex: Remove linhas contendo apenas vogais soltas ou símbolos
             padroes_lixo_regex = re.compile(r'^\s*[\"\'\“\”\•\-]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$')
-            
             for ln in lines:
                 clean_ln = ln.strip()
-                # Lixo de PDF comum
-                if clean_ln in {"-", "–", "—", "•", ".", "..."}:
-                    continue
-                # Lixo gráfico de Bula
-                if "Bula ao Paciente" in clean_ln or "Página" in clean_ln or "CNPJ" in clean_ln:
-                    continue
-                # Filtro Regex Nuclear
-                if padroes_lixo_regex.match(clean_ln):
-                    continue
-                
+                if clean_ln in {"-", "–", "—", "•", ".", "..."}: continue
+                if padroes_lixo_regex.match(clean_ln): continue
                 lines_clean.append(ln)
-            
             texto_completo = "\n".join(lines_clean)
             
-            # Correções finais
-            texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
-            texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
-            
             return texto_completo.strip(), None
     except Exception as e:
         return "", f"Erro: {e}"
@@ -459,7 +426,6 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             conteudo_lines.append(linhas_texto[i])
             continue
         
-        # --- SMART STOP: Só para se encontrar número de seção SUPERIOR ---
         match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
         if match_num and len(linha_atual) < 180:
             num_encontrado = int(match_num.group(1))
@@ -718,8 +684,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v101)")
-st.markdown("Engine Profissional: PDFPlumber + Filtro Inteligente de Ruído.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v102)")
+st.markdown("Engine Profissional: PDFPlumber + Lobotomia Vertical de Colunas.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -736,7 +702,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Inicializando engine PDFPlumber e processando documentos..."):
+        with st.spinner("Inicializando engine PDFPlumber (modo colunas) e processando..."):
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf')
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf')
 
@@ -762,4 +728,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v101 | Engine PDFPlumber")
+st.caption("Sistema de Auditoria v102 | PDFPlumber + Lobotomia")
