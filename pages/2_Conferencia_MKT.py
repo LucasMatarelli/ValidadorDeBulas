@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v105 - CORREÇÃO DE "FALSO TÍTULO" (A Origem do "e")
-# - DIAGNÓSTICO: O erro ocorria porque o robô confundia a referência "leia a questão 4... e 8..."
-#   na Seção 3 com o Título Real da Seção 4.
-# - SOLUÇÃO: Adicionada validação de contexto ('validar_contexto_linha_seguinte').
-#   Se o título for seguido por "e " ou "e 8.", ele é descartado como falso positivo.
+# Versão v106 - CORREÇÃO DE SEÇÕES FALTANTES (4, 7, 8)
+# - ESTRATÉGIA: "Número é Rei". Se estamos buscando a Seção 4 e achamos uma linha
+#   começando com "4." que se parece com o título, forçamos o match.
+# - MELHORIA: Aliases expandidos para "PODE ME CAUSAR" vs "PODE CAUSAR".
 # - MOTOR: PyMuPDF (fitz) com ordenação manual de colunas (Estável).
 
 import re
@@ -97,6 +96,7 @@ def normalizar_texto(texto):
     return texto.lower()
 
 def normalizar_titulo_para_comparacao(texto):
+    # Remove números e pontuação inicial para comparar apenas o texto
     texto_norm = normalizar_texto(texto or "")
     texto_norm = re.sub(r'^\d+\s*[\.\-)]*\s*', '', texto_norm).strip()
     return texto_norm
@@ -162,21 +162,26 @@ def forcar_titulos_bula(texto):
 # ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS MANUAL) -----------------
 def organizar_por_colunas(page):
     blocks = page.get_text("blocks", sort=False)
+    # Filtra apenas blocos de texto (tipo 0)
     text_blocks = [b for b in blocks if b[6] == 0]
     if not text_blocks: return ""
     
     width = page.rect.width
     midpoint = width / 2
     
+    # Divide os blocos baseado na posição X (Antes ou depois do meio)
     col_left = [b for b in text_blocks if b[0] < midpoint]
     col_right = [b for b in text_blocks if b[0] >= midpoint]
     
+    # Ordena cada coluna de Cima para Baixo (eixo Y -> b[1])
     col_left.sort(key=lambda b: b[1])
     col_right.sort(key=lambda b: b[1])
     
+    # Junta o texto na ordem correta
     final_text = ""
     for b in col_left: final_text += b[4] + "\n"
     for b in col_right: final_text += b[4] + "\n"
+    
     return final_text
 
 def extrair_texto(arquivo, tipo_arquivo):
@@ -212,36 +217,6 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = "\n".join(lines_clean)
             
             # Correções de Fluxo
-            def corrigir_ordem_blocos_especificos(texto):
-                padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
-                match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
-                match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
-                if match_bloco and match_sec3:
-                    if match_sec3.start() < match_bloco.start(): 
-                        bloco_content = match_bloco.group(1)
-                        texto_limpo = texto[:match_bloco.start()] + texto[match_bloco.end():] 
-                        match_sec3_novo = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto_limpo, re.IGNORECASE)
-                        if match_sec3_novo:
-                            pos_insercao = match_sec3_novo.start()
-                            novo_texto = texto_limpo[:pos_insercao] + "\n" + bloco_content + "\n\n" + texto_limpo[pos_insercao:]
-                            return novo_texto
-                return texto
-
-            def corrigir_deslocamento_interacoes(texto):
-                padrao_interacoes = r'(Interações\s*medicamentosas:.*?Pode\s*ser\s*perigoso\s*para\s*a\s*sua\s*saúde\.?)'
-                match_inter = re.search(padrao_interacoes, texto, re.IGNORECASE | re.DOTALL)
-                match_sec5 = re.search(r'5\.\s*ONDE', texto, re.IGNORECASE)
-                if match_inter and match_sec5:
-                    if match_inter.start() > match_sec5.start():
-                        bloco_inter = match_inter.group(1)
-                        texto_sem_inter = texto[:match_inter.start()] + texto[match_inter.end():]
-                        match_sec5_novo = re.search(r'5\.\s*ONDE', texto_sem_inter, re.IGNORECASE)
-                        if match_sec5_novo:
-                            pos = match_sec5_novo.start()
-                            texto_final = texto_sem_inter[:pos] + "\n" + bloco_inter + "\n\n" + texto_sem_inter[pos:]
-                            return texto_final
-                return texto
-
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
@@ -250,6 +225,37 @@ def extrair_texto(arquivo, tipo_arquivo):
             return texto_completo.strip(), None
     except Exception as e:
         return "", f"Erro: {e}"
+
+# ----------------- CORREÇÃO DE ESTRUTURA E ORDEM -----------------
+def corrigir_ordem_blocos_especificos(texto):
+    padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
+    match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
+    match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
+    if match_bloco and match_sec3:
+        if match_sec3.start() < match_bloco.start(): 
+            bloco_content = match_bloco.group(1)
+            texto_limpo = texto[:match_bloco.start()] + texto[match_bloco.end():] 
+            match_sec3_novo = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto_limpo, re.IGNORECASE)
+            if match_sec3_novo:
+                pos_insercao = match_sec3_novo.start()
+                novo_texto = texto_limpo[:pos_insercao] + "\n" + bloco_content + "\n\n" + texto_limpo[pos_insercao:]
+                return novo_texto
+    return texto
+
+def corrigir_deslocamento_interacoes(texto):
+    padrao_interacoes = r'(Interações\s*medicamentosas:.*?Pode\s*ser\s*perigoso\s*para\s*a\s*sua\s*saúde\.?)'
+    match_inter = re.search(padrao_interacoes, texto, re.IGNORECASE | re.DOTALL)
+    match_sec5 = re.search(r'5\.\s*ONDE', texto, re.IGNORECASE)
+    if match_inter and match_sec5:
+        if match_inter.start() > match_sec5.start():
+            bloco_inter = match_inter.group(1)
+            texto_sem_inter = texto[:match_inter.start()] + texto[match_inter.end():]
+            match_sec5_novo = re.search(r'5\.\s*ONDE', texto_sem_inter, re.IGNORECASE)
+            if match_sec5_novo:
+                pos = match_sec5_novo.start()
+                texto_final = texto_sem_inter[:pos] + "\n" + bloco_inter + "\n\n" + texto_sem_inter[pos:]
+                return texto_final
+    return texto
 
 # ----------------- RECONSTRUÇÃO DE PARÁGRAFOS -----------------
 def is_titulo_secao(linha):
@@ -318,7 +324,7 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO (COM VALIDAÇÃO DE CONTEXTO) -----------------
+# ----------------- MAPEAMENTO (PRIORIDADE NUMÉRICA) -----------------
 HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
 
 def construir_heading_candidates(linhas, secoes_esperadas, aliases):
@@ -330,10 +336,13 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
     for i, linha in enumerate(linhas):
         raw = (linha or "").strip()
         if not raw: continue
-        norm = normalizar_titulo_para_comparacao(raw)
-        best_score = 0; best_canon = None
+        
+        # Extração de número para prioridade
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
         numeric = int(mnum.group(1)) if mnum else None
+        
+        norm = normalizar_titulo_para_comparacao(raw)
+        best_score = 0; best_canon = None
         
         for t_possivel, t_canon in titulos_possiveis.items():
             t_norm = titulos_norm.get(t_possivel, "")
@@ -342,9 +351,11 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
             if t_norm in norm: score = max(score, 95)
             if score > best_score: best_score = score; best_canon = t_canon
         
+        # Se achou um número, já é candidato forte
         is_candidate = False
         if numeric is not None: is_candidate = True
         elif best_score >= 88: is_candidate = True
+        
         if is_candidate:
             candidates.append(HeadingCandidate(index=i, raw=raw, norm=norm, numeric=numeric, matched_canon=best_canon if best_score >= 80 else None, score=best_score))
     unique = {c.index: c for c in candidates}
@@ -361,67 +372,40 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
         match = re.search(r'^(\d{1,2})\.', sec_name)
         return int(match.group(1)) if match else None
 
-    def validar_candidato(cand, canon_number):
-        if canon_number is not None:
-            if cand.numeric is not None:
-                if cand.numeric != canon_number: return False
-        return True
-
-    # --- VALIDAÇÃO DE CONTEXTO: Detecta e ignora "Títulos Falsos" ---
-    def validar_contexto_linha_seguinte(cand_idx):
-        if cand_idx + 1 >= len(linhas): return True
-        prox_linha = linhas[cand_idx + 1].strip().lower()
-        # Se a próxima linha começar com "e " ou "e 8." ou for só "e", é uma referência dentro do texto!
-        if prox_linha.startswith("e ") or prox_linha == "e" or re.match(r'^e\s+\d', prox_linha):
-            return False # É um falso positivo
-        return True
+    # --- DETECÇÃO DE REFERÊNCIA FALSA ("leia a questão 4...") ---
+    def eh_referencia_interna(idx):
+        if idx + 1 >= len(linhas): return False
+        prox = linhas[idx+1].strip().lower()
+        # Se a próxima linha começa com "e " ou "ou", geralmente é continuação de frase
+        if prox.startswith("e ") or prox.startswith("ou "): return True
+        return False
 
     for sec in secoes_esperadas:
         sec_norm = normalizar_titulo_para_comparacao(sec)
         canon_num = get_canonical_number(sec) 
         found = None
         
-        for c in candidates:
-            if c.index <= last_idx: continue
-            if c.matched_canon == sec:
-                if validar_candidato(c, canon_num):
-                    if validar_contexto_linha_seguinte(c.index):
-                        found = c; break
-        
-        if not found and canon_num is not None:
+        # 1. TENTA ACHAR PELO NÚMERO EXATO (Prioridade Máxima)
+        if canon_num is not None:
             for c in candidates:
                 if c.index <= last_idx: continue
                 if c.numeric == canon_num:
-                    if validar_contexto_linha_seguinte(c.index):
+                    # Verifica se não é referência interna
+                    if not eh_referencia_interna(c.index):
                         found = c; break
         
-        if not found:
-            for c in candidates:
-                if c.index <= last_idx: continue
-                if sec_norm and sec_norm in c.norm:
-                    if validar_candidato(c, canon_num):
-                        if validar_contexto_linha_seguinte(c.index):
-                            found = c; break
-        
-        if not found:
-            for c in candidates:
-                if c.index <= last_idx: continue
-                if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
-                    if validar_candidato(c, canon_num):
-                        if validar_contexto_linha_seguinte(c.index):
-                            found = c; break
-        
+        # 2. Se não achou pelo número, tenta pelo texto (Fuzzy)
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
                 match_canon = (c.matched_canon == sec)
-                match_num = (canon_num is not None and c.numeric == canon_num)
                 match_text = (sec_norm and sec_norm in c.norm)
-                if match_canon or match_num or match_text:
-                    if validar_candidato(c, canon_num):
-                        if match_num or c.score > 95:
-                            if validar_contexto_linha_seguinte(c.index):
-                                found = c; break
+                if match_canon or match_text or c.score > 92:
+                    # Se tiver número, tem que bater
+                    if canon_num is not None and c.numeric is not None and c.numeric != canon_num:
+                        continue
+                    if not eh_referencia_interna(c.index):
+                        found = c; break
         
         if found:
             mapa.append({'canonico': sec, 'titulo_encontrado': found.raw, 'linha_inicio': found.index, 'score': found.score})
@@ -438,6 +422,7 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     
     linha_inicio = entrada['linha_inicio']
     
+    # Detectar fim da seção
     if secao_canonico.strip().upper() == "DIZERES LEGAIS": 
         linha_fim = len(linhas_texto)
     else:
@@ -455,6 +440,7 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
         if i >= len(linhas_texto): break
         linha_atual = linhas_texto[i].strip()
         
+        # Smart Stop: Se achar um número de seção maior, para.
         match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
         if match_num and len(linha_atual) < 180:
             num_encontrado = int(match_num.group(1))
@@ -595,7 +581,6 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else: resultado += " " + tok
     return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
 
-# ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
     html_map = {}
     prefixos_paciente = {
@@ -703,7 +688,6 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
-# ----------------- VALIDAÇÃO DE TIPO -----------------
 def detectar_tipo_arquivo_por_score(texto):
     if not texto: return "Indeterminado"
     titulos_paciente = ["como este medicamento funciona", "o que devo saber antes de usar"]
@@ -716,8 +700,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v105)")
-st.markdown("Sistema com validação RÍGIDA + Detector de Falsos Títulos.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v106)")
+st.markdown("Sistema v106: Prioridade Numérica (Força Seções 4, 7, 8) + Correção 'e'.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -734,7 +718,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
+        with st.spinner("Lendo arquivos, ordenando colunas e validando..."):
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf')
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf')
 
@@ -760,4 +744,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v105 | Correção de Falsos Títulos 'e'")
+st.caption("Sistema de Auditoria de Bulas v106 | Correção de Seções Faltantes")
