@@ -420,10 +420,12 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     entrada = None
     for m in mapa_secoes:
         if m['canonico'] == secao_canonico: entrada = m; break
-    if not entrada: return False, None, ""
+    if not entrada: 
+        return False, None, ""
+    
     linha_inicio = entrada['linha_inicio']
     
-    # Detectar fim da seção
+    # Detectar fim da seção de forma mais segura
     if secao_canonico.strip().upper() == "DIZERES LEGAIS": 
         linha_fim = len(linhas_texto)
     else:
@@ -435,46 +437,29 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
                 break
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
     
-    conteudo_lines = []
-    secoes_norm = {normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()}
+    # Debug: mostrar range de extração
+    if secao_canonico.startswith("4."):
+        print(f"DEBUG Seção 4: linha_inicio={linha_inicio}, linha_fim={linha_fim}, total_linhas={len(linhas_texto)}")
+        if linha_inicio + 1 < len(linhas_texto):
+            print(f"Primeira linha após título: '{linhas_texto[linha_inicio + 1][:100]}'")
     
-    # Extrair conteúdo linha por linha
+    conteudo_lines = []
+    
+    # Extrair todas as linhas até a próxima seção
     for i in range(linha_inicio + 1, linha_fim):
-        linha_atual = linhas_texto[i].strip()
-        
-        # Se linha vazia, adicionar e continuar
-        if not linha_atual:
-            conteudo_lines.append(linhas_texto[i])
-            continue
-        
-        # Verificar se é um novo título de seção
-        line_norm = normalizar_titulo_para_comparacao(linha_atual)
-        
-        # Verificar se começa com número seguido de ponto (ex: "5.", "6.")
-        if re.match(r'^\d{1,2}\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual):
+        if i >= len(linhas_texto):
             break
-        
-        # Verificar se é título conhecido
-        if line_norm in secoes_norm:
-            break
-            
-        # Verificar se tem alta similaridade com algum título conhecido
-        eh_titulo = False
-        for sec_esperada in obter_secoes_por_tipo():
-            sec_norm = normalizar_titulo_para_comparacao(sec_esperada)
-            if fuzz.token_set_ratio(line_norm, sec_norm) >= 85:
-                eh_titulo = True
-                break
-        
-        if eh_titulo:
-            break
-        
-        # Adicionar linha ao conteúdo
         conteudo_lines.append(linhas_texto[i])
     
     conteudo_final = "\n".join(conteudo_lines).strip()
+    
+    # Debug: mostrar tamanho do conteúdo extraído
+    if secao_canonico.startswith("4."):
+        print(f"DEBUG Seção 4: extraídas {len(conteudo_lines)} linhas, {len(conteudo_final)} caracteres")
+        if conteudo_final:
+            print(f"Primeiros 200 chars: {conteudo_final[:200]}")
+    
     return True, entrada['titulo_encontrado'], conteudo_final
-
 # ----------------- VERIFICAÇÃO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_esperadas = obter_secoes_por_tipo()
