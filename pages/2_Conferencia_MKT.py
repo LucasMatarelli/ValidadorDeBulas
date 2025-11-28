@@ -1,22 +1,24 @@
-# pages/2_Conferencia_MKT.py
-#
-# Versão v101 - BLINDADA
-# - MOTOR: PDFPlumber para extração visualmente consciente de layout.
-# - FILTROS: Regex Nuclear para remoção de lixo persistente ("e", "o", "a" isolados).
-# - LÓGICA DE SEÇÃO: Smart Stop aprimorado (só para em número de seção superior).
-
 import re
 import difflib
 import unicodedata
 import io
+import os
+import tempfile
 import streamlit as st
-import pdfplumber  # Engine principal para extração de layout
+import fitz  # PyMuPDF (Mantido para metadados se necessário, mas o grosso agora é Unstructured)
 import docx
-import fitz  # PyMuPDF (Mantido como fallback)
 import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
 from collections import namedtuple
+
+# --- INTEGRAÇÃO UNSTRUCTURED (NOVO) ---
+# Substitui a leitura manual de colunas por IA
+try:
+    from unstructured.partition.auto import partition
+    from unstructured.cleaners.core import clean_bullets, clean_extra_whitespace, group_broken_paragraphs
+except ImportError:
+    st.error("Erro: Bibliotecas 'unstructured' não instaladas. Verifique o requirements.txt.")
 
 # ----------------- UI / CSS -----------------
 st.set_page_config(layout="wide", page_title="Auditoria de Bulas", page_icon="🔬")
@@ -80,11 +82,13 @@ st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 @st.cache_resource
 def carregar_modelo_spacy():
     try:
-        # Tenta carregar o modelo já baixado
         return spacy.load("pt_core_news_lg")
     except OSError:
-        # Se não encontrar, retorna None
-        return None
+        # Tenta carregar o nome padrão se o link direto falhar
+        try:
+            return spacy.load("pt_core_news_lg")
+        except:
+            return None
 
 nlp = carregar_modelo_spacy()
 
@@ -117,12 +121,39 @@ def _create_anchor_id(secao_nome, prefix):
     norm_safe = re.sub(r'[^a-z0-9\-]', '-', norm)
     return f"anchor-{prefix}-{norm_safe}"
 
+# ----------------- FILTRO DE LIXO -----------------
+def limpar_lixo_grafico(texto):
+    padroes_lixo = [
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b', 
+        r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',
+        r'^\s*Bula\s*ao\s*Paciente\s*$',
+        r'^\s*Página\s*\d+\s*de\s*\d+\s*$',
+        r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
+        r'^\s*ALTEFAR\s*$', 
+        r'.*31\s*2105.*', r'.*w\s*Roman.*', r'.*Negrito\.\s*Corpo\s*14.*',
+        r'AZOLINA:', r'contato:', r'artes\s*@\s*belfar\.com\.br',
+        r'.*Frente\s*/\s*Verso.*', r'.*-\s*\.\s*Cor.*', r'.*Cor:\s*Preta.*',
+        r'.*Papel:.*', r'.*Ap\s*\d+gr.*', r'.*da bula:.*', r'.*AFAZOLINA_BUL.*',
+        r'Tipologia', r'Dimensão', r'Dimensões', r'Formato',
+        r'Times New Roman', r'Myriad Pro', r'Arial', r'Helvética',
+        r'Cores?:', r'Preto', r'Black', r'Cyan', r'Magenta', r'Yellow', 
+        r'Pantone',
+        r'^\s*BELFAR\s*$', r'^\s*PHARMA\s*$', r'CNPJ:?', r'SAC:?', r'Farm\. Resp\.?:?',
+        r'Cód\.?:?', r'Ref\.?:?', r'Laetus', r'Pharmacode',
+        r'\b\d{6,}\s*-\s*\d{2}/\d{2}\b', r'^\s*[\w_]*BUL\d+V\d+[\w_]*\s*$',
+        r'.*Impress[ãa]o.*'
+    ]
+    texto_limpo = texto
+    for p in padroes_lixo:
+        texto_limpo = re.sub(p, ' ', texto_limpo, flags=re.IGNORECASE | re.MULTILINE)
+    return texto_limpo
+
 # ----------------- CORREÇÃO DE ESTRUTURA E ORDEM -----------------
 def corrigir_ordem_blocos_especificos(texto):
     padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
     match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
     match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
-    
+     
     if match_bloco and match_sec3:
         if match_sec3.start() < match_bloco.start(): 
             bloco_content = match_bloco.group(1)
@@ -150,91 +181,101 @@ def corrigir_deslocamento_interacoes(texto):
     return texto
 
 def forcar_titulos_bula(texto):
+    # Garante que os títulos tenham espaçamento antes e depois para o regex pegar
     substituicoes = [
-        (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
-        (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
-        (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n"),
-        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n"),
-        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n"),
-        (r"(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n"),
-        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n"),
-        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?\n"),
-        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n"),
+        (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n\n"),
+        (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n\n"),
+        (r"(?:3\.?\s*)?QUANDO\s*N[ÃA]O\s*DEVO\s*USAR\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n\n3. QUANDO NÃO DEVO USAR ESTE MEDICAMENTO?\n\n"),
+        (r"(?:4\.?\s*)?O\s*QUE\s*DEVO\s*SABER[\s\S]{1,100}?USAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n\n4. O QUE DEVO SABER ANTES DE USAR ESTE MEDICAMENTO?\n\n"),
+        (r"(?:5\.?\s*)?ONDE\s*,?\s*COMO\s*E\s*POR\s*QUANTO[\s\S]{1,100}?GUARDAR[\s\S]{1,100}?MEDICAMENTO\??", r"\n\n5. ONDE, COMO E POR QUANTO TEMPO POSSO GUARDAR ESTE MEDICAMENTO?\n\n"),
+        (r"(?:6\.?\s*)?COMO\s*DEVO\s*USAR\s*ESTE\s*[\s\S]{0,100}?MEDICAMENTO\??", r"\n\n6. COMO DEVO USAR ESTE MEDICAMENTO?\n\n"),
+        (r"(?:7\.?\s*)?O\s*QUE\s*DEVO\s*FAZER[\s\S]{0,200}?MEDICAMENTO\??", r"\n\n7. O QUE DEVO FAZER QUANDO EU ME ESQUECER DE USAR ESTE MEDICAMENTO?\n\n"),
+        (r"(?:8\.?\s*)?QUAIS\s*OS\s*MALES[\s\S]{0,200}?CAUSAR\??", r"\n\n8. QUAIS OS MALES QUE ESTE MEDICAMENTO PODE CAUSAR?\n\n"),
+        (r"(?:9\.?\s*)?O\s*QUE\s*FAZER\s*SE\s*ALGU[EÉ]M\s*USAR[\s\S]{0,400}?MEDICAMENTO\??", r"\n\n9. O QUE FAZER SE ALGUEM USAR UMA QUANTIDADE MAIOR DO QUE A INDICADA DESTE MEDICAMENTO?\n\n"),
     ]
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO PROFISSIONAL (PDFPLUMBER) -----------------
-def extrair_texto_pdfplumber(arquivo):
-    """
-    Usa o engine PDFPlumber para extração visual precisa (layout=True).
-    """
-    texto_completo = ""
-    try:
-        # PDFPlumber precisa de um stream ou de um path, mas aqui usamos o objeto de arquivo do Streamlit
-        # Requer que o arquivo seja resetado para 0
-        arquivo.seek(0)
-        with pdfplumber.open(arquivo) as pdf:
-            for page in pdf.pages:
-                # layout=True tenta preservar a ordem de leitura (coluna esquerda -> direita)
-                text = page.extract_text(layout=True, x_tolerance=2, y_tolerance=3)
-                if text:
-                    texto_completo += text + "\n"
-        return texto_completo
-    except Exception as e:
-        return ""
-
-def extrair_texto(arquivo, tipo_arquivo):
+# ----------------- EXTRAÇÃO INTELIGENTE (UNSTRUCTURED) -----------------
+# Esta função substitui o antigo 'extrair_texto' e 'organizar_por_colunas'
+# usando Inteligência Artificial para entender o layout.
+def extrair_texto_novo(arquivo, tipo_arquivo):
     if arquivo is None: return "", f"Arquivo não enviado."
+    
     try:
-        texto_completo = ""
+        # Cria um arquivo temporário físico, pois o Unstructured precisa disso
+        suffix = f".{tipo_arquivo}"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            tmp_file.write(arquivo.getvalue())
+            tmp_path = tmp_file.name
+
+        try:
+            # Estratégia 'fast' é mais rápida e geralmente suficiente. 
+            # Se tiver problemas, mudar para 'hi_res' (muito mais lento, precisa de GPU idealmente).
+            with st.spinner(f"Lendo estrutura do arquivo {tipo_arquivo.upper()}..."):
+                elements = partition(
+                    filename=tmp_path,
+                    strategy="fast", 
+                    languages=["por"],
+                    include_page_breaks=False
+                )
+        except Exception as e:
+            # Fallback para fitz se o unstructured falhar por falta de dependência de sistema
+            return extrair_texto_fallback(arquivo, tipo_arquivo), f"Aviso: Usando modo de compatibilidade (Unstructured falhou: {e})"
+        finally:
+            try:
+                os.remove(tmp_path)
+            except:
+                pass
+
+        # Processamento dos elementos extraídos
+        texto_final_parts = []
+        for element in elements:
+            # O Unstructured categoriza o texto. Ignoramos cabeçalhos repetitivos de página.
+            if element.category in ["Header", "Footer", "PageNumber"]:
+                continue
+            
+            txt = str(element)
+            # Limpeza básica do elemento
+            txt = clean_extra_whitespace(txt)
+            txt = clean_bullets(txt)
+            
+            # Se for título, damos destaque para o Regex pegar depois
+            if element.category == "Title":
+                txt = f"\n{txt}\n"
+            
+            texto_final_parts.append(txt)
+
+        texto_completo = "\n".join(texto_final_parts)
         
-        # --- SELEÇÃO DE ENGINE ---
-        if tipo_arquivo == 'pdf':
-            # 1. Tenta o PDFPlumber (Engine Principal)
-            texto_completo = extrair_texto_pdfplumber(arquivo)
-            if not texto_completo: 
-                # 2. Fallback de segurança (FitZ)
-                arquivo.seek(0)
-                with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
-                    for page in doc: texto_completo += page.get_text()
-        elif tipo_arquivo == 'docx':
-            doc = docx.Document(arquivo)
-            texto_completo = "\n".join([p.text for p in doc.paragraphs])
+        # Junta parágrafos quebrados (hifenização de coluna)
+        texto_completo = group_broken_paragraphs(texto_completo)
 
         if texto_completo:
-            # Limpeza inicial e padronização
+            # Limpezas do seu código original
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             
-            # 1. Forçar Títulos
+            texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # --- 2. FILTRO NUCLEAR DE LIXO PERSISTENTE ---
+            # --- FILTRO NUCLEAR PARA O "E" ---
+            # O Unstructured já limpa muito, mas mantemos sua blindagem
+            texto_completo = re.sub(r'(?m)^\s*[\"\'\“\”]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$', '', texto_completo)
+            
+            # Limpeza final de linhas
             lines = texto_completo.split('\n')
             lines_clean = []
-            # Regex Nuclear: Captura linhas que contenham apenas vogais soltas (e, o, a) ou símbolos
-            padroes_lixo_simples_regex = re.compile(r'^\s*[\"\'\“\”\•\-]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$')
-            
             for ln in lines:
                 clean_ln = ln.strip()
                 if clean_ln in {"-", "–", "—", "•", ".", "..."}:
                     continue
-                if "Bula ao Paciente" in clean_ln or "Página" in clean_ln or "CNPJ" in clean_ln:
-                    continue
-                
-                # Aplica o filtro nuclear
-                if padroes_lixo_simples_regex.match(clean_ln):
-                    continue
-                
                 lines_clean.append(ln)
-            
             texto_completo = "\n".join(lines_clean)
             
-            # 3. Correções de fluxo e estrutura
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
@@ -242,8 +283,22 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
             
             return texto_completo.strip(), None
+            
     except Exception as e:
-        return "", f"Erro: {e}"
+        return "", f"Erro crítico: {e}"
+
+def extrair_texto_fallback(arquivo, tipo_arquivo):
+    # Fallback usando o método antigo (caso o servidor não tenha as libs do sistema)
+    arquivo.seek(0)
+    texto_completo = ""
+    if tipo_arquivo == 'pdf':
+        with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
+            for page in doc:
+                texto_completo += page.get_text() # Modo simples
+    elif tipo_arquivo == 'docx':
+        doc = docx.Document(arquivo)
+        texto_completo = "\n".join([p.text for p in doc.paragraphs])
+    return texto_completo
 
 # ----------------- RECONSTRUÇÃO DE PARÁGRAFOS -----------------
 def is_titulo_secao(linha):
@@ -312,7 +367,7 @@ def obter_aliases_secao():
 def obter_secoes_ignorar_comparacao(): return ["APRESENTAÇÕES", "COMPOSIÇÃO", "DIZERES LEGAIS"]
 def obter_secoes_ignorar_ortografia(): return ["COMPOSIÇÃO", "DIZERES LEGAIS"]
 
-# ----------------- MAPEAMENTO E ANÁLISE -----------------
+# ----------------- MAPEAMENTO (COM TRAVA DE TAMANHO) -----------------
 HeadingCandidate = namedtuple("HeadingCandidate", ["index", "raw", "norm", "numeric", "matched_canon", "score"])
 
 def construir_heading_candidates(linhas, secoes_esperadas, aliases):
@@ -427,6 +482,10 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
     
     conteudo_lines = []
+    secoes_esperadas = obter_secoes_por_tipo()
+    padroes_titulos_rigidos = set()
+    for sec in secoes_esperadas:
+        padroes_titulos_rigidos.add(normalizar_titulo_para_comparacao(sec))
     
     for i in range(linha_inicio + 1, linha_fim):
         if i >= len(linhas_texto): break
@@ -435,7 +494,6 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             conteudo_lines.append(linhas_texto[i])
             continue
         
-        # --- SMART STOP: Só para se encontrar número de seção SUPERIOR ---
         match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
         if match_num and len(linha_atual) < 180:
             num_encontrado = int(match_num.group(1))
@@ -446,12 +504,19 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             else:
                 break
         
+        line_norm = normalizar_titulo_para_comparacao(linha_atual)
+        if line_norm in padroes_titulos_rigidos and len(linha_atual) < 120:
+            eh_maiusculo = (linha_atual.upper() == linha_atual) and len(linha_atual) > 5
+            comeca_num = re.match(r'^\d', linha_atual)
+            if eh_maiusculo or comeca_num:
+                break
+ 
         conteudo_lines.append(linhas_texto[i])
     
     conteudo_final = "\n".join(conteudo_lines).strip()
     return True, entrada['titulo_encontrado'], conteudo_final
 
-# ----------------- VERIFICAÇÃO E RELATÓRIO -----------------
+# ----------------- VERIFICAÇÃO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_esperadas = obter_secoes_por_tipo()
     ignore_comparison = [s.upper() for s in obter_secoes_ignorar_comparacao()]
@@ -508,6 +573,7 @@ def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
         })
     return secoes_faltantes, diferencas_conteudo, similaridades_secoes, diferencas_titulos, secoes_analisadas
 
+# ----------------- ORTOGRAFIA & DIFF -----------------
 def checar_ortografia_inteligente(texto_para_checar, texto_referencia):
     if not texto_para_checar: return []
     try:
@@ -575,6 +641,7 @@ def marcar_diferencas_palavra_por_palavra(texto_ref, texto_belfar, eh_referencia
         else: resultado += " " + tok
     return re.sub(r"(</mark>)\s+(<mark[^>]*>)", " ", resultado)
 
+# ----------------- CONSTRUÇÃO HTML -----------------
 def construir_html_secoes(secoes_analisadas, erros_ortograficos, eh_referencia=False):
     html_map = {}
     prefixos_paciente = {
@@ -682,6 +749,7 @@ def gerar_relatorio_final(texto_ref, texto_belfar, nome_ref, nome_belfar, tipo_b
     with cr: st.markdown(f"**📄 {nome_ref}**<div class='bula-box-full'>{h_r}</div>", unsafe_allow_html=True)
     with cb: st.markdown(f"**📄 {nome_belfar}**<div class='bula-box-full'>{h_b}</div>", unsafe_allow_html=True)
 
+# ----------------- VALIDAÇÃO DE TIPO -----------------
 def detectar_tipo_arquivo_por_score(texto):
     if not texto: return "Indeterminado"
     titulos_paciente = ["como este medicamento funciona", "o que devo saber antes de usar"]
@@ -694,8 +762,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v101)")
-st.markdown("Engine Profissional: PDFPlumber + Filtro Inteligente de Ruído.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v94 - Unstructured)")
+st.markdown("Sistema com validação RÍGIDA e Leitura Inteligente (Visual) de Colunas.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -712,9 +780,14 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Inicializando engine PDFPlumber e processando documentos..."):
-            texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf')
-            texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf')
+        with st.spinner("Lendo arquivos com IA (Unstructured)..."):
+            # Detecta extensão
+            ext_ref = pdf_ref.name.split('.')[-1].lower()
+            ext_bel = pdf_belfar.name.split('.')[-1].lower()
+            
+            # Chama a nova função de extração
+            texto_ref_raw, erro_ref = extrair_texto_novo(pdf_ref, ext_ref)
+            texto_belfar_raw, erro_belfar = extrair_texto_novo(pdf_belfar, ext_bel)
 
             if erro_ref or erro_belfar:
                 st.error(f"Erro de leitura: {erro_ref or erro_belfar}")
@@ -738,4 +811,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v101 | Engine PDFPlumber")
+st.caption("Sistema de Auditoria de Bulas v94 | Powered by Unstructured AI")
