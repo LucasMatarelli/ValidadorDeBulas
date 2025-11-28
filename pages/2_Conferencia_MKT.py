@@ -437,29 +437,56 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
                 break
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
     
-    # Debug: mostrar range de extração
-    if secao_canonico.startswith("4."):
-        print(f"DEBUG Seção 4: linha_inicio={linha_inicio}, linha_fim={linha_fim}, total_linhas={len(linhas_texto)}")
-        if linha_inicio + 1 < len(linhas_texto):
-            print(f"Primeira linha após título: '{linhas_texto[linha_inicio + 1][:100]}'")
-    
     conteudo_lines = []
+    secoes_esperadas = obter_secoes_por_tipo()
     
-    # Extrair todas as linhas até a próxima seção
+    # Criar set de padrões de títulos para detecção rápida
+    padroes_titulos = set()
+    for sec in secoes_esperadas:
+        # Adicionar versão normalizada
+        padroes_titulos.add(normalizar_titulo_para_comparacao(sec))
+        # Extrair número se existir (ex: "4." de "4.O QUE DEVO SABER...")
+        match = re.match(r'^(\d{1,2})\.\s*(.+), sec)
+        if match:
+            num = match.group(1)
+            padroes_titulos.add(num)
+    
+    # Extrair conteúdo linha por linha
     for i in range(linha_inicio + 1, linha_fim):
         if i >= len(linhas_texto):
             break
+            
+        linha_atual = linhas_texto[i].strip()
+        
+        # Se linha vazia, adicionar e continuar
+        if not linha_atual:
+            conteudo_lines.append(linhas_texto[i])
+            continue
+        
+        # Verificar se é início de outra seção numerada (ex: "5.", "6.", "8.")
+        match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
+        if match_num:
+            num_encontrado = match_num.group(1)
+            # Se o número for diferente do número da seção atual, parar
+            match_atual = re.match(r'^(\d{1,2})\.', secao_canonico)
+            if match_atual:
+                num_atual = match_atual.group(1)
+                if num_encontrado != num_atual:
+                    break
+            else:
+                break
+        
+        # Verificar se é um título conhecido
+        line_norm = normalizar_titulo_para_comparacao(linha_atual)
+        if line_norm in padroes_titulos:
+            break
+        
+        # Adicionar linha ao conteúdo
         conteudo_lines.append(linhas_texto[i])
     
     conteudo_final = "\n".join(conteudo_lines).strip()
-    
-    # Debug: mostrar tamanho do conteúdo extraído
-    if secao_canonico.startswith("4."):
-        print(f"DEBUG Seção 4: extraídas {len(conteudo_lines)} linhas, {len(conteudo_final)} caracteres")
-        if conteudo_final:
-            print(f"Primeiros 200 chars: {conteudo_final[:200]}")
-    
     return True, entrada['titulo_encontrado'], conteudo_final
+
 # ----------------- VERIFICAÇÃO -----------------
 def verificar_secoes_e_conteudo(texto_ref, texto_belfar):
     secoes_esperadas = obter_secoes_por_tipo()
