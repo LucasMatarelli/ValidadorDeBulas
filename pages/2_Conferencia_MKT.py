@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v89 - Correção de Integridade Numérica (Trava Absoluta)
-# - CORREÇÃO CRÍTICA: O sistema agora extrai o número do Título Canônico (ex: "2.") 
-#   e PROÍBE o mapeamento com qualquer candidato que tenha um número diferente (ex: "4.").
-#   Isso impede que a Seção 2 seja comparada com a Seção 4, mesmo se o texto for idêntico.
-# - MANTIDO: Algoritmo de colunas e limpezas anteriores.
+# Versão v90 - Correção Definitiva de Leitura e Títulos
+# - EXTRAÇÃO: Uso de sort=True nativo (PyMuPDF) para garantir ordem lógica de colunas.
+# - TÍTULOS: Remoção de re.IGNORECASE para evitar falsos positivos em referências cruzadas no texto.
+# - LIMPEZA: Remoção agressiva de dimensões gráficas (mm/cm).
 
 import re
 import difflib
@@ -118,8 +117,11 @@ def _create_anchor_id(secao_nome, prefix):
 # ----------------- FILTRO DE LIXO -----------------
 def limpar_lixo_grafico(texto):
     padroes_lixo = [
+        # Remoção agressiva de dimensões isoladas
+        r'(?m)^\s*\d+(?:[.,]\d+)?\s*(?:mm|cm)\s*$', 
         r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*cm\b', 
         r'\b\d{1,3}\s*[,.]\s*\d{0,2}\s*mm\b',
+        # Padrões gerais
         r'^\s*Bula\s*ao\s*Paciente\s*$',
         r'^\s*Página\s*\d+\s*de\s*\d+\s*$',
         r'^\s*VERSO\s*$', r'^\s*FRENTE\s*$',
@@ -174,6 +176,8 @@ def corrigir_deslocamento_interacoes(texto):
     return texto
 
 def forcar_titulos_bula(texto):
+    # REMOVIDO re.IGNORECASE de propósito para evitar capturar referências no meio de frases
+    # Ex: "...vide item 4. O que devo saber..." não será mais transformado em quebra de seção.
     substituicoes = [
         (r"(?:1\.?\s*)?PARA\s*QUE\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?INDICADO\??", r"\n1. PARA QUE ESTE MEDICAMENTO É INDICADO?\n"),
         (r"(?:2\.?\s*)?COMO\s*ESTE\s*MEDICAMENTO\s*[\s\S]{0,100}?FUNCIONA\??", r"\n2. COMO ESTE MEDICAMENTO FUNCIONA?\n"),
@@ -187,40 +191,22 @@ def forcar_titulos_bula(texto):
     ]
     texto_arrumado = texto
     for padrao, substituto in substituicoes:
-        texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
+        texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS) -----------------
-def organizar_por_colunas(page):
-    blocks = page.get_text("blocks", sort=False)
-    text_blocks = [b for b in blocks if b[6] == 0]
-    if not text_blocks: return ""
-    text_blocks.sort(key=lambda b: b[0])
-    columns = []
-    TOLERANCIA_X = 100 
-    for b in text_blocks:
-        placed = False
-        for col in columns:
-            avg_x = sum(cb[0] for cb in col) / len(col)
-            if abs(b[0] - avg_x) < TOLERANCIA_X:
-                col.append(b); placed = True; break
-        if not placed: columns.append([b])
-    columns.sort(key=lambda c: sum(b[0] for b in c)/len(c))
-    final_text = ""
-    for col in columns:
-        col.sort(key=lambda b: b[1])
-        for b in col: final_text += b[4] + "\n"
-    return final_text
-
+# ----------------- EXTRAÇÃO INTELIGENTE -----------------
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None: return "", f"Arquivo não enviado."
     try:
         arquivo.seek(0)
         texto_completo = ""
+        
         if tipo_arquivo == 'pdf':
             with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                 for page in doc:
-                    texto_completo += organizar_por_colunas(page)
+                    # sort=True força a leitura na ordem visual lógica, resolvendo colunas e texto misturado
+                    texto_completo += page.get_text("text", sort=True) + "\n"
+                    
         elif tipo_arquivo == 'docx':
             doc = docx.Document(arquivo)
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
@@ -229,13 +215,22 @@ def extrair_texto(arquivo, tipo_arquivo):
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
+            
+            # Limpeza de layout
             texto_completo = limpar_lixo_grafico(texto_completo)
+            
+            # Padronização de títulos
             texto_completo = forcar_titulos_bula(texto_completo)
+            
+            # Correções específicas
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
+            
+            # Limpeza final de formatação
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
             texto_completo = re.sub(r'(?m)^_+$', '', texto_completo)
             texto_completo = re.sub(r'\n{3,}', '\n\n', texto_completo)
+            
             return texto_completo.strip(), None
     except Exception as e:
         return "", f"Erro: {e}"
@@ -346,29 +341,20 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     mapa = []
     last_idx = -1
     
-    # --- HELPER: Extrai o número da SEÇÃO ESPERADA (Canonical) ---
     def get_canonical_number(sec_name):
         match = re.search(r'^(\d{1,2})\.', sec_name)
         return int(match.group(1)) if match else None
 
-    # --- HELPER: Validação Numérica Rigorosa ---
     def validar_candidato(cand, canon_number):
-        # Se a seção esperada tem número (ex: "2."), o candidato OBRIGATORIAMENTE
-        # precisa ter o mesmo número.
         if canon_number is not None:
-            # Se o candidato tem número, compara.
             if cand.numeric is not None:
                 if cand.numeric != canon_number:
                     return False
-            # Se o candidato NÃO tem número (ex: título quebrado), 
-            # confiamos no score de texto, mas com cautela (não implementado bloqueio aqui,
-            # apenas se TIVER número diferente).
         return True
-    # -------------------------------------------
 
     for sec in secoes_esperadas:
         sec_norm = normalizar_titulo_para_comparacao(sec)
-        canon_num = get_canonical_number(sec) # Ex: Pega 2 de "2.COMO..."
+        canon_num = get_canonical_number(sec)
         
         found = None
         
@@ -378,7 +364,7 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
             if c.matched_canon == sec:
                 if validar_candidato(c, canon_num): found = c; break
         
-        # 2. Busca Numérica (Só se a seção esperada tiver número)
+        # 2. Busca Numérica
         if not found and canon_num is not None:
             for c in candidates:
                 if c.index <= last_idx: continue
@@ -397,9 +383,10 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
                     if validar_candidato(c, canon_num): found = c; break
         
-        # 4. Busca Global (Resgate) com Trava Numérica
+        # 4. Busca Global com Trava Numérica
         if not found:
             for c in candidates:
+                if c.index <= last_idx: continue
                 match_canon = (c.matched_canon == sec)
                 match_num = (canon_num is not None and c.numeric == canon_num)
                 match_text = (sec_norm and sec_norm in c.norm)
@@ -682,8 +669,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v89)")
-st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v90)")
+st.markdown("Sistema com validação RÍGIDA de layout e títulos.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -726,4 +713,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v89 | Integridade Numérica Reforçada.")
+st.caption("Sistema de Auditoria de Bulas v90 | Correção de 'e', dimensões e colunas.")
