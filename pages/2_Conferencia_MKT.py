@@ -1,10 +1,9 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v93 - Correção "Anti-E" e Leitura Blindada
-# - CORREÇÃO CRÍTICA: Remove linhas isoladas contendo apenas "e", "o", "a".
-# - CORREÇÃO: A leitura de uma seção agora só para se encontrar EXATAMENTE um dos
-#   títulos oficiais das 9 seções ou Dizeres Legais. Subtítulos não param mais a leitura.
-# - MANTIDO: Ordenação de colunas e demais lógicas.
+# Versão v94 - Correção "Nuclear" do caractere "e" e Blindagem de Leitura
+# - CORREÇÃO DEFINITIVA: Regex global que remove linhas isoladas contendo apenas "e", "o", "a", com ou sem aspas.
+# - MELHORIA: A leitura da seção não para mais se encontrar subtítulos soltos, apenas se encontrar 
+#   explicitamente o Número + Título da próxima seção oficial.
 
 import re
 import difflib
@@ -143,7 +142,6 @@ def limpar_lixo_grafico(texto):
 
 # ----------------- CORREÇÃO DE ESTRUTURA E ORDEM -----------------
 def corrigir_ordem_blocos_especificos(texto):
-    # Tenta juntar blocos quebrados da seção 3 ou 4
     padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
     match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
     match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
@@ -231,18 +229,18 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # --- FILTRO AGRESSIVO DE LIXO ("e", "o", "a") ---
+            # --- FILTRO NUCLEAR PARA O "E" E LINHAS SOLTAS ---
+            # Remove linhas que sejam apenas "e", "o", "a", com ou sem aspas/pontos/espaços.
+            # Regex: Linha que começa, tem opcionais aspas/espaços, uma vogal solta, opcionais aspas/pontos, e fim.
+            texto_completo = re.sub(r'(?m)^\s*[\"\'\“\”]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$', '', texto_completo)
+            
+            # Filtro geral de lixo gráfico
             lines = texto_completo.split('\n')
             lines_clean = []
             for ln in lines:
                 clean_ln = ln.strip()
-                # Remove lixo gráfico comum e LETRAS SOLTAS que quebram o fluxo
                 if clean_ln in {"-", "–", "—", "•", ".", "..."}:
                     continue
-                # Se a linha tiver menos de 2 caracteres e for "e", "o", "a" etc, ignora
-                if len(clean_ln) < 2 and clean_ln.lower() in {"e", "o", "a", "é", "à"}:
-                    continue
-                
                 lines_clean.append(ln)
             texto_completo = "\n".join(lines_clean)
             # ----------------------------------------------------
@@ -466,11 +464,16 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
                 # Se a seção atual não tem número (ex: DIZERES), qualquer número de seção para.
                 break
         
-        # --- VERIFICAÇÃO RIGIDA DE TÍTULO ---
-        # Antes parava se "parecesse" um título. Agora só para se normalizar IGUAL a uma seção esperada.
+        # --- VERIFICAÇÃO RIGIDA DE TÍTULO (SÓ PARA SE TIVER CERTEZA) ---
         line_norm = normalizar_titulo_para_comparacao(linha_atual)
-        if len(linha_atual) < 120 and line_norm in padroes_titulos_rigidos:
-            break
+        
+        # Se normalizar igual a um título, MAS não tiver número e não for maiúsculo, ignorar.
+        if line_norm in padroes_titulos_rigidos and len(linha_atual) < 120:
+            # Só aceita parar se começar com número OU for tudo maiúsculo (ex: DIZERES LEGAIS)
+            eh_maiusculo = (linha_atual.upper() == linha_atual) and len(linha_atual) > 5
+            comeca_num = re.match(r'^\d', linha_atual)
+            if eh_maiusculo or comeca_num:
+                break
         
         conteudo_lines.append(linhas_texto[i])
     
@@ -723,8 +726,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v93)")
-st.markdown("Sistema com validação RÍGIDA: Filtro Anti-Letras e Leitura Blindada de Seções.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v94)")
+st.markdown("Sistema com validação RÍGIDA: Filtro 'Nuclear' Anti-Letras.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -767,4 +770,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v93 | Blindagem contra lixo 'e'")
+st.caption("Sistema de Auditoria de Bulas v94 | Correção Nuclear do 'e'")
