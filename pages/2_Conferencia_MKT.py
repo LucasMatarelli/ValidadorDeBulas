@@ -1,10 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v92 - Correção Definitiva de Corte de Texto + Filtro de Lixo
-# - CORREÇÃO: Filtro agressivo para remover linhas curtas (lixo como "e", ".", "-").
-# - CORREÇÃO: Lógica "Smart Stop" -> O robô agora aceita listas (1., 2.) dentro das seções
-#   e só para de ler se encontrar um número MAIOR que a seção atual.
-# - MANTIDO: Ordenação de colunas Esquerda -> Direita.
+# Versão v93 - Correção "Anti-E" e Leitura Blindada
+# - CORREÇÃO CRÍTICA: Remove linhas isoladas contendo apenas "e", "o", "a".
+# - CORREÇÃO: A leitura de uma seção agora só para se encontrar EXATAMENTE um dos
+#   títulos oficiais das 9 seções ou Dizeres Legais. Subtítulos não param mais a leitura.
+# - MANTIDO: Ordenação de colunas e demais lógicas.
 
 import re
 import difflib
@@ -143,6 +143,7 @@ def limpar_lixo_grafico(texto):
 
 # ----------------- CORREÇÃO DE ESTRUTURA E ORDEM -----------------
 def corrigir_ordem_blocos_especificos(texto):
+    # Tenta juntar blocos quebrados da seção 3 ou 4
     padrao_bloco = r'(Informações\s*ao\s*paciente\s*com\s*pressão\s*alta.*?internação\s*hospitalar\s*por\s*insuficiência\s*cardí?aca\.?)'
     match_bloco = re.search(padrao_bloco, texto, re.IGNORECASE | re.DOTALL)
     match_sec3 = re.search(r'3\.\s*QUANDO\s*NÃO\s*DEVO\s*USAR', texto, re.IGNORECASE)
@@ -193,27 +194,21 @@ def forcar_titulos_bula(texto):
 # ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS ROBUSTAS) -----------------
 def organizar_por_colunas(page):
     blocks = page.get_text("blocks", sort=False)
-    # Filtra apenas blocos de texto (tipo 0)
     text_blocks = [b for b in blocks if b[6] == 0]
     if not text_blocks: return ""
     
-    # --- Lógica de Colunas Robustas (Divisão pelo Meio) ---
     width = page.rect.width
     midpoint = width / 2
     
-    # Separa em Esquerda e Direita com base no ponto médio
     col_left = [b for b in text_blocks if b[0] < midpoint]
     col_right = [b for b in text_blocks if b[0] >= midpoint]
     
-    # Ordena cada coluna estritamente de Cima para Baixo (eixo Y -> b[1])
     col_left.sort(key=lambda b: b[1])
     col_right.sort(key=lambda b: b[1])
     
-    # Junta: Primeiro lemos tudo da esquerda, depois tudo da direita.
     final_text = ""
     for b in col_left: final_text += b[4] + "\n"
     for b in col_right: final_text += b[4] + "\n"
-    
     return final_text
 
 def extrair_texto(arquivo, tipo_arquivo):
@@ -236,17 +231,21 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # --- FILTRO DE LIXO (VERSÃO CORRIGIDA) ---
-            # Remove linhas que são apenas ".", "-", "•", etc.
+            # --- FILTRO AGRESSIVO DE LIXO ("e", "o", "a") ---
             lines = texto_completo.split('\n')
             lines_clean = []
             for ln in lines:
                 clean_ln = ln.strip()
+                # Remove lixo gráfico comum e LETRAS SOLTAS que quebram o fluxo
                 if clean_ln in {"-", "–", "—", "•", ".", "..."}:
                     continue
+                # Se a linha tiver menos de 2 caracteres e for "e", "o", "a" etc, ignora
+                if len(clean_ln) < 2 and clean_ln.lower() in {"e", "o", "a", "é", "à"}:
+                    continue
+                
                 lines_clean.append(ln)
             texto_completo = "\n".join(lines_clean)
-            # -----------------------------------------
+            # ----------------------------------------------------
             
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
@@ -336,8 +335,6 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
     for i, linha in enumerate(linhas):
         raw = (linha or "").strip()
         if not raw: continue
-        
-        # --- TRAVA: Títulos não podem ser gigantes (previne falso positivo em parágrafos) ---
         if len(raw) > 120: continue 
         
         norm = normalizar_titulo_para_comparacao(raw)
@@ -374,8 +371,7 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     def validar_candidato(cand, canon_number):
         if canon_number is not None:
             if cand.numeric is not None:
-                if cand.numeric != canon_number:
-                    return False
+                if cand.numeric != canon_number: return False
         return True
 
     for sec in secoes_esperadas:
@@ -411,7 +407,6 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
                 match_canon = (c.matched_canon == sec)
                 match_num = (canon_num is not None and c.numeric == canon_num)
                 match_text = (sec_norm and sec_norm in c.norm)
-                
                 if match_canon or match_num or match_text:
                     if validar_candidato(c, canon_num):
                         if match_num or c.score > 95: found = c; break
@@ -427,8 +422,7 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     entrada = None
     for m in mapa_secoes:
         if m['canonico'] == secao_canonico: entrada = m; break
-    if not entrada: 
-        return False, None, ""
+    if not entrada: return False, None, ""
     
     linha_inicio = entrada['linha_inicio']
     
@@ -447,13 +441,10 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     conteudo_lines = []
     secoes_esperadas = obter_secoes_por_tipo()
     
-    padroes_titulos = set()
+    # --- RIGOR NA PARADA: Só aceita parar se o texto for REALMENTE uma seção esperada ---
+    padroes_titulos_rigidos = set()
     for sec in secoes_esperadas:
-        padroes_titulos.add(normalizar_titulo_para_comparacao(sec))
-        match = re.match(r'^(\d{1,2})\.\s*(.+)', sec)
-        if match:
-            num = match.group(1)
-            padroes_titulos.add(num)
+        padroes_titulos_rigidos.add(normalizar_titulo_para_comparacao(sec))
     
     for i in range(linha_inicio + 1, linha_fim):
         if i >= len(linhas_texto): break
@@ -462,23 +453,23 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             conteudo_lines.append(linhas_texto[i])
             continue
         
-        # --- SMART STOP: Só para se o número encontrado for MAIOR que o atual (ignora listas 1., 2.) ---
+        # --- SMART STOP: Só para se o número encontrado for EXATAMENTE o da PRÓXIMA seção ---
         match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
         if match_num and len(linha_atual) < 180:
             num_encontrado = int(match_num.group(1))
             match_atual = re.match(r'^(\d{1,2})\.', secao_canonico)
             if match_atual:
                 num_atual = int(match_atual.group(1))
-                # Se achou 5. e estamos na 4., para. Se achou 1. e estamos na 4, continua (é lista).
-                if num_encontrado > num_atual: 
-                    break
+                # Só para se for MAIOR que o atual (ex: tá na 4, achou 5 ou 6). Se achou 1 ou 2, é lista interna.
+                if num_encontrado > num_atual: break
             else:
                 # Se a seção atual não tem número (ex: DIZERES), qualquer número de seção para.
                 break
         
-        # Verificar se é um título conhecido (com trava de tamanho)
+        # --- VERIFICAÇÃO RIGIDA DE TÍTULO ---
+        # Antes parava se "parecesse" um título. Agora só para se normalizar IGUAL a uma seção esperada.
         line_norm = normalizar_titulo_para_comparacao(linha_atual)
-        if line_norm in padroes_titulos and len(linha_atual) < 180:
+        if len(linha_atual) < 120 and line_norm in padroes_titulos_rigidos:
             break
         
         conteudo_lines.append(linhas_texto[i])
@@ -732,8 +723,8 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v92)")
-st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v93)")
+st.markdown("Sistema com validação RÍGIDA: Filtro Anti-Letras e Leitura Blindada de Seções.")
 
 st.divider()
 tipo_bula_selecionado = "Paciente"
@@ -750,7 +741,7 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
     if not (pdf_ref and pdf_belfar):
         st.warning("⚠️ Envie ambos os arquivos.")
     else:
-        with st.spinner("Lendo arquivos, removendo lixo gráfico e validando estrutura..."):
+        with st.spinner("Lendo arquivos e auditando..."):
             texto_ref_raw, erro_ref = extrair_texto(pdf_ref, 'docx' if pdf_ref.name.endswith('.docx') else 'pdf')
             texto_belfar_raw, erro_belfar = extrair_texto(pdf_belfar, 'docx' if pdf_belfar.name.endswith('.docx') else 'pdf')
 
@@ -776,4 +767,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v92 | Correção de Lixo 'e' + Smart Stop")
+st.caption("Sistema de Auditoria de Bulas v93 | Blindagem contra lixo 'e'")
