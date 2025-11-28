@@ -690,10 +690,10 @@ tipo_bula_selecionado = "Paciente"
 
 col1, col2 = st.columns(2)
 with col1:
-    st.subheader("📄 Arquivo ANVISA")
+    st.subheader("📄 Arquivo MKT")
     pdf_ref = st.file_uploader("PDF/DOCX Referência", type=["pdf", "docx"], key="ref")
 with col2:
-    st.subheader("📄 Arquivo MKT")
+    st.subheader("📄 Arquivo ANVISA")
     pdf_belfar = st.file_uploader("PDF/DOCX Belfar", type=["pdf", "docx"], key="belfar")
 
 if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="primary"):
