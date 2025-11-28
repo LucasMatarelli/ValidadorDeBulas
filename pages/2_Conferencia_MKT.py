@@ -1,20 +1,18 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v100 - ENGINE PROFISSIONAL (PDFPlumber)
-# - TROCA DE MOTOR: Substituição do PyMuPDF (fitz) pelo PDFPlumber.
-# - VANTAGEM: O PDFPlumber entende colunas e layout nativamente,
-#   eliminando a necessidade de matemática manual e evitando cortes de texto.
-# - FILTRO DE LIXO V2: Filtro iterativo linha-a-linha para remover "e", "o", "a" isolados.
-# - TRAVA DE SEÇÃO: Mantida a lógica inteligente de só parar se encontrar nova seção numerada.
+# Versão v101 - BLINDADA
+# - MOTOR: PDFPlumber para extração visualmente consciente de layout.
+# - FILTROS: Regex Nuclear para remoção de lixo persistente ("e", "o", "a" isolados).
+# - LÓGICA DE SEÇÃO: Smart Stop aprimorado (só para em número de seção superior).
 
 import re
 import difflib
 import unicodedata
 import io
 import streamlit as st
-import pdfplumber  # <--- A NOVA ESTRELA (Certifique-se que está no requirements.txt)
+import pdfplumber  # Engine principal para extração de layout
 import docx
-import fitz  # PyMuPDF (Mantido apenas como backup de segurança)
+import fitz  # PyMuPDF (Mantido como fallback)
 import spacy
 from thefuzz import fuzz
 from spellchecker import SpellChecker
@@ -82,8 +80,10 @@ st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 @st.cache_resource
 def carregar_modelo_spacy():
     try:
+        # Tenta carregar o modelo já baixado
         return spacy.load("pt_core_news_lg")
     except OSError:
+        # Se não encontrar, retorna None
         return None
 
 nlp = carregar_modelo_spacy()
@@ -169,14 +169,16 @@ def forcar_titulos_bula(texto):
 # ----------------- EXTRAÇÃO PROFISSIONAL (PDFPLUMBER) -----------------
 def extrair_texto_pdfplumber(arquivo):
     """
-    Usa o engine PDFPlumber para extração visual precisa.
-    Resolve problemas de colunas e caracteres fantasmas.
+    Usa o engine PDFPlumber para extração visual precisa (layout=True).
     """
     texto_completo = ""
     try:
+        # PDFPlumber precisa de um stream ou de um path, mas aqui usamos o objeto de arquivo do Streamlit
+        # Requer que o arquivo seja resetado para 0
+        arquivo.seek(0)
         with pdfplumber.open(arquivo) as pdf:
             for page in pdf.pages:
-                # layout=True preserva a posição física (Esquerda -> Direita)
+                # layout=True tenta preservar a ordem de leitura (coluna esquerda -> direita)
                 text = page.extract_text(layout=True, x_tolerance=2, y_tolerance=3)
                 if text:
                     texto_completo += text + "\n"
@@ -187,14 +189,15 @@ def extrair_texto_pdfplumber(arquivo):
 def extrair_texto(arquivo, tipo_arquivo):
     if arquivo is None: return "", f"Arquivo não enviado."
     try:
-        arquivo.seek(0)
         texto_completo = ""
         
         # --- SELEÇÃO DE ENGINE ---
         if tipo_arquivo == 'pdf':
-            # Usa o novo engine robusto
+            # 1. Tenta o PDFPlumber (Engine Principal)
             texto_completo = extrair_texto_pdfplumber(arquivo)
-            if not texto_completo: # Fallback de segurança (FitZ)
+            if not texto_completo: 
+                # 2. Fallback de segurança (FitZ)
+                arquivo.seek(0)
                 with fitz.open(stream=arquivo.read(), filetype="pdf") as doc:
                     for page in doc: texto_completo += page.get_text()
         elif tipo_arquivo == 'docx':
@@ -202,39 +205,36 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = "\n".join([p.text for p in doc.paragraphs])
 
         if texto_completo:
-            # Limpeza inicial
+            # Limpeza inicial e padronização
             invis = ['\u00AD', '\u200B', '\u200C', '\u200D', '\uFEFF']
             for c in invis: texto_completo = texto_completo.replace(c, '')
-            
-            # Padronização de quebras
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             
-            # Forçar Títulos
+            # 1. Forçar Títulos
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # --- FILTRO DE LIXO LINHA-A-LINHA (A Solução do "e") ---
+            # --- 2. FILTRO NUCLEAR DE LIXO PERSISTENTE ---
             lines = texto_completo.split('\n')
             lines_clean = []
-            # Regex Nuclear: Remove linhas com apenas "e", "o", "a", com ou sem aspas/pontos
-            padroes_lixo_regex = re.compile(r'^\s*[\"\'\“\”]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$')
+            # Regex Nuclear: Captura linhas que contenham apenas vogais soltas (e, o, a) ou símbolos
+            padroes_lixo_simples_regex = re.compile(r'^\s*[\"\'\“\”\•\-]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$')
             
             for ln in lines:
                 clean_ln = ln.strip()
-                # 1. Filtro de símbolos
                 if clean_ln in {"-", "–", "—", "•", ".", "..."}:
                     continue
-                # 2. Filtro de lixo gráfico comum
-                if "Bula ao Paciente" in clean_ln or "Página" in clean_ln:
+                if "Bula ao Paciente" in clean_ln or "Página" in clean_ln or "CNPJ" in clean_ln:
                     continue
-                # 3. O FILTRO NUCLEAR
-                if padroes_lixo_regex.match(clean_ln):
+                
+                # Aplica o filtro nuclear
+                if padroes_lixo_simples_regex.match(clean_ln):
                     continue
                 
                 lines_clean.append(ln)
             
             texto_completo = "\n".join(lines_clean)
             
-            # Correções finais
+            # 3. Correções de fluxo e estrutura
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
@@ -442,7 +442,6 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             match_atual = re.match(r'^(\d{1,2})\.', secao_canonico)
             if match_atual:
                 num_atual = int(match_atual.group(1))
-                # Só para se for MAIOR que o atual (ex: tá na 4, achou 5 ou 6)
                 if num_encontrado > num_atual: break
             else:
                 break
@@ -695,7 +694,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v100)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v101)")
 st.markdown("Engine Profissional: PDFPlumber + Filtro Inteligente de Ruído.")
 
 st.divider()
@@ -739,4 +738,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria v100 | Engine PDFPlumber")
+st.caption("Sistema de Auditoria v101 | Engine PDFPlumber")
