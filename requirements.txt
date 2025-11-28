@@ -5,7 +5,7 @@ python-docx
 thefuzz
 pyspellchecker
 numpy==1.26.4
-pydantic < 2.0  <-- Colocado mais acima
+pydantic<2.0
 thinc==8.2.3
 pytesseract
 Pillow<12
