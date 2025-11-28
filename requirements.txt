@@ -1,13 +1,13 @@
 streamlit
-spacy==3.7.2  <-- Mantenha esta versão
+spacy==3.7.2
 PyMuPDF
 python-docx
 thefuzz
 pyspellchecker
 numpy==1.26.4
+pydantic < 2.0  <-- Colocado mais acima
+thinc==8.2.3
 pytesseract
 Pillow<12
-https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.7.0/pt_core_news_lg-3.7.0-py3-none-any.whl
 pdfplumber
-thinc==8.2.3  <-- Adicionar: Garante compatibilidade
-pydantic < 2.0  <-- Adicionar: Evita conflitos internos no Streamlit
+https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.7.0/pt_core_news_lg-3.7.0-py3-none-any.whl
