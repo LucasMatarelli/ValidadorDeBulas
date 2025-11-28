@@ -1,10 +1,8 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v89 - Correção de Integridade Numérica (Trava Absoluta)
-# - CORREÇÃO CRÍTICA: O sistema agora extrai o número do Título Canônico (ex: "2.") 
-#   e PROÍBE o mapeamento com qualquer candidato que tenha um número diferente (ex: "4.").
-#   Isso impede que a Seção 2 seja comparada com a Seção 4, mesmo se o texto for idêntico.
-# - MANTIDO: Algoritmo de colunas e limpezas anteriores.
+# Versão v90 - Correção Específica para Seção 4 (Conteúdo "e")
+# - CORREÇÃO: Adicionado filtro "Nuclear" para remover linhas isoladas contendo apenas "e", "o", "a".
+# - MELHORIA: Ajuste na lógica de paradas (Smart Stop) para não cortar o texto prematuramente.
 
 import re
 import difflib
@@ -231,6 +229,21 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
+            
+            # --- FILTRO NUCLEAR PARA O "e" (CORREÇÃO DA SEÇÃO 4) ---
+            lines = texto_completo.split('\n')
+            lines_clean = []
+            # Regex: Remove linhas com apenas "e", "o", "a", com ou sem aspas/pontos/espaços.
+            padroes_lixo_regex = re.compile(r'^\s*[\"\'\“\”]?\s*[eEoOaA]\s*[\"\'\“\”]?\s*[\.\,]?\s*$')
+            
+            for ln in lines:
+                clean_ln = ln.strip()
+                if clean_ln in {"-", "–", "—", "•", ".", "..."}: continue
+                if padroes_lixo_regex.match(clean_ln): continue
+                lines_clean.append(ln)
+            texto_completo = "\n".join(lines_clean)
+            # --------------------------------------------------------
+
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
@@ -346,45 +359,33 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
     mapa = []
     last_idx = -1
     
-    # --- HELPER: Extrai o número da SEÇÃO ESPERADA (Canonical) ---
     def get_canonical_number(sec_name):
         match = re.search(r'^(\d{1,2})\.', sec_name)
         return int(match.group(1)) if match else None
 
-    # --- HELPER: Validação Numérica Rigorosa ---
     def validar_candidato(cand, canon_number):
-        # Se a seção esperada tem número (ex: "2."), o candidato OBRIGATORIAMENTE
-        # precisa ter o mesmo número.
         if canon_number is not None:
-            # Se o candidato tem número, compara.
             if cand.numeric is not None:
                 if cand.numeric != canon_number:
                     return False
-            # Se o candidato NÃO tem número (ex: título quebrado), 
-            # confiamos no score de texto, mas com cautela (não implementado bloqueio aqui,
-            # apenas se TIVER número diferente).
         return True
-    # -------------------------------------------
 
     for sec in secoes_esperadas:
         sec_norm = normalizar_titulo_para_comparacao(sec)
-        canon_num = get_canonical_number(sec) # Ex: Pega 2 de "2.COMO..."
+        canon_num = get_canonical_number(sec) 
         
         found = None
         
-        # 1. Busca Exata
         for c in candidates:
             if c.index <= last_idx: continue
             if c.matched_canon == sec:
                 if validar_candidato(c, canon_num): found = c; break
         
-        # 2. Busca Numérica (Só se a seção esperada tiver número)
         if not found and canon_num is not None:
             for c in candidates:
                 if c.index <= last_idx: continue
                 if c.numeric == canon_num: found = c; break
         
-        # 3. Busca Fuzzy/Texto
         if not found:
             for c in candidates:
                 if c.index <= last_idx: continue
@@ -397,9 +398,9 @@ def mapear_secoes_deterministico(texto_completo, secoes_esperadas):
                 if fuzz.token_set_ratio(sec_norm, c.norm) >= 92:
                     if validar_candidato(c, canon_num): found = c; break
         
-        # 4. Busca Global (Resgate) com Trava Numérica
         if not found:
             for c in candidates:
+                if c.index <= last_idx: continue
                 match_canon = (c.matched_canon == sec)
                 match_num = (canon_num is not None and c.numeric == canon_num)
                 match_text = (sec_norm and sec_norm in c.norm)
@@ -420,19 +421,47 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     for m in mapa_secoes:
         if m['canonico'] == secao_canonico: entrada = m; break
     if not entrada: return False, None, ""
+    
     linha_inicio = entrada['linha_inicio']
-    if secao_canonico.strip().upper() == "DIZERES LEGAIS": linha_fim = len(linhas_texto)
+    
+    # Detectar fim da seção (Smart Stop)
+    if secao_canonico.strip().upper() == "DIZERES LEGAIS": 
+        linha_fim = len(linhas_texto)
     else:
         sorted_map = sorted(mapa_secoes, key=lambda x: x['linha_inicio'])
         prox_idx = None
         for m in sorted_map:
-            if m['linha_inicio'] > linha_inicio: prox_idx = m['linha_inicio']; break
+            if m['linha_inicio'] > linha_inicio: 
+                prox_idx = m['linha_inicio']
+                break
         linha_fim = prox_idx if prox_idx is not None else len(linhas_texto)
+    
     conteudo_lines = []
+    
     for i in range(linha_inicio + 1, linha_fim):
-        line_norm = normalizar_titulo_para_comparacao(linhas_texto[i])
-        if line_norm in {normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()}: break
+        if i >= len(linhas_texto): break
+        linha_atual = linhas_texto[i].strip()
+        
+        # --- SMART STOP: Só para se o número encontrado for MAIOR que o atual (ignora listas 1., 2.) ---
+        match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
+        if match_num and len(linha_atual) < 180:
+            num_encontrado = int(match_num.group(1))
+            match_atual = re.match(r'^(\d{1,2})\.', secao_canonico)
+            if match_atual:
+                num_atual = int(match_atual.group(1))
+                # Se achou 5. e estamos na 4., para. Se achou 1. e estamos na 4, continua (é lista).
+                if num_encontrado > num_atual: 
+                    break
+            else:
+                break
+        
+        # Verificar se é um título conhecido
+        line_norm = normalizar_titulo_para_comparacao(linha_atual)
+        if line_norm in {normalizar_titulo_para_comparacao(s) for s in obter_secoes_por_tipo()} and len(linha_atual) < 180:
+            break
+            
         conteudo_lines.append(linhas_texto[i])
+        
     conteudo_final = "\n".join(conteudo_lines).strip()
     return True, entrada['titulo_encontrado'], conteudo_final
 
@@ -682,7 +711,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v89)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v90)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -726,4 +755,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v89 | Integridade Numérica Reforçada.")
+st.caption("Sistema de Auditoria de Bulas v90 | Correção 'e'")
