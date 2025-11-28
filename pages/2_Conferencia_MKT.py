@@ -236,17 +236,21 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
             
-            # --- FILTRO AGRESSIVO DE LIXO ("e", "e ", etc) ---
-            lines = texto_completo.split('\n')
-            lines_clean = []
-            for ln in lines:
-                # Remove linhas muito curtas que não sejam números de lista
-                # Ex: "e", " e", "a." são removidos. "1." é mantido.
-                clean_ln = ln.strip()
-                if len(clean_ln) < 3 and not clean_ln.replace('.', '').isdigit():
-                    continue
-                lines_clean.append(ln)
-            texto_completo = "\n".join(lines_clean)
+            # --- FILTRO DE LIXO (VERSÃO CORRIGIDA — NÃO REMOVE TEXTO VÁLIDO) ---
+lines = texto_completo.split('
+')
+lines_clean = []
+for ln in lines:
+    clean_ln = ln.strip()
+
+    # remover apenas lixo gráfico real, nunca texto clínico
+    if clean_ln in {"-", "–", "—", "•", ".", "..."}:
+        continue
+
+    lines_clean.append(ln)
+
+texto_completo = "
+".join(lines_clean)
             
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
