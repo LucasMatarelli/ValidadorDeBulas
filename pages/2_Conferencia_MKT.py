@@ -1,9 +1,10 @@
 # pages/2_Conferencia_MKT.py
 #
-# Versão v90 - Correção de Corte de Texto + Integridade Numérica
-# - CORREÇÃO: Adicionada verificação de comprimento de linha (max 180 chars) para detecção de títulos.
-#   Isso impede que parágrafos longos iniciados por números sejam confundidos com novas seções.
-# - MANTIDO: Lógica de integridade numérica (v89).
+# Versão v91 - Correção de Ordem de Colunas (Esquerda -> Direita)
+# - CORREÇÃO CRÍTICA (v91): A leitura do PDF agora força a leitura da coluna da Esquerda INTEIRA
+#   antes de ler a coluna da Direita. Isso resolve o problema onde o título está no fim da página
+#   e o texto continua no topo da próxima coluna.
+# - MANTIDO: Trava de comprimento de título (v90) e Integridade Numérica (v89).
 
 import re
 import difflib
@@ -189,26 +190,30 @@ def forcar_titulos_bula(texto):
         texto_arrumado = re.sub(padrao, substituto, texto_arrumado, flags=re.IGNORECASE | re.DOTALL)
     return texto_arrumado
 
-# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS) -----------------
+# ----------------- EXTRAÇÃO INTELIGENTE (COLUNAS ROBUSTAS) -----------------
 def organizar_por_colunas(page):
     blocks = page.get_text("blocks", sort=False)
+    # Filtra apenas blocos de texto (tipo 0)
     text_blocks = [b for b in blocks if b[6] == 0]
     if not text_blocks: return ""
-    text_blocks.sort(key=lambda b: b[0])
-    columns = []
-    TOLERANCIA_X = 100 
-    for b in text_blocks:
-        placed = False
-        for col in columns:
-            avg_x = sum(cb[0] for cb in col) / len(col)
-            if abs(b[0] - avg_x) < TOLERANCIA_X:
-                col.append(b); placed = True; break
-        if not placed: columns.append([b])
-    columns.sort(key=lambda c: sum(b[0] for b in c)/len(c))
+    
+    # --- Lógica de Colunas Robustas (Divisão pelo Meio) ---
+    width = page.rect.width
+    midpoint = width / 2
+    
+    # Separa em Esquerda e Direita com base no ponto médio
+    col_left = [b for b in text_blocks if b[0] < midpoint]
+    col_right = [b for b in text_blocks if b[0] >= midpoint]
+    
+    # Ordena cada coluna estritamente de Cima para Baixo (eixo Y -> b[1])
+    col_left.sort(key=lambda b: b[1])
+    col_right.sort(key=lambda b: b[1])
+    
+    # Junta: Primeiro lemos tudo da esquerda, depois tudo da direita.
     final_text = ""
-    for col in columns:
-        col.sort(key=lambda b: b[1])
-        for b in col: final_text += b[4] + "\n"
+    for b in col_left: final_text += b[4] + "\n"
+    for b in col_right: final_text += b[4] + "\n"
+    
     return final_text
 
 def extrair_texto(arquivo, tipo_arquivo):
@@ -230,6 +235,17 @@ def extrair_texto(arquivo, tipo_arquivo):
             texto_completo = texto_completo.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
             texto_completo = limpar_lixo_grafico(texto_completo)
             texto_completo = forcar_titulos_bula(texto_completo)
+            
+            # --- Remoção de linhas 'fantasmas' (ex: "e") ---
+            lines = texto_completo.split('\n')
+            lines_clean = []
+            for ln in lines:
+                # Ignora linhas de 1 caractere que não sejam números
+                if len(ln.strip()) == 1 and not ln.strip().isnumeric():
+                    continue
+                lines_clean.append(ln)
+            texto_completo = "\n".join(lines_clean)
+            
             texto_completo = corrigir_ordem_blocos_especificos(texto_completo)
             texto_completo = corrigir_deslocamento_interacoes(texto_completo)
             texto_completo = re.sub(r'(?m)^\s*\d{1,2}\.\s*$', '', texto_completo)
@@ -319,10 +335,9 @@ def construir_heading_candidates(linhas, secoes_esperadas, aliases):
         raw = (linha or "").strip()
         if not raw: continue
         
-        # --- CORREÇÃO: Títulos reais raramente têm mais de 180 caracteres ---
+        # --- TRAVA DE TAMANHO: Títulos reais raramente têm mais de 180 caracteres ---
         if len(raw) > 180: continue 
-        # --------------------------------------------------------------------
-
+        
         norm = normalizar_titulo_para_comparacao(raw)
         best_score = 0; best_canon = None
         mnum = re.match(r'^\s*(\d{1,2})\s*[\.\)\-]?\s*(.*)$', raw)
@@ -442,7 +457,7 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
     padroes_titulos = set()
     for sec in secoes_esperadas:
         padroes_titulos.add(normalizar_titulo_para_comparacao(sec))
-        match = re.match(r'^(\d{1,2})\.\s*(.+)', sec) # Sintaxe corrigida aqui
+        match = re.match(r'^(\d{1,2})\.\s*(.+)', sec)
         if match:
             num = match.group(1)
             padroes_titulos.add(num)
@@ -459,7 +474,7 @@ def obter_dados_secao_v2(secao_canonico, mapa_secoes, linhas_texto):
             conteudo_lines.append(linhas_texto[i])
             continue
         
-        # --- CORREÇÃO: Só considera início de nova seção se a linha for curta (< 180 chars) ---
+        # --- TRAVA: Só considera início de nova seção se a linha for curta (< 180 chars) ---
         match_num = re.match(r'^(\d{1,2})\s*[\.\-\)]\s*[A-ZÁÉÍÓÚÂÊÔÃÕÇ]', linha_atual)
         if match_num and len(linha_atual) < 180:
             num_encontrado = match_num.group(1)
@@ -727,7 +742,7 @@ def detectar_tipo_arquivo_por_score(texto):
     return "Indeterminado"
 
 # ----------------- MAIN -----------------
-st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v90)")
+st.title("🔬 Inteligência Artificial para Auditoria de Bulas (v91)")
 st.markdown("Sistema com validação RÍGIDA: Se os títulos das seções indicarem o tipo errado de bula, a comparação será bloqueada.")
 
 st.divider()
@@ -771,4 +786,4 @@ if st.button("🔍 Iniciar Auditoria Completa", use_container_width=True, type="
                     gerar_relatorio_final(t_ref, t_bel, pdf_ref.name, pdf_belfar.name, tipo_bula_selecionado)
 
 st.divider()
-st.caption("Sistema de Auditoria de Bulas v90 | Correção de Corte de Texto")
+st.caption("Sistema de Auditoria de Bulas v91 | Ordem de Colunas Esquerda-Direita")
